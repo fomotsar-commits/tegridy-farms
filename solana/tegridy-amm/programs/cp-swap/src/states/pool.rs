@@ -125,6 +125,11 @@ pub struct PoolState {
     pub creator_fees_token_0: u64,
     pub creator_fees_token_1: u64,
     /// padding for future updates
+    ///
+    /// memetics.finance, 2026-11-24: `padding[0]` and `padding[1]` hold the pool's two
+    /// balances (token 0, token 1, less the fees owed) as its last swap left them: see
+    /// `recorded_price_x32`. The field keeps its name and size, so no account layout and no
+    /// IDL line moves; an account written before this reads 0, 0 there.
     pub padding: [u64; 28],
 }
 
@@ -226,6 +231,48 @@ impl PoolState {
             token_1_amount as u128 * Q32 as u128 / token_0_amount as u128,
             token_0_amount as u128 * Q32 as u128 / token_1_amount as u128,
         ))
+    }
+
+    /// memetics.finance, 2026-11-24: the price the pool's last swap left, for the price record.
+    ///
+    /// Upstream writes "the price before this swap, times the seconds since the last one" to
+    /// the price record, and reads that price from the vaults' balances. Coins sent straight
+    /// into a vault (a plain transfer, no swap) change the balances without the record being
+    /// written, so the next swap booked the gifted price for the whole quiet stretch before
+    /// it: an average anyone could set in one transaction. The price for that stretch is the
+    /// one the last swap left (Uniswap V2's rule: its record is fed from the reserves it
+    /// stored, never from balances). None for a pool that has not swapped since this build:
+    /// the caller then uses the balances, as upstream.
+    pub fn recorded_price_x32(&self) -> Option<(u128, u128)> {
+        let padding = self.padding;
+        let (token_0_amount, token_1_amount) = (padding[0], padding[1]);
+        if token_0_amount == 0 || token_1_amount == 0 {
+            return None;
+        }
+        Some((
+            token_1_amount as u128 * Q32 / token_0_amount as u128,
+            token_0_amount as u128 * Q32 / token_1_amount as u128,
+        ))
+    }
+
+    /// Keeps the two vault balances a swap left (less the fees owed, which this swap's own
+    /// `update_fees` has already counted) for the next swap's price record.
+    pub fn record_balances_after_swap(
+        &mut self,
+        direction: TradeDirection,
+        input_vault_after: u64,
+        output_vault_after: u64,
+    ) -> Result<()> {
+        let (vault_0, vault_1) = match direction {
+            TradeDirection::ZeroForOne => (input_vault_after, output_vault_after),
+            TradeDirection::OneForZero => (output_vault_after, input_vault_after),
+        };
+        let (token_0_amount, token_1_amount) = self.vault_amount_without_fee(vault_0, vault_1)?;
+        let mut padding = self.padding;
+        padding[0] = token_0_amount;
+        padding[1] = token_1_amount;
+        self.padding = padding;
+        Ok(())
     }
 
     pub fn update_lp_supply(
@@ -376,6 +423,32 @@ pub mod pool_test {
     #[test]
     fn pool_state_size_test() {
         assert_eq!(std::mem::size_of::<PoolState>(), PoolState::LEN - 8)
+    }
+
+    /// memetics.finance, 2026-11-24: the price record is fed from what the last swap left.
+    #[test]
+    fn the_recorded_price_is_what_the_last_swap_left_less_the_fees_owed() {
+        let mut pool = PoolState::default();
+        assert_eq!(pool.recorded_price_x32(), None, "a pool that has not swapped since this build");
+        pool.protocol_fees_token_0 = 10;
+        pool.fund_fees_token_1 = 20;
+        pool.creator_fees_token_1 = 30;
+        // Token 0 came in, token 1 went out: 1,010 and 2,050 in the vaults, 1,000 and 2,000 net.
+        pool.record_balances_after_swap(TradeDirection::ZeroForOne, 1_010, 2_050).unwrap();
+        assert_eq!(pool.recorded_price_x32(), Some((2 * Q32, Q32 / 2)));
+        assert_eq!(pool.recorded_price_x32(), Some(pool.token_price_x32(1_010, 2_050).unwrap()));
+        // The other way round, the same two vaults are named in the other order.
+        pool.record_balances_after_swap(TradeDirection::OneForZero, 4_050, 1_010).unwrap();
+        assert_eq!(pool.recorded_price_x32(), Some((4 * Q32, Q32 / 4)));
+        // Coins sent to a vault since then are in no recorded price.
+        assert_ne!(pool.recorded_price_x32(), Some(pool.token_price_x32(9_010, 4_050).unwrap()));
+        // Only the first two words are used.
+        let padding = pool.padding;
+        assert_eq!(padding[..2], [1_000, 4_000]);
+        assert!(padding[2..].iter().all(|w| *w == 0));
+        // A vault emptied to its fees is no price.
+        pool.record_balances_after_swap(TradeDirection::ZeroForOne, 10, 2_050).unwrap();
+        assert_eq!(pool.recorded_price_x32(), None);
     }
 
     mod pool_status_test {

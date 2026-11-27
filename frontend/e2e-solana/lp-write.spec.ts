@@ -234,6 +234,7 @@ test.describe('group A (chromium and mobile-chrome)', () => {
     // landedTx): looked up by signature, a deposit that landed read "did not land".
     await expect.poll(async () => (await books(A.creator.publicKey, f)).lp - before.lp, { message: 'the deposit landed: its shares are on chain', timeout: 30_000 }).toBe(plan.lp);
 
+    const loadBefore = a.rpc.failedCount('getSignatureStatuses');
     await p.reload();
     const pending = ui.lp.pending(p);
     await expect(pending).toBeVisible({ timeout: 60_000 });
@@ -253,6 +254,9 @@ test.describe('group A (chromium and mobile-chrome)', () => {
     await expect(positionRow(p, A.poolA.address)).toHaveAttribute('data-remove', 'offer', { timeout: 60_000 });
     await pressable(ui.lp.removeButton(positionRow(p, A.poolA.address)), 'Remove liquidity on pool A');
 
+    // The reload checks the note once on its own; released before that check is refused,
+    // it settles the note and the card leaves before Check again can be pressed.
+    await expect.poll(() => a.rpc.failedCount('getSignatureStatuses'), { timeout: 60_000 }).toBeGreaterThan(loadBefore);
     a.rpc.release('getSignatureStatuses');
     await press(pending.getByRole('button', { name: 'Check again' }), 'Check again');
     await expect(pending).toHaveCount(0, { timeout: 60_000 });
@@ -996,7 +1000,7 @@ test.describe('group B (chromium only)', () => {
 
     const tierText = (f: PoolFacts) =>
       // The pool's own creator-fee switch decides whether the tier's creator fee is in the cost.
-      `${f.ammConfig.index}: traders pay ${tradeCostText(f.ammConfig, f.pool.enableCreatorFee)}; LPs keep ${feeSplit(f.ammConfig).lpKeepsPct.toFixed(3)}% of each trade`;
+      `Tier ${f.ammConfig.index}: traders pay ${tradeCostText(f.ammConfig, f.pool.enableCreatorFee)}; LPs keep ${feeSplit(f.ammConfig).lpKeepsPct.toFixed(3)}% of each trade, the venue ${feeSplit(f.ammConfig).venueTakesPct.toFixed(3)}%`;
     // Whole words, small print included, read without the addresses (guardText): a random
     // base58 address in the section can spell "apr" or "apy" (DYbyM8apn7KA5g1ApYWR… failed it once).
     const NO_YIELD = /\bAPR\b|\bAPY\b|yield of/i;

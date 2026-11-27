@@ -795,6 +795,37 @@ test minswap_takes_the_pool_fee_change() {
   minswap_updates_pool(fee_tx(shared()), UpdatePoolFee)
 }
 
+/// A reference script left on a UTxO that every batch reads: each batch would
+/// pay for its bytes, and the announcement never showed it.
+fn with_a_script(o: Output) -> Output {
+  Output {
+    ..o,
+    reference_script: Some(
+      #"abababababababababababababababababababababababababababab",
+    ),
+  }
+}
+
+fn fee_tx_leaving_a_script() -> ScriptContext {
+  outputs(
+    fee_tx(shared()),
+    [
+      with_a_script(
+        pool_out(shared(), pool_stake, pool_value(earned_a, earned_b)),
+      ),
+      lock_out(empty()),
+    ],
+  )
+}
+
+test execute_pool_fee_leaving_a_reference_script() fail {
+  execute_fee(fee_tx_leaving_a_script())
+}
+
+test minswap_would_take_the_pool_fee_with_a_reference_script() {
+  minswap_updates_pool(fee_tx_leaving_a_script(), UpdatePoolFee)
+}
+
 // The patched floor is 1333 exactly: one less is still refused by Minswap.
 test minswap_refuses_a_share_under_the_floor() fail {
   let under =
@@ -1154,6 +1185,42 @@ test execute_the_setting_key_b_alone() fail {
   execute_setting(signed(setting_tx(setting(new_batcher)), [owner_b]))
 }
 
+fn setting_tx_leaving(o: Output) -> ScriptContext {
+  outputs(setting_tx(setting(new_batcher)), [o, lock_out(empty())])
+}
+
+test execute_the_setting_leaving_a_reference_script() fail {
+  execute_setting(
+    setting_tx_leaving(with_a_script(setting_out(setting(new_batcher)))),
+  )
+}
+
+test minswap_would_take_the_setting_with_a_reference_script() {
+  minswap_admin_present(
+    setting_tx_leaving(with_a_script(setting_out(setting(new_batcher)))),
+  )
+}
+
+// The same payment script with a stake part the announcement never named.
+fn restaked_setting_out() -> Output {
+  let o = setting_out(setting(new_batcher))
+  Output {
+    ..o,
+    address: Address {
+      ..o.address,
+      stake_credential: Some(Inline(VerificationKeyCredential(stranger))),
+    },
+  }
+}
+
+test execute_the_setting_restaked() fail {
+  execute_setting(setting_tx_leaving(restaked_setting_out()))
+}
+
+test minswap_would_take_the_setting_restaked() {
+  minswap_admin_present(setting_tx_leaving(restaked_setting_out()))
+}
+
 test execute_the_setting_while_moving_a_pool() fail {
   execute_setting(
     outputs(
@@ -1320,6 +1387,25 @@ test withdraw_to_the_treasury_restaked() fail {
 
 test minswap_would_pay_a_stranger() {
   minswap_withdraws(withdraw_tx(wallet(stranger)))
+}
+
+fn withdraw_tx_leaving_a_script() -> ScriptContext {
+  outputs(
+    withdraw_tx(treasury()),
+    [
+      with_a_script(pool_out(pool_datum(), pool_stake, pool_value(0, 0))),
+      lock_out(two()),
+      paid(earned_a, earned_b, treasury()),
+    ],
+  )
+}
+
+test withdraw_leaving_a_reference_script_on_the_pool() fail {
+  withdraw(withdraw_tx_leaving_a_script())
+}
+
+test minswap_would_take_a_withdrawal_leaving_a_reference_script() {
+  minswap_withdraws(withdraw_tx_leaving_a_script())
 }
 
 test withdraw_one_lovelace_short() fail {

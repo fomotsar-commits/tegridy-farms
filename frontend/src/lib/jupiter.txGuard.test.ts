@@ -10,6 +10,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { VersionedTransaction } from '@solana/web3.js';
 import { LIVE_USER, RECURRING_CREATE, SWAP_SOL_USDC, TRIGGER_CREATE } from './solana/swap/__fixtures__/jupiterLive';
+import { withWalletGuardRoom } from './solana/swap/walletGuardRoom';
 
 const VAULT = 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd';
 
@@ -46,9 +47,12 @@ afterEach(() => {
 const quote = () => ({ ...SWAP_SOL_USDC.quote, swapMode: 'ExactIn', otherAmountThreshold: '0', priceImpactPct: '0', routePlan: [], platformFee: { amount: '1', feeBps: 50 } });
 
 describe('buildSwapTransaction', () => {
-  it('returns a real swap built for the trade on screen', async () => {
+  it('returns a real swap built for the trade on screen, with room for the wallet’s own check', async () => {
     answer({ swapTransaction: SWAP_SOL_USDC.tx });
-    await expect(jupiter.buildSwapTransaction({ quote: quote(), userPublicKey: LIVE_USER })).resolves.toBe(SWAP_SOL_USDC.tx);
+    const got = await jupiter.buildSwapTransaction({ quote: quote(), userPublicKey: LIVE_USER });
+    // Jupiter's swap with 30,000 more compute units (solana/swap/walletGuardRoom.ts), and nothing else.
+    expect(got).toBe(withWalletGuardRoom(SWAP_SOL_USDC.tx, jupiter.MAX_PRIORITY_LAMPORTS));
+    expect(got).not.toBe(SWAP_SOL_USDC.tx);
   });
 
   it('refuses a swap that sells a different amount than the quote', async () => {

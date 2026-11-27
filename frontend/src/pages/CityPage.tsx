@@ -10,7 +10,7 @@ import { rangePoolsVisible } from '../lib/solana/clmm/programId';
 import { fmtUsd } from '../lib/wallet/walletRows';
 import { PIECE_NAME, buildPlan, type CivicId, type Plot, type PoolRead } from '../lib/city/plan';
 import type { SceneData } from '../lib/city/scene';
-import { closeUpSrc } from '../lib/city/render';
+import { PIECE_MEDIUM, closeUpSrc } from '../lib/city/render';
 
 /**
  * Sheet C-01: the island drawn as a city (owner, 2026-11-17: "a visualized city ... showcasing
@@ -93,6 +93,8 @@ function PlotCard({ plot, read, readAt }: { plot: Plot; read: PoolRead | undefin
       <CloseUp plot={plot} />
       <span className="dwg-label dwg-t" data-t={PIECE_NAME[plot.piece]} aria-hidden="true" />
       <h2 className="dwg-name">{plot.name}</h2>
+      {/* the wall label's medium line: what the model is made of */}
+      {PIECE_MEDIUM[plot.piece] && <p className="c01-medium">{PIECE_MEDIUM[plot.piece]}</p>}
       {plot.kind === 'room' ? (
         <>
           <p className="dwg-fact"><b>{plot.tick}</b>{chain ? ` on ${chain}` : ''}</p>

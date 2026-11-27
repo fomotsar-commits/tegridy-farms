@@ -50,8 +50,8 @@ Minswap's `deployed/mainnet/script.json` and the reference script on mainnet all
 ## 2. In scope: the two patches to Minswap's code
 
 Both are in one reviewed diff, `cardano/guards/upstream/minswap-dex-v2.diff` (sha256
-`9326b528bfd33fe59d4aa715e2fe2a84c71dc9bc3102bd39566bf3d068c2e9f9`, pinned in
-`cardano/guards/provenance.mjs`), 30 changed lines in four files. Below, each on its own.
+`ce05c041554529e01961eae6ea3acfa892bec407d55a66298c69df4bb817ab9d`, pinned in
+`cardano/guards/provenance.mjs`), 32 changed lines in four files. Below, each on its own.
 
 ### 2a. The fee-share floor (2026-10-24)
 
@@ -102,7 +102,7 @@ to open a pool, so this needs Minswap's code changed:
 ---
 >     let Transaction { inputs, mint, outputs, reference_inputs, .. } =
 >       transaction
-192a194,211
+192a194,213
 >     let global_setting =
 >       pool_validation.get_and_validate_global_setting(
 >         reference_inputs,
@@ -114,14 +114,16 @@ to open a pool, so this needs Minswap's code changed:
 >         0,
 >         fn(output, paid) {
 >           let Output { address: out_addr, value: out_value, .. } = output
->           if out_addr == global_setting.pool_creation_fee_receiver {
+>           // Only ADA alone counts: ADA bound to tokens is not the venue's to spend.
+>           let ada_only = value.without_lovelace(out_value) == value.zero()
+>           if out_addr == global_setting.pool_creation_fee_receiver && ada_only {
 >             paid + value.lovelace_of(out_value)
 >           } else {
 >             paid
 >           }
 >         },
 >       )
-231a251,252
+231a253,254
 >       // Transaction must pay the Global Setting's pool creation fee to its receiver
 >       pool_creation_fee_paid >= global_setting.pool_creation_fee,
 ```
@@ -135,7 +137,10 @@ after Minswap's six, so every field Minswap had keeps its index.
 **What it changes.** Pool Creation (the factory's one path) now also reads the GlobalSetting, with
 Minswap's own `get_and_validate_global_setting`: the first reference input at the authen script,
 holding the one `MSGS` token. It sums the lovelace of every output whose address equals the
-receiver exactly (payment and stake credential) and requires at least the fee. A fee of 0 opens
+receiver exactly (payment and stake credential) and that holds ADA alone, and requires at least
+the fee. An output that also carries a token does not count (2026-11-25 audit): its ADA could never
+be spent without carrying the token on, so an opener could otherwise pay most of the fee bound to
+worthless tokens. A fee of 0 opens
 pools free. Everything else the factory checks is Minswap's, unchanged. The authen policy only
 gains `..` where it destructures the GlobalSetting to check its six roles. Every validator that
 decodes a GlobalSetting now expects eight fields, so a six-field datum (Minswap's shape) is refused
@@ -143,17 +148,17 @@ everywhere. That decode is the only change to the authen policy, the pool valida
 fee-update and fee-withdrawal paths, and the pool batching (which reads the batchers).
 
 Script hashes, our copy as it stands (both patches) against Minswap's blueprint, from
-`prove-build.mjs` on 2026-10-25:
+`prove-build.mjs` on 2026-10-25 (the factory and the role timelock re-run on 2026-11-25):
 
 | Script | Unparameterised: Minswap → ours | With Minswap's mainnet parameters: mainnet → ours |
 |---|---|---|
 | Authen policy (and the GlobalSetting spend, the same script) | `c91bb7e2…` → `a80603d1…`, 4,651 → 5,223 bytes | `f5808c2c…` → `a4afc1d2…` |
-| Factory | `05097567…` → `6c73516d…`, 3,234 → 4,026 bytes | `7bc5fbd4…` → `cf7f9d22…` |
+| Factory | `05097567…` → `3ef5a05a…`, 3,234 → 4,049 bytes | `7bc5fbd4…` → `b2b7ee62…` |
 | Pool | `6df8eb96…` → `4d3f4fd6…`, 3,931 → 4,096 bytes | `ea07b733…` → `5427279f…` |
 | Pool batching | `5e2a216f…` → `6b22298f…`, 15,565 → 15,589 bytes | `1eae96ba…` → `cd1225c0…` |
 | Order | unchanged, `9fc0facf…` | `c3e28c36…` → `8f32fd6a…` (its parameter names the pool batching) |
 | Expired-order cancel | unchanged, `c8b0cc61…` | unchanged, `c8b0cc61…` |
-| Role timelock (ours, section 3) | `98ffcad7…` → `7f4fcc5e…`, 5,845 → 5,976 bytes | |
+| Role timelock (ours, section 3) | `98ffcad7…` → `9173414b…`, 5,845 → 6,065 bytes | |
 
 Our deploy has its own seed and stake key, so every deployed hash differs again from these, from
 the same code. Nothing is deployed, so no live hash moves.
@@ -178,20 +183,21 @@ the same code. Nothing is deployed, so no live hash moves.
 3. **The reference input.** An opener must now reference the GlobalSetting. A junk UTxO at the
    authen script referenced before it makes Minswap's lookup fail: the opener's own transaction
    fails, as with Minswap's batching today. Anything worse?
-4. **Cost.** The factory is 792 bytes larger and does one more search and one fold. Pool batching
+4. **Cost.** The factory is 815 bytes larger and does one more search and one fold. Pool batching
    decodes two more fields once per batch; the batcher re-measures its batch sizes against this
    build.
 
-**Tests.** `cardano/minswap-tests/factory_validator.ak`, 14 tests, run by `prove-build.mjs`
+**Tests.** `cardano/minswap-tests/factory_validator.ak`, 17 tests, run by `prove-build.mjs`
 appended to a staged copy of `validators/factory_validator.ak` (Aiken v1.0.24 tests can call a
 validator only from its own module). They call the real validator on a whole Pool Creation
-transaction: a pool opens paying 73 ADA, paying more, paying it in two outputs, or paying nothing
-when the fee is 0; it is refused with no payment, one lovelace short, paid to a stranger, paid to the
-treasury's script with another stake key, paid in a token instead of ADA, with no GlobalSetting,
+transaction: a pool opens paying 73 ADA, paying more, paying it in two outputs, beside a token sent to the
+treasury, or paying nothing when the fee is 0; it is refused with no payment, one lovelace short, paid to a stranger, paid to the
+treasury's script with another stake key, paid in a token instead of ADA, paid in an output that
+also holds a junk token, with no GlobalSetting,
 against a GlobalSetting without its token, with the GlobalSetting spent instead of referenced, and
 against Minswap's six-field GlobalSetting; and a test pins the datum's field order. Each refused
-case is a passing transaction with one thing changed. Run against Minswap's own factory, 9 of the
-14 fail. A mutation pass (2026-10-25) broke the factory check eight ways (the check removed, `>=`
+case is a passing transaction with one thing changed. Run against Minswap's own factory, 10 of the
+17 fail. A mutation pass (2026-10-25) broke the factory check eight ways (the check removed, `>=`
 made `>` or `==`, only the payment credential compared, no sum, the setting read from the spent
 inputs, tokens counted as lovelace, the two fields swapped): every mutant was caught by at least
 one test.
@@ -205,8 +211,9 @@ Files: `cardano/role-timelock/validators/role_timelock.ak` (the entry points),
 patch (its `types.ak` and `utils.ak` parts), hash-pinned, compiled in for its types and constants
 and called by the tests. The lock does not read the patched constant; it does read the
 GlobalSetting type, so the two new fields are in its bytes. Plutus V2, the same compiler as
-Minswap. Unapplied script: 5,976 bytes, hash `7f4fcc5e0da7da4d0aafed0c14c46f7e148fa5ffa4f46ccf649bd4f6`
-(5,845 bytes, `98ffcad7…`, before the pool creation fee); one parameter.
+Minswap. Unapplied script: 6,065 bytes, hash `9173414b821ba548ef1d8923d713ed9b112b053c65bd85a796009385`
+(5,845 bytes, `98ffcad7…`, before the pool creation fee; 5,976 bytes, `7f4fcc5e…`, before the
+2026-11-25 audit's reference-script checks); one parameter.
 
 ### Why it has to inspect the whole transaction
 
@@ -236,8 +243,8 @@ differ).
 | Mint (once) | The seed UTxO is spent; exactly one lock token is minted; it goes into the lock with nothing announced. No later mint or burn is possible (the seed is gone). |
 | `Announce` | Adds one announcement whose `ready_at` is at least the transaction's upper time bound + 48 h. Moves no pool or GlobalSetting. At most 16 waiting. |
 | `Cancel { index }` | Removes one announcement. Moves no pool or GlobalSetting. |
-| `Execute { index }` | In the window `[ready_at, ready_at + 14 days]` (the lower bound must be at or after `ready_at`, the upper at or before the end), removes the announcement and makes exactly that change. `SetGlobalSetting(s)`: one UTxO moved, the GlobalSetting output's inline datum equals `s` as Data, `s`'s pool creation fee is not negative, and its receiver is the lock's `treasury`, so while the lock is the admin the venue's opening fees go nowhere else. (A change the lock makes can still hand the admin itself to another key or script, as it can every role; that one is the 48-hour notice.) `SetPool {...}`: one pool moved, its value unchanged (so no fee withdrawal rides along), and its new datum's pair, both base fees, fee share and dynamic-fee flag, and its address's stake credential, all equal the announcement. Minswap itself pins the pool's other fields. |
-| `WithdrawFeeSharing` | One pool moved, its address and datum unchanged, the lock unchanged, and the outputs to the treasury hold at least everything that left the pool, asset by asset. No wait: this changes nothing. |
+| `Execute { index }` | In the window `[ready_at, ready_at + 14 days]` (the lower bound must be at or after `ready_at`, the upper at or before the end), removes the announcement and makes exactly that change. `SetGlobalSetting(s)`: one UTxO moved, the GlobalSetting output's inline datum equals `s` as Data, it keeps the input's address (stake part included) and carries no reference script, `s`'s pool creation fee is not negative, and its receiver is the lock's `treasury`, so while the lock is the admin the venue's opening fees go nowhere else. (A change the lock makes can still hand the admin itself to another key or script, as it can every role; that one is the 48-hour notice.) `SetPool {...}`: one pool moved, its value unchanged (so no fee withdrawal rides along), no reference script on it, and its new datum's pair, both base fees, fee share and dynamic-fee flag, and its address's stake credential, all equal the announcement. Minswap itself pins the pool's other fields. |
+| `WithdrawFeeSharing` | One pool moved, its address and datum unchanged, no reference script on it, the lock unchanged, and the outputs to the treasury hold at least everything that left the pool, asset by asset. No wait: this changes nothing. |
 
 A UTxO sent to the lock's address without the lock token can never be spent, so a forged
 "announced long ago" datum does nothing. The 48 hours and the 14-day window are Compound's
@@ -258,12 +265,13 @@ delay), so this pattern is our own code and the reason for this audit.
 
 ### Tests
 
-96 tests in `lock_test.ak`, run by `aiken check` in CI (with Minswap's own 31 library tests). Each
+106 tests in `lock_test.ak`, run by `aiken check` in CI (with Minswap's own 31 library tests). Each
 path passes once, then each way to act early (one millisecond before `ready_at`, one past the
 window, an announcement one millisecond short of 48 hours, no time bound at all), with one key,
 with a stranger's key, with a change other than the one announced (each pool field on its own,
 the GlobalSetting's fee taker, the stake key), with a second Minswap UTxO moved, with the lock
-token sent away, and with a forged or copied lock is refused. Where Minswap's own checks would let
+token sent away, with a reference script left on the pool or the GlobalSetting or the
+GlobalSetting given a new stake part, and with a forged or copied lock is refused. Where Minswap's own checks would let
 the same transaction through, a `minswap_` test runs them (the real `pool_validation` and `utils`
 functions) to show the lock is what stops it. The venue's 1333 share passes Minswap's patched check
 and 1332 is refused; on Minswap's unpatched floor, the three tests that set 1333 fail. The pool
@@ -271,7 +279,10 @@ creation fee: re-set from 73 to 100 ADA and to 0 passes; a receiver that is a st
 or the treasury's script with another stake key, and a negative fee are refused, though each was
 announced, waited for and signed by both keys. A mutation pass (2026-10-24) broke each of the 48
 checks in `lock.ak` one at a time, and another (2026-10-25) the 2 new ones four ways: every mutant
-was refused by at least one test.
+was refused by at least one test. The tests call `lock.spend` and `lock.mint` directly, so
+`prove-build.mjs` also runs the compiled lock (the built `plutus.json` with the tests' Params
+applied, `aiken uplc eval`): an Announce whose redeemer is wrapped as a spend passes, the same
+unwrapped is refused, and the lock token minted with the seed passes and without it is refused.
 
 ### Questions we have for the auditor
 
@@ -329,6 +340,14 @@ with another stake part is refused (`withdraw_to_the_treasury_restaked` in the l
 
 Order: pick both seeds, compute the authen policy, compute the lock's hash with it, mint the lock
 token (both keys sign), then `DexInitialization` with the first GlobalSetting naming the lock.
+The deploy tools (`cardano/batcher/scripts/deploy.ts` and the co-signing page) compile only a clean
+trunk commit that provenance proves (a preprod rehearsal may skip the git checks, with a warning),
+record the parameters they applied in `scripts.json` and refuse inputs that differ, refuse
+`DexInitialization` until the chain holds the lock with nothing announced, and read every deploy
+step from its own bytes before it is signed (the first GlobalSetting shown in words). On mainnet
+they take only the treasury above, with its stake script as the pools' stake credential, and
+refuse Minswap's stake key and batcher key anywhere. The expired-order cancel is not published as a
+reference script: nothing of ours reads it, and Minswap's identical copy is on chain.
 Changing a key or the treasury later means a new lock and a 48-hour `SetGlobalSetting` to it. A new treasury takes two such changes, at least 96 hours: the old lock refuses any receiver but its own treasury, so first the GlobalSetting names the new lock with the old receiver, then the new lock re-points the receiver.
 
 ## 5. In scope later: the batcher

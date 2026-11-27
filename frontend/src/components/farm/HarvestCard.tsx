@@ -9,7 +9,7 @@ import { promptCount, runHarvest, runSummary, type SendTogether } from '../../li
 import { noteStakesChanged, useOnStakesChanged } from '../../lib/harvest/stakesChanged';
 import { forgetHeldReads } from '../../lib/wallet/heldReads';
 import {
-  orderClaims,
+  orderClaims, withFees,
   type ClaimResult, type ClaimState, type HarvestChain, type HarvestClaim, type HarvestEarning, type HarvestHeld, type HarvestPlan, type HarvestUnread,
 } from '../../lib/harvest/types';
 import { HarvestView, type RunRow } from './HarvestView';
@@ -29,16 +29,21 @@ function useSolanaHarvest(address: string | null, nonce: number): HarvestPlan<So
   useEffect(() => {
     if (!address) return;
     let live = true;
-    void import('../../lib/harvest/solana')
-      .then((m) => m.readSolanaHarvest(address))
-      .catch((e: unknown): HarvestPlan<SolanaClaim> => ({
-        claims: [],
-        held: [],
-        unread: [{ key: 'sol', chain: 'solana', roomId: '', what: 'your Solana pools', detail: e instanceof Error ? e.message : 'the Solana code could not load' }],
-      }))
-      .then((plan) => {
-        if (live) setRead({ owner: address, plan });
-      });
+    const failed = (key: string, what: string) => (e: unknown): HarvestPlan<SolanaClaim> => ({
+      claims: [],
+      held: [],
+      unread: [{ key, chain: 'solana', roomId: '', what, detail: e instanceof Error ? e.message : 'the Solana code could not load' }],
+    });
+    void (async () => {
+      const stakes = await import('../../lib/harvest/solana')
+        .then((m) => m.readSolanaHarvest(address))
+        .catch(failed('sol', 'your Solana pools'));
+      // The pool fees after the staking pools, never alongside: two bursts at once are what the RPC turns away.
+      const fees = live
+        ? await import('../solana/lp/harvestFees').then((m) => m.readFeeHarvest(address)).catch(failed('lp', 'your pool shares'))
+        : null;
+      if (live) setRead({ owner: address, plan: fees ? withFees(stakes, fees) : stakes });
+    })();
     return () => {
       live = false;
     };
@@ -69,15 +74,19 @@ const HARVEST_RETRY_MS: readonly number[] = [20_000, 60_000];
 
 /**
  * Harvest (owner, 2026-10-24): one press claims the connected wallets' staking rewards
- * from every island pool, instead of opening each pool and claiming there.
+ * from every island pool, instead of opening each pool and claiming there. Since 2026-11-20
+ * it also claims the fees the Solana wallet's shares of island coins' pools earned, each
+ * where its Pools row would offer Claim fees (components/solana/lp/harvestFees.ts).
  *
  * It reads every pool for the wallets connected (Solana: each lighthouse pool and the
  * lock ladder; Ethereum and Base: each lighthouse pool), lists what each can claim in its
  * own coin, and sends one claim per pool position, each its own transaction. An EVM
- * wallet that can batch a chain's claims is asked once for them (owner, 2026-10-29); a
- * Solana wallet is asked once per claim (Phantom, ticket #467471, 2026-11-16: one
- * transaction per approval). A pool that could not be read is listed as not read, never
- * as nothing to claim; rewards a pool cannot pay yet are listed and left alone.
+ * wallet that can batch a chain's claims is asked once for them (owner, 2026-10-29). A
+ * Solana wallet is asked once for every sure claim, packed into ONE transaction (owner,
+ * 2026-11-24: "claim once and confirm once"; Phantom, ticket #467471: one transaction per
+ * approval), then once for each claim that may not pay (lib/harvest/solana.ts
+ * `solanaTogether`). A pool that could not be read is listed as not read, never as nothing
+ * to claim; rewards a pool cannot pay yet are listed and left alone.
  *
  * With no wallet connected it draws nothing: there is nothing of the visitor's to show,
  * and the top bar's Connect is the way in (the list's word budget, e2e/word-budget.spec.ts).
@@ -121,9 +130,10 @@ export function HarvestCard({ quiet = false, headingLevel = 2, className = 'mb-6
   // What the stake behind the claims earns a day, where a pool's reader could state it.
   const earning: HarvestEarning[] = [...(solPlan?.earning ?? []), ...(evmPlan?.earning ?? [])];
   const running = run !== null && !run.done;
-  // Solana: one wallet approval per claim, always (Phantom, ticket #467471).
-  const canTogether = (chain: HarvestChain) => (chain === 'solana' ? false : evm.batchable[chain]);
-  const asks = promptCount(claims, evm.chain, canTogether);
+  // Solana: the sure claims in one transaction, the cautioned ones each alone (solanaTogether).
+  const canTogether = (chain: HarvestChain) => (chain === 'solana' ? Boolean(surface?.signer) : evm.batchable[chain]);
+  const alone = (c: HarvestClaim) => c.chain === 'solana' && !(c as SolanaClaim).instructions;
+  const asks = promptCount(claims, evm.chain, canTogether, alone);
 
   if (!solAddress && !evm.address) return null;
   if (quiet && run === null && claims.length === 0) return null;
@@ -136,8 +146,10 @@ export function HarvestCard({ quiet = false, headingLevel = 2, className = 'mb-6
     setRun({ rows, done: false });
     const onState = (key: string, state: ClaimState) =>
       setRun((r) => (r ? { ...r, rows: r.rows.map((x) => (x.claim.key === key ? { ...x, state } : x)) } : r));
+    // Loaded already: it made the read these claims came from.
+    const sol = signer ? (await import('../../lib/harvest/solana')).solanaTogether(signer) : null;
     const together = (chain: HarvestChain): SendTogether<HarvestClaim> | null =>
-      chain === 'solana' ? null : (evm.together(chain) as SendTogether<HarvestClaim> | null);
+      (chain === 'solana' ? sol : evm.together(chain)) as SendTogether<HarvestClaim> | null;
     const states = await runHarvest(claims, evm.chain, {
       together,
       send: (c): Promise<ClaimResult> => {

@@ -22,7 +22,7 @@
 import type { PlutusData, Transaction, TransactionWitnessSet } from '@emurgo/cardano-serialization-lib-browser';
 import type { Csl } from '../csl';
 import type { ProtocolParams } from '../chain';
-import { bytesToHex, hexToBytes, type ParsedAddress } from '../address';
+import { bytesToHex, composeAddress, hexToBytes, type ParsedAddress } from '../address';
 import { ADA, lpAssetName, MINSWAP_V2, poolOrder, type CardanoAsset } from '../minswapV2';
 import {
   bn,
@@ -110,6 +110,8 @@ export function poolDatumHex(
 }
 
 export const factoryDatumHex = (csl: Csl, head: string, tail: string) => constr(csl, 0, [bytes(csl, head), bytes(csl, tail)]).to_hex();
+/** The venue's standard factory address: the factory script, no stake part (as the deploy writes the first entry). */
+export const factoryAddress = (dep: Pick<OwnPools, 'factoryScriptHash' | 'poolAddress'>) => composeAddress({ kind: 'script', hash: dep.factoryScriptHash }, null, dep.poolAddress.network);
 export const factoryRedeemerHex = (csl: Csl, plan: Pick<OpenPoolPlan, 'token'>) => constr(csl, 0, pairOf(plan).map((x) => assetData(csl, x))).to_hex();
 /** AuthenRedeemer.CreatePool. */
 export const createPoolRedeemerHex = (csl: Csl) => constr(csl, 1, []).to_hex();
@@ -141,7 +143,9 @@ export function openPoolLayout(csl: Csl, dep: OwnPools, params: ProtocolParams, 
   const nft: CardanoAsset = { policyId: dep.authenPolicy, assetName: MINSWAP_V2.poolNftName };
   const factoryNft: CardanoAsset = { policyId: dep.authenPolicy, assetName: FACTORY_NFT_NAME };
 
-  const factoryAddressHex = plan.factory.utxo.addressHex;
+  // Both entries at our own stakeless factory address, whatever stake part the spent one carries
+  // (anyone may make an entry, with a stake part of their choosing: never copied onward).
+  const factoryAddressHex = factoryAddress(dep).hex;
   const factoryOut = (head: string, tail: string, floor: bigint) => {
     const datumHex = factoryDatumHex(csl, head, tail);
     const o = csl.TransactionOutput.new(csl.Address.from_bytes(hexToBytes(factoryAddressHex)), valueOf(csl, 1_000_000n, [{ asset: factoryNft, quantity: 1n }]));

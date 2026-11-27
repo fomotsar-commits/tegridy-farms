@@ -217,3 +217,12 @@ test('refused: a withdrawal with nothing accrued (the chain would take it, for a
   assert.throws(() => readLockTx(empty, outputs(), D), /nothing has accrued in the pool: the withdrawal would take nothing/);
   if (AIKEN) assert.equal(passes(empty), true, 'Minswap and the lock both allow a withdrawal of nothing: only this tool refuses it');
 });
+
+test('refused, as lock.ak refuses: the pool left with a reference script', () => {
+  const tx = build(withPool(spec(), (o) => {
+    const p = outputAt(o.address(), o.amount(), o.plutus_data()!);
+    p.set_script_ref(CSL.ScriptRef.new_plutus_script(CSL.PlutusScript.new_v2(Buffer.from('4e4d01000033222220051200120011', 'hex'))));
+    return p;
+  }));
+  assert.throws(() => readLockTx(tx, outputs(), D), /the pool after carries a reference script, which the lock refuses/);
+});

@@ -60,6 +60,9 @@ function render(s) {
   const b = $('tx-body');
   b.replaceChildren();
   const part = (title, node) => b.append(el('h3', {}, title), node);
+  // A line that says NOT (a batcher that is not ours, a receiver that is not the treasury) stands out.
+  const words = (list) => el('ul', {}, ...list.map((w) => el('li', / NOT /.test(w) ? { class: 'warn' } : {}, w)));
+  if (r.deploy) part(`What the deploy step ${r.deploy.step} does, read from its bytes`, el('div', { class: 'lock' }, words(r.deploy.words)));
   if (r.lock) {
     const l = r.lock;
     const w = l.withdrawal;
@@ -72,7 +75,7 @@ function render(s) {
         table(['Coin', 'Policy id', 'Name (hex)', 'The treasury receives'], coinRows(w.receives)),
         el('p', {}, el('strong', {}, 'The pool after: '), `reserves ${BigInt(w.after.reserveA).toLocaleString('en-US')} / ${BigInt(w.after.reserveB).toLocaleString('en-US')}, total liquidity ${BigInt(w.after.totalLiquidity).toLocaleString('en-US')}, LP balance ${BigInt(w.after.lp).toLocaleString('en-US')}: all unchanged`),
       ] : []),
-      el('ul', {}, ...l.words.map((w) => el('li', {}, w))),
+      words(l.words),
       el('p', {}, el('strong', {}, 'When: '), l.when),
       el('p', { class: 'small' }, `The lock after it: ${l.announced.length ? '' : 'nothing announced.'}`),
       ...(l.announced.length ? [el('ol', { start: '0' }, ...l.announced.map((a) => el('li', {}, `${a.summary} (ready ${a.readyAt})`)))] : [])));

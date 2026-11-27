@@ -93,8 +93,12 @@ export function HarvestView({ className, headingLevel, claims, held, unread, ear
             <Heading id="harvest-heading" className="m-0 font-black leading-[0.86] tracking-[-0.055em] text-[clamp(2.75rem,15cqw,5.5rem)]" style={{ ...HEADING_FONT, textShadow: 'none' }}>
               Har<span style={EDITORIAL_OUTLINE}>vest</span>
             </Heading>
-            {/* How money moves, in view: the card's one line of prose. */}
-            <p className="hv-money">Each pool pays you from its own reward vault. The venue takes nothing; you pay the network fees.</p>
+            {/* How money moves, in view: the card's one line of prose. A pool share's fees are paid by no reward vault: they are said apart. */}
+            <p className="hv-money">
+              {sent.some(({ claim }) => claim.also)
+                ? 'Staking pools pay you from their reward vaults; your pool fees come out of your own share of the pool. The venue takes nothing; you pay the network fees.'
+                : 'Each pool pays you from its own reward vault. The venue takes nothing; you pay the network fees.'}
+            </p>
           </div>
 
           {/* With no storey to build (reading, nothing to claim) the drawing is kept small. */}
@@ -184,6 +188,12 @@ export function HarvestView({ className, headingLevel, claims, held, unread, ear
                 zero, one transaction per pool position: Solana first, then Ethereum and Base, switching network once
                 between them. A wallet that can sign several at once is asked once per network; any other, once per
                 claim. Claiming moves no stake and changes no lock.
+              </p>
+              <p>
+                On Solana it also claims the trading fees your shares of an island coin&rsquo;s pools earned, wherever
+                Pools would offer Claim fees: it gives back just the shares those fees added, so what you put in stays
+                in the pool. That pays out both of the pool&rsquo;s coins, and the split moves with the pool&rsquo;s
+                price, so those amounts say &ldquo;about&rdquo; and are added to no total.
               </p>
               <p>
                 A pool it could not read is listed as not read, never as nothing to claim. It leaves alone a reward the
@@ -312,8 +322,9 @@ function Figure({ value, unit, tone = 'ink', size = 'md' }: { value: string; uni
 /** One claim on the bar's line: its row's number, where it stands, its share of its coin's total in ten-thousandths, its caution. */
 type Seg = { key: string; n: number; share: number; state: ClaimState['kind'] | 'ready'; caution: boolean };
 
+// An estimate is in no coin's sum (tally.ts), so it is no part of its line either.
 const sameCoin = (claim: HarvestClaim, coin: TallyCoin) =>
-  claim.chain === coin.chain && claim.roomId === coin.roomId && claim.symbol === coin.symbol && claim.decimals === coin.decimals;
+  !claim.about && claim.chain === coin.chain && claim.roomId === coin.roomId && claim.symbol === coin.symbol && claim.decimals === coin.decimals;
 
 /** The line of one coin's total, divided between that coin's claims in run order, each by its raw amount. */
 function segmentsOf(coin: TallyCoin, sent: readonly Sent[]): Seg[] {
@@ -427,6 +438,18 @@ function amountText(raw: bigint | null, decimals: number, symbol: string) {
   return raw === null ? symbol : `${fmtPayout(raw, decimals)} ${symbol}`;
 }
 
+/** A claim's amount; a pool share's fees as both of its coins, the second under the first, and "about": the split moves with the pool's price. */
+function ClaimAmount({ claim }: { claim: HarvestClaim }) {
+  return (
+    <span className="hv-amt">
+      {claim.about && <span className="hv-about">about </span>}
+      {amountText(claim.amountRaw, claim.decimals, claim.symbol)}
+      {/* The space keeps the two coins apart for a screen reader; on screen the second is its own line. */}
+      {claim.also && <> <span className="hv-also">and {amountText(claim.also.amountRaw, claim.also.decimals, claim.also.symbol)}</span></>}
+    </span>
+  );
+}
+
 const STATE_WORDS: Record<ClaimState['kind'], { text: string; color: string }> = {
   waiting: { text: 'Waiting', color: 'rgba(245,228,184,0.55)' },
   sending: { text: 'Check your wallet…', color: '#e3b341' },
@@ -463,7 +486,7 @@ function ClaimRow({ n, claim, state, hot, onHot }: { n: number; claim: HarvestCl
       {/* The plaque its storey carries: the row's number drawn by CSS from data-n, a mark and no part of the row's words. */}
       <span aria-hidden="true" className="hv-num" data-n={pad2(n)} />
       <DoorCard roomId={claim.roomId} />
-      <span className="hv-amt">{amountText(claim.amountRaw, claim.decimals, claim.symbol)}</span>
+      <ClaimAmount claim={claim} />
       {/* "on" keeps to its figure, and each dot to the word before it, so a narrow row never breaks between them. */}
       <span className="hv-where">
         {claim.where}{NBSP}· {HARVEST_CHAIN_LABEL[claim.chain]}{claim.detail ? `${NBSP}· ${claim.detail.replace(/^on /, `on${NBSP}`)}` : ''}
@@ -493,7 +516,7 @@ function HeldRow({ held, live }: { held: HarvestHeld; live: boolean }) {
       <span className="hv-where">{held.where}{NBSP}· {HARVEST_CHAIN_LABEL[held.chain]}</span>
       {/* No link while a run goes on: leaving would take the card off screen with the wallet still asking. */}
       {live ? <span className="hv-st hv-page">Its page</span> : (
-        <Link to={`/earn/${held.roomId}`} aria-label={`The ${held.symbol} pool's page`} className="hv-st hv-page">
+        <Link to={held.to ?? `/earn/${held.roomId}`} aria-label={held.to ? 'The Pools page' : `The ${held.symbol} pool's page`} className="hv-st hv-page">
           Its page
         </Link>
       )}

@@ -106,7 +106,7 @@ export const COPIES = {
     take: (p) => p.startsWith('programs/cp-swap/'),
     map: (p) => p.replace(/^programs\/cp-swap\//, ''),
     delta: 'cp-swap.diff',
-    deltaSha256: 'faea5a54058135071e0c440edbaf42089f4db9afd0b51af18f8d1027c4f660d3',
+    deltaSha256: 'f3a28a63e6ce7925d4eba5ff57b60ff8c16289f5f5965d7f5b22ebca5468ca5c',
     patched: [
       'src/lib.rs',
       'src/error.rs',
@@ -118,6 +118,7 @@ export const COPIES = {
       'src/instructions/swap_base_input.rs',
       'src/instructions/swap_base_output.rs',
       'src/states/config.rs',
+      'src/states/pool.rs',
       'src/utils/token.rs',
       'Cargo.toml',
     ],

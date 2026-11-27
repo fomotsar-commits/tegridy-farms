@@ -15,10 +15,14 @@
 //     ready_at or unlike its announcement, a pool's value or fee share leaving for anywhere but
 //     the treasury, a role off the lock, the wrong network). What the change does is shown in
 //     plain words, with when it can run; a fee-share withdrawal, with each coin that leaves the
-//     pool and the treasury's whole address.
+//     pool and the treasury's whole address;
+//   - a deploy step (lock, init, ref-*, register) that does anything but what it is for, read
+//     from its bytes against scripts.json and the inputs (readDeployStep); the first
+//     GlobalSetting is shown in plain words.
 import CSL from '@emurgo/cardano-serialization-lib-nodejs';
 import { MAINNET_TIME, PREPROD_TIME, refKey, slotToPosixMs } from '../src/chain.ts';
-import { LockRefused, readLockTx, type LockDeployment, type LockReading } from '../src/lock.ts';
+import { NAMES, REF_ORDER, addresses, burnAddress, factoryDatum, isEmptyLockState, type DeployInputs, type Scripts } from '../src/deploy.ts';
+import { checkSetting, decodeSetting, LockRefused, readLockTx, type LockDeployment, type LockReading } from '../src/lock.ts';
 import { DecodeError } from '../src/plutus.ts';
 
 export class Refused extends Error {}
@@ -88,6 +92,8 @@ export interface Review {
   needs: Need[];
   /** A change through the 48-hour lock: what it does, in plain words, and when it can run. */
   lock?: LockReading;
+  /** A deploy step, read from its bytes against scripts.json and the inputs (readDeployStep). */
+  deploy?: { step: string; words: string[] };
 }
 
 /** The run's deployment (scripts.json), to read lock transactions; `current`: the pool's and the GlobalSetting's outputs now. */
@@ -349,4 +355,133 @@ export function walletKeys(addressesHex: unknown, network: 0 | 1): string[] {
     if (k) keys.add(k);
   }
   return [...keys];
+}
+
+/** The deploy's steps, in the order they run (scripts/deploy.ts). */
+export const DEPLOY_STEPS: readonly string[] = ['lock', 'init', ...REF_ORDER.map((n) => `ref-${n}`), 'register'];
+
+/** Steps as the page lists them: the deploy's in the order they run, then the rest by name. */
+export function runOrder(steps: string[]): string[] {
+  const rank = (s: string) => (DEPLOY_STEPS.includes(s) ? DEPLOY_STEPS.indexOf(s) : DEPLOY_STEPS.length);
+  return [...steps].sort((a, b) => rank(a) - rank(b) || (a < b ? -1 : a > b ? 1 : 0));
+}
+
+const adaText = (lovelace: string) => {
+  const n = BigInt(lovelace);
+  const part = n % 1_000_000n ? `.${(n % 1_000_000n).toString().padStart(6, '0').replace(/0+$/, '')}` : '';
+  return `${n / 1_000_000n}${part} ADA`;
+};
+
+/**
+ * A deploy step read from its own bytes against scripts.json (`s`) and the run's inputs: what it
+ * mints, where each output goes and what it holds, what it registers, who must sign. Every output
+ * that is not the step's own must be the deployer's plain change. Anything else is refused.
+ * Returns what the step does, in plain words.
+ */
+export function readDeployStep(step: string, txHex: string, s: Scripts, i: DeployInputs): string[] {
+  function no(why: string): never {
+    throw new Refused(`${step} is refused: ${why}`);
+  }
+  if (!DEPLOY_STEPS.includes(step)) no('it is not a step of the deploy');
+  const network = i.network;
+  const body = CSL.FixedTransaction.from_hex(txHex).body();
+  const a = addresses(i, s);
+  const outs = list(body.outputs());
+  const at = (o: CSL.TransactionOutput) => o.address().to_bech32(undefined);
+  const tokens = (o: CSL.TransactionOutput) => coinsOf(o.amount().multiasset());
+  const onlyToken = (o: CSL.TransactionOutput, policy: string, name: string) => {
+    const c = tokens(o);
+    return c.length === 1 && c[0]!.policy === policy && c[0]!.name === name && c[0]!.quantity === '1';
+  };
+  const holding = (policy: string, name: string) => outs.filter((o) => tokens(o).some((c) => c.policy === policy && c.name === name));
+  const mint: { policy: string; name: string; quantity: string }[] = [];
+  const m = body.mint();
+  for (const p of list(m?.keys())) for (const assets of list(m!.get(p))) for (const n of list(assets?.keys())) mint.push({ policy: p.to_hex(), name: Buffer.from(n.name()).toString('hex'), quantity: assets!.get(n)!.to_str() });
+  const mints = (want: [string, string][]) => mint.length === want.length && want.every(([p, n]) => mint.some((x) => x.policy === p && x.name === n && x.quantity === '1'));
+  const certs = list(body.certs());
+  const signers = list(body.required_signers()).map((k) => k.to_hex());
+  const spends = list(body.inputs()).map(refKey);
+  if (body.withdrawals()?.len()) no('it withdraws rewards');
+  if (body.reference_inputs()?.len()) no('it reads reference inputs');
+  if (body.auxiliary_data_hash()) no('it carries metadata');
+  const cr = body.collateral_return();
+  if (cr && at(cr) !== i.deployer) no(`its collateral returns to ${at(cr)}, not the deployer`);
+  /** Every output but the step's own is the deployer's plain ADA change. */
+  const change = (own: CSL.TransactionOutput[]) =>
+    outs.forEach((o, k) => {
+      if (own.includes(o)) return;
+      if (at(o) !== i.deployer || tokens(o).length || o.plutus_data() || o.data_hash() || o.script_ref()) no(`output #${k} pays ${at(o)} and is not the deployer's plain change`);
+    });
+
+  if (step === 'lock') {
+    if (!mints([[s.lock.hash, NAMES.lock]])) no(`it does not mint exactly one lock token under the lock's policy ${s.lock.hash}`);
+    if (certs.length) no('it holds a certificate');
+    if (!spends.includes(i.lockSeedTxIn)) no(`it does not spend the lock seed ${i.lockSeedTxIn}`);
+    if (signers.length !== 2 || !signers.includes(i.ownerA) || !signers.includes(i.ownerB)) no('its required signers are not exactly the two owners');
+    const [lock, ...more] = holding(s.lock.hash, NAMES.lock);
+    if (!lock || more.length) no('the lock token does not go to exactly one output');
+    if (at(lock) !== a.lock) no(`the lock token goes to ${at(lock)}, not the lock ${a.lock}`);
+    if (!onlyToken(lock, s.lock.hash, NAMES.lock) || lock.script_ref()) no('the lock holds more than its token and ADA');
+    if (!isEmptyLockState(lock.plutus_data())) no('the lock does not start with nothing announced');
+    change([lock]);
+    return [
+      `mints the lock token once (policy ${s.lock.hash}, "role-timelock"), spending the lock seed ${i.lockSeedTxIn}`,
+      `into the lock ${a.lock}, with ${adaText(lock.amount().coin().to_str())}, nothing announced`,
+      `both owners sign: owner A ${i.ownerA}, owner B ${i.ownerB}`,
+    ];
+  }
+  if (step === 'init') {
+    if (!mints([[s.authen.hash, NAMES.factory], [s.authen.hash, NAMES.globalSetting]])) no(`it does not mint exactly the factory token and the GlobalSetting token under the authen policy ${s.authen.hash}`);
+    if (certs.length || signers.length) no('it holds a certificate or names a required signer');
+    if (!spends.includes(i.seedTxIn)) no(`it does not spend the authen seed ${i.seedTxIn}`);
+    const [factory, ...f2] = holding(s.authen.hash, NAMES.factory);
+    const [gs, ...g2] = holding(s.authen.hash, NAMES.globalSetting);
+    if (!factory || f2.length || !gs || g2.length) no('the factory token and the GlobalSetting token do not each go to exactly one output');
+    if (at(factory) !== a.factory) no(`the factory token goes to ${at(factory)}, not the factory ${a.factory}`);
+    if (!onlyToken(factory, s.authen.hash, NAMES.factory) || factory.script_ref()) no('the factory output holds more than its token and ADA');
+    if (factory.plutus_data()?.to_hex() !== factoryDatum().to_hex()) no("the factory's datum is not Minswap's empty list");
+    if (at(gs) !== a.globalSetting) no(`the GlobalSetting token goes to ${at(gs)}, not the authen script ${a.globalSetting}`);
+    if (!onlyToken(gs, s.authen.hash, NAMES.globalSetting) || gs.script_ref()) no('the GlobalSetting output holds more than its token and ADA');
+    const d = gs.plutus_data();
+    if (!d) no('the GlobalSetting has no inline datum');
+    let setting: ReturnType<typeof decodeSetting>;
+    try {
+      setting = decodeSetting(d);
+      checkSetting(setting, { network: network as 0 | 1, lock: s.lock.hash, authen: s.authen.hash, pool: s.pool.hash, ownerA: i.ownerA, ownerB: i.ownerB, treasury: i.treasury });
+    } catch (e) {
+      if (e instanceof LockRefused || e instanceof DecodeError) no(`its GlobalSetting: ${e.message}`);
+      throw e;
+    }
+    const [b, ...b2] = setting.batchers;
+    if (!b || b2.length || b.kind !== 'signature' || b.hash !== i.batcherKeyHash) no(`its GlobalSetting's batchers are not exactly our batcher key ${i.batcherKeyHash}: ${setting.batchers.map((x) => `${x.kind} ${x.hash}`).join(', ')}`);
+    if (setting.openingFee !== i.openingFee) no(`its GlobalSetting's opening fee is ${setting.openingFee} lovelace, not the inputs' ${i.openingFee}`);
+    change([factory, gs]);
+    return [
+      `mints the factory token (MSF) and the GlobalSetting token (MSGS) once, under the authen policy ${s.authen.hash}, spending the authen seed ${i.seedTxIn}`,
+      `the factory: ${a.factory}, Minswap's empty list`,
+      `the GlobalSetting, at ${a.globalSetting}:`,
+      `batcher: key ${b.hash}, our batcher key`,
+      `admin, pool-fee updater, fee-share taker, stake-key updater and dynamic-fee updater: all the lock, script ${s.lock.hash}`,
+      `opening fee: ${adaText(setting.openingFee.toString())} (${setting.openingFee} lovelace), paid to the treasury ${i.treasury}`,
+    ];
+  }
+  if (step === 'register') {
+    if (mint.length || signers.length) no('it mints or names a required signer');
+    const [c, ...c2] = certs;
+    const reg = c?.as_stake_registration();
+    const cred = reg?.stake_credential();
+    if (!c || c2.length || c.kind() !== CSL.CertificateKind.StakeRegistration || !reg || reg.coin() !== undefined || cred?.kind() !== CSL.CredKind.Script || cred.to_scripthash()?.to_hex() !== s.poolBatching.hash) no(`it does not hold exactly the legacy registration of the pool-batching script ${s.poolBatching.hash}`);
+    change([]);
+    return [`registers the pool-batching script's reward account ${a.poolBatchingReward} (script ${s.poolBatching.hash}); its deposit stays with the account`];
+  }
+  const name = step.slice('ref-'.length) as (typeof REF_ORDER)[number];
+  if (mint.length || certs.length || signers.length) no('it mints, holds a certificate or names a required signer');
+  const [ref, ...r2] = outs.filter((o) => o.script_ref());
+  if (!ref || r2.length) no('it does not publish exactly one reference script');
+  const ps = ref.script_ref()!.plutus_script();
+  if (!ps || ps.hash().to_hex() !== s[name].hash) no(`its reference script is not scripts.json's ${name}, ${s[name].hash}`);
+  if (at(ref) !== burnAddress(network)) no(`its reference script goes to ${at(ref)}, not the address no key can spend, ${burnAddress(network)}`);
+  if (tokens(ref).length || ref.plutus_data() || ref.data_hash()) no('the reference script output holds more than ADA');
+  change([ref]);
+  return [`publishes the ${name} script ${s[name].hash} (${ps.bytes().length} bytes) as a reference script`, `at ${burnAddress(network)}, which no key can spend: its ${adaText(ref.amount().coin().to_str())} stays there for good`];
 }

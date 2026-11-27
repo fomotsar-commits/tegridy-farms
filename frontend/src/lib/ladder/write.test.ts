@@ -21,9 +21,9 @@ import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { describe, it, expect, vi } from 'vitest';
-import { Connection, PublicKey, Keypair, SystemProgram, Transaction, TransactionInstruction, VersionedTransaction } from '@solana/web3.js';
+import { Connection, PublicKey, Keypair, SystemProgram, Transaction, TransactionInstruction, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
 import { WalletNotConnectedError, WalletSendTransactionError, WalletSignTransactionError, type SignerWalletAdapter } from '@solana/wallet-adapter-base';
-import { RENT_EXEMPT_EMPTY_LAMPORTS, WALLET_FEE_ROOM_LAMPORTS, WRITE_COPY, solShortCopy } from '../solana/walletWrite';
+import { RENT_EXEMPT_EMPTY_LAMPORTS, WALLET_FEE_ROOM_LAMPORTS, WALLET_GUARD_ROOM_BYTES, WRITE_COPY, solShortCopy } from '../solana/walletWrite';
 import { base58 } from '@scure/base';
 import { V1_VERSION_BYTE, assembleV1, decodeV1, loadedDataLimitFromSimulation, signV1WithKeypairs } from '../launcher/solana/write/v1';
 import { MAX_OWN_PRIORITY_LAMPORTS, computeLimitFromSimulation } from '../launcher/solana/write/budget';
@@ -36,6 +36,7 @@ import { createAtaIdempotentIx } from './ix';
 import {
   LADDER_ERRORS, anchorCode, classifyWriteError, refusalReason, submitLadder,
   ladderStake, ladderClaim, ladderExit, ladderHatch, ladderClaimCarried, ladderClaimCarriedIxs, ladderClaimIxs,
+  LADDER_CLAIMS_PER_TX, ladderClaimAll, ladderClaimAllIxs,
   type LadderWriteCtx,
 } from './write';
 
@@ -717,6 +718,55 @@ const refusedWith = (r: { ok: boolean; reason?: string; signature?: string }, sa
   expect(r.reason).not.toContain('—');
   expect(r.signature).toBeUndefined();
 };
+
+// Owner, 2026-11-24: "you just have to claim once and confirm once". Every lock's claim,
+// and the carried one, side by side in ONE transaction: one wallet approval.
+describe('claim all: several locks on one transaction', () => {
+  const accounts = { programId: PROGRAM, pool: POOL, poolAccounts };
+  const capture = async (fn: (ctx: LadderWriteCtx) => Promise<unknown>) => {
+    const signed: { instructions: TransactionInstruction[] }[] = [];
+    const conn = fakeConn({ statuses: [{ err: null, confirmationStatus: 'confirmed' }] });
+    const wallet = fakeWallet((tx) => { signed.push(tx as unknown as { instructions: TransactionInstruction[] }); });
+    const result = await fn({ connection: conn, invoker: wallet, programId: PROGRAM, pool: POOL, poolAccounts, deps: noSleep });
+    return { signed, result };
+  };
+
+  it('one transaction, one approval: one ATA create, then each lock’s own claim and the carried one', async () => {
+    const { signed, result } = await capture((c) => ladderClaimAll(c, { positionNonces: [0, 4, 7], carried: true }));
+    expect(signed).toHaveLength(1);
+    expect(result).toMatchObject({ ok: true });
+    const one = (n: number) => ladderClaimIxs(accounts, OWNER, { positionNonce: n })[1];
+    expect(signed[0]!.instructions).toEqual([
+      ladderClaimIxs(accounts, OWNER, { positionNonce: 0 })[0], // the ATA create, once
+      one(0), one(4), one(7),
+      ladderClaimCarriedIxs(accounts, OWNER)[1],
+    ]);
+  });
+
+  it('one lock alone is exactly the lock’s own Claim, and carried alone is Claim carried', () => {
+    expect(ladderClaimAllIxs(accounts, OWNER, { positionNonces: [4], carried: false })).toEqual(ladderClaimIxs(accounts, OWNER, { positionNonce: 4 }));
+    expect(ladderClaimAllIxs(accounts, OWNER, { positionNonces: [], carried: true })).toEqual(ladderClaimCarriedIxs(accounts, OWNER));
+  });
+
+  it('refuses nothing to claim, and more than fit', () => {
+    expect(() => ladderClaimAllIxs(accounts, OWNER, { positionNonces: [], carried: false })).toThrow(/nothing to claim/);
+    const all = [...Array(LADDER_CLAIMS_PER_TX).keys()];
+    expect(() => ladderClaimAllIxs(accounts, OWNER, { positionNonces: all, carried: true })).toThrow(/at most/);
+    expect(ladderClaimAllIxs(accounts, OWNER, { positionNonces: all, carried: false })).toHaveLength(LADDER_CLAIMS_PER_TX + 1);
+  });
+
+  // The largest one, as a wallet that cannot sign version 1 sends it (legacy and version 0
+  // both cap at 1,232 bytes), must leave Phantom room for its Lighthouse guards: 325 bytes on
+  // a ladder claim landed 2026-11-23 (2csQUSTN…, 797 bytes against our 472 for one claim).
+  it('the most claims one transaction carries still leave room for the wallet’s guards', () => {
+    const PHANTOM_GUARDS = WALLET_GUARD_ROOM_BYTES;
+    const blockhash = PublicKey.default.toBase58();
+    const ixs = ladderClaimAllIxs(accounts, OWNER, { positionNonces: [...Array(LADDER_CLAIMS_PER_TX - 1).keys()], carried: true });
+    const legacy = new Transaction({ feePayer: OWNER, blockhash, lastValidBlockHeight: 1 }).add(...ixs).serialize({ requireAllSignatures: false, verifySignatures: false }).length;
+    const v0 = new VersionedTransaction(new TransactionMessage({ payerKey: OWNER, recentBlockhash: blockhash, instructions: ixs }).compileToV0Message()).serialize().length;
+    expect(Math.max(legacy, v0) + PHANTOM_GUARDS).toBeLessThanOrEqual(1_232);
+  });
+});
 
 describe('a wallet that signs version 1 gets version 1: tested first, signed only, sent by us', () => {
   it('the test runs come first, the wallet only signs version 1 bytes, and we send what it signed', async () => {

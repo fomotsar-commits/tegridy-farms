@@ -3,12 +3,17 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { PlutusData } from '@emurgo/cardano-serialization-lib-browser';
 import type { Csl } from '../csl';
-import { composeAddress } from '../address';
+import { bech32 } from '@scure/base';
+import { composeAddress, hexToBytes } from '../address';
+import { chainUtxoFromKoios } from '../chain';
+import { ADA, lpAssetName } from '../minswapV2';
 import { testCsl } from '../testkit.fixture';
 import { readOwnPoolsDeployment, type OwnPools } from './deployment';
 import {
   factorySlotFor,
+  KOIOS_PAGE,
   readFactoryEntries,
+  readOwnPoolCandidates,
   readGlobalSetting,
   readGlobalSettingDatum,
   readPlutusParams,
@@ -84,6 +89,55 @@ describe('the factory’s list', () => {
     // An MSF row somewhere else is not the factory: the whole read is unread, never one row short.
     answer([{ ...row, address: composeAddress({ kind: 'script', hash: '99'.repeat(28) }, null).bech32 }]);
     expect((await readFactoryEntries(csl, dep)).status).toBe('unread');
+  });
+
+  it('reads an entry at our factory whatever its stake part, a pointer included, as the factory validator does', async () => {
+    const at = (hex: string) => bech32.encode('addr', bech32.toWords(hexToBytes(hex)), 200);
+    const f = dep.factoryScriptHash;
+    // Types 7 (no stake part, as the deploy and the site write it), 1 (a stake key), 3 (a stake script), 5 (a pointer: slot 1, tx 2, cert 3).
+    const addresses = [`71${f}`, `11${f}${'73'.repeat(28)}`, `31${f}${'74'.repeat(28)}`, `51${f}010203`];
+    const names = ['00', '10'.repeat(32), '20'.repeat(32), '30'.repeat(32), 'ff'.repeat(33)];
+    const rows = addresses.map((a, i) => ({
+      tx_hash: (i + 1).toString(16).repeat(64).slice(0, 64),
+      tx_index: 0,
+      address: at(a),
+      value: '2000000',
+      asset_list: [{ policy_id: dep.authenPolicy, asset_name: '4d5346', quantity: '1' }],
+      inline_datum: { bytes: factoryDatumHex(csl, names[i]!, names[i + 1]!) },
+    }));
+    // The site-wide parser still refuses a pointer address: only this read takes one.
+    expect(chainUtxoFromKoios(rows[3])).toBeNull();
+    answer(rows);
+    const r = await readFactoryEntries(csl, dep);
+    expect(r.status === 'ok' ? r.data.map((e) => [e.utxo.addressHex, e.head]) : r).toEqual(addresses.map((a, i) => [a, names[i]]));
+    // The entry at the pointer address holds the new pair's place: the site can open it.
+    if (r.status === 'ok') expect(factorySlotFor(r.data, '31'.repeat(32))).toEqual({ kind: 'slot', entry: r.data[3] });
+    // Still only at our factory, and only a whole address.
+    answer([{ ...rows[3], address: at(`51${'99'.repeat(28)}010203`) }]);
+    expect((await readFactoryEntries(csl, dep)).status).toBe('unread');
+    answer([{ ...rows[3], address: at(`51${f}`) }]);
+    expect((await readFactoryEntries(csl, dep)).status).toBe('unread');
+    answer([{ ...rows[1], address: at(`61${f}`) }]);
+    expect((await readFactoryEntries(csl, dep)).status).toBe('unread');
+  });
+});
+
+describe('the pool read', () => {
+  it('a page as long as Koios answers is unread: the pool may be past its end (1,000 rows parked at the pool script)', async () => {
+    const lp = lpAssetName(ADA, { policyId: '40'.repeat(28), assetName: '544f4b' });
+    const junk = (i: number) => ({
+      tx_hash: i.toString(16).padStart(64, '0'),
+      tx_index: 0,
+      address: dep.poolAddress.bech32,
+      value: '1100000',
+      inline_datum: null,
+      asset_list: [{ policy_id: dep.authenPolicy, asset_name: lp, quantity: '1' }],
+    });
+    answer(Array.from({ length: KOIOS_PAGE }, (_, i) => junk(i + 1)));
+    expect(await readOwnPoolCandidates(dep, lp)).toEqual({ status: 'unread', reason: 'the pool read is longer than one read' });
+    // One short of a page: the chain answered, and no row is a pool.
+    answer(Array.from({ length: KOIOS_PAGE - 1 }, (_, i) => junk(i + 1)));
+    expect(await readOwnPoolCandidates(dep, lp)).toEqual({ status: 'ok', data: [] });
   });
 });
 

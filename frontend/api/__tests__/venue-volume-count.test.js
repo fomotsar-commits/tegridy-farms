@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import handler from "../venue-volume-count.js";
 import { DB_TIMEOUT_MS } from "../../scripts/venue-volume.mjs";
+import { EVM_CHAINS, HYPEREVM_V3 } from "../../scripts/lib/venue-volume-chain.mjs";
 
 function makeReq(headers = {}, method = "GET") {
   return { method, query: {}, headers };
@@ -72,6 +73,32 @@ describe("venue-volume-count", () => {
     const vercel = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "vercel.json"), "utf-8"));
     expect(opts.runMs + 2 * DB_TIMEOUT_MS).toBeLessThan(vercel.functions["api/venue-volume-count.js"].maxDuration * 1000);
     expect(String(fetchImpl.mock.calls[0][0])).toBe("https://keyed.test/?api-key=k");
+  });
+
+  it("reads every EVM chain the hourly job reads, HyperEVM included, through that chain's own RPC", async () => {
+    // Every name the hourly job (scripts/venue-volume.mjs) hands to d.evm(...): the cron must
+    // serve each one, or that source records an error every five minutes and the home page's
+    // volume reads "not up to date".
+    const job = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "scripts", "venue-volume.mjs"), "utf-8");
+    const names = [...new Set([...job.matchAll(/d\.evm\("([a-z0-9-]+)"\)/g)].map((m) => m[1]))];
+    expect(names).toEqual(expect.arrayContaining(["ethereum", "base", "robinhood", "hyperevm"]));
+    const firstRpc = (name) => (name === "hyperevm" ? HYPEREVM_V3.rpcs[0] : EVM_CHAINS[name].rpcs[0]);
+
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x1" }), { status: 200 }));
+    const reached = {};
+    const run = vi.fn(async (opts) => {
+      for (const name of names) {
+        fetchImpl.mockClear();
+        await opts.deps.evm(name)("eth_blockNumber", []);
+        reached[name] = String(fetchImpl.mock.calls[0][0]);
+      }
+      return 0;
+    });
+    const { res, out } = makeRes();
+    await handler(makeReq(bearer), res, { run, fetchImpl });
+    expect(out.status).toBe(200);
+    for (const name of names) expect(reached[name]).toBe(firstRpc(name));
   });
 
   it("answers 502 when a source did not finish, and logs no secret", async () => {
