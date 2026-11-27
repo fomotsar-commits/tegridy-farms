@@ -14,7 +14,7 @@ export const SHEET_COIN_PARAM = 'coin';
 /** The sheet's own network (owner, 2026-11-11): a pick in its drop-down changes the form in place, and the address holds it. */
 export const SHEET_NET_PARAM = 'net';
 /** Every network a sheet can name. Whether the venue has a form there is the module's to say (layout/moduleNetwork.tsx). */
-export const SHEET_NETS = ['solana', 'base', 'robinhood', 'ethereum', 'cardano'] as const;
+export const SHEET_NETS = ['solana', 'base', 'robinhood', 'hyperevm', 'ethereum', 'cardano'] as const;
 export type SheetNet = (typeof SHEET_NETS)[number];
 /** A room's own network, when the sheet can name it. */
 export function roomNet(room: Bungalow | null | undefined): SheetNet | null {

@@ -14,6 +14,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import CSL from '@emurgo/cardano-serialization-lib-nodejs';
 import type { ProtocolParams } from '../src/build.ts';
+import { compiledParams, type DeployInputs } from '../src/deploy.ts';
 import { announceSpec, announceWindow, executeSpec, executeWindow, lockTx, poolChange, poolNow, readLockTx, type LockDeployment } from '../src/lock.ts';
 import { CHANGE_AFTER, judge, LOCK_AFTER, outputs as chainOutputs, POOL_AFTER, SWAPPED } from './withdraw-chain.ts';
 
@@ -113,7 +114,7 @@ function runDir(): string {
   writeFileSync(join(dir, 'inputs.json'), JSON.stringify({ ...FX.inputs, batcherKeyHash: CSL.PrivateKey.generate_ed25519().to_public().hash().to_hex() }));
   mkdirSync(join(dir, 'out'));
   const h = (hash: string) => ({ hash, compiledCode: '' });
-  writeFileSync(join(dir, 'out', 'scripts.json'), JSON.stringify({ scripts: { lock: h(D.lock), authen: h(D.authen), globalSetting: h(D.authen), pool: h(D.pool) } }));
+  writeFileSync(join(dir, 'out', 'scripts.json'), JSON.stringify({ params: compiledParams(FX.inputs as unknown as DeployInputs), scripts: { lock: h(D.lock), authen: h(D.authen), globalSetting: h(D.authen), pool: h(D.pool) } }));
   writeFileSync(join(dir, 'out', 'state.json'), JSON.stringify({ refs: FX.refsState, txs: {} }));
   return dir;
 }
@@ -146,6 +147,31 @@ test('lock.ts refuses a Koios or an Ogmios on another network than the inputs, b
     assert.equal(ok.status, 0, ok.out);
     assert.match(ok.out, /1 announced[\s\S]*#0: pool ADA \/ MEMETEST .*venue share 1333\/10000 of the trade fee.*waiting, ready 2026-11-10 02:34:24 UTC/);
   } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("lock.ts: a setting announced with a batcher the inputs do not name is refused unless --other-batcher; inputs other than compile's are refused", async () => {
+  // runDir's inputs name a fresh batcher key; the chain's GlobalSetting names the rehearsal's.
+  const dir = runDir();
+  const c = await chain({ koios: '1', ogmios: 1 });
+  try {
+    const env = { KOIOS_URL: c.url, OGMIOS_URL: `${c.url}/ogmios` };
+    const args = (...more: string[]) => ['announce', join(dir, 'inputs.json'), join(dir, 'out'), '--setting', '--opening-fee', '80000000', ...more];
+    const r = await run(LOCK_CLI, args(), env);
+    assert.notEqual(r.status, 0);
+    assert.match(r.out, /the setting's batchers hold signature c94b52fa[0-9a-f]+, NOT our batcher key [0-9a-f]{56} \(inputs\.json\): pass --other-batcher/);
+    const ok = await run(LOCK_CLI, args('--other-batcher'), env);
+    assert.equal(ok.status, 0, ok.out);
+    assert.match(ok.out, /batchers: signature c94b52fa[0-9a-f]+ \(NOT our batcher key\), unchanged/);
+    // inputs.json with another treasury than scripts.json was compiled with.
+    const raw = JSON.parse(readFileSync(join(dir, 'inputs.json'), 'utf8'));
+    writeFileSync(join(dir, 'inputs.json'), JSON.stringify({ ...raw, lockSeedTxIn: `${'22'.repeat(32)}#1` }));
+    const moved = await run(LOCK_CLI, ['show', join(dir, 'inputs.json'), join(dir, 'out')], env);
+    assert.notEqual(moved.status, 0);
+    assert.match(moved.out, /scripts.json was compiled with lockSeedTxIn/);
+  } finally {
+    c.close();
     rmSync(dir, { recursive: true, force: true });
   }
 });

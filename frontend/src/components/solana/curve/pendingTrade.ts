@@ -68,6 +68,7 @@ const KNOWN: Record<TradeKind, true> = {
   'lp-deposit': true,
   'lp-withdraw': true,
   'lp-create': true,
+  'lp-restart': true,
   'range-open': true,
   'range-remove': true,
   'range-close': true,

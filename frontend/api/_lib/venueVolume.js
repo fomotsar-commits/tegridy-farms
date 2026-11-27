@@ -10,7 +10,8 @@ import { checkRateLimit, checkGlobalLimit } from "./ratelimit.js";
 import { isOriginAllowed, isRequestOriginAllowed } from "./aggregator-proxy.js";
 import { readBoundedText } from "./bodycap.js";
 import { logSafe } from "./logSafe.js";
-import { summarize } from "./venueVolumePolicy.js";
+import { summarize, volumeSources } from "./venueVolumePolicy.js";
+import { hyperEvmCounted } from "../../scripts/lib/venue-volume-chain.mjs";
 
 function setCors(req, res) {
   const origin = req.headers?.origin || "";
@@ -46,7 +47,7 @@ export async function handleVenueVolume(req, res, { nowMs = Date.now(), fetchImp
     });
     const { text, truncated } = await readBoundedText(r, 64 * 1024);
     if (!r.ok || truncated) return unread(res, 502);
-    const body = summarize(JSON.parse(text), nowMs);
+    const body = summarize(JSON.parse(text), nowMs, volumeSources(hyperEvmCounted()));
     if (body.state === "unread") return unread(res, 200);
     res.setHeader("Cache-Control", "s-maxage=60, stale-while-revalidate=60");
     return res.status(200).json(body);

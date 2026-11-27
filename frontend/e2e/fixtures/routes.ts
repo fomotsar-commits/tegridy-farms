@@ -470,6 +470,28 @@ export const ROUTES: readonly RouteSpec[] = [
     knownViolations: [],
   },
   {
+    path: '/hyperevm',
+    voice: 'venue',
+    owner: 'pages/HyperEvmSwapPage.tsx',
+    gate: null,
+    why:
+      'The swap on our own Uniswap V3 pools on HyperEVM, routed since the venue was deployed (2026-11-25). ' +
+      'It reads our factory live from the HyperEVM RPC, so it audits whichever answer comes: a quote, or ' +
+      '"No pools are open on HyperEVM yet".',
+    knownViolations: [],
+  },
+  {
+    path: '/hyperevm-pools',
+    voice: 'venue',
+    owner: 'pages/HyperEvmPoolsPage.tsx',
+    tabOf: 'PoolsHostPage · hyperevm-pools',
+    gate: null,
+    why:
+      'Our HyperEVM pools and your positions, routed since the venue was deployed (2026-11-25). With no ' +
+      'wallet it audits the pool list read live (or "No pools are open yet") and the connect prompt.',
+    knownViolations: [],
+  },
+  {
     path: '/range-pools',
     voice: 'venue',
     owner: 'pages/RangePoolsPage.tsx',

@@ -218,6 +218,8 @@ export interface LpWriteApi {
   /** The public fee tier and the fee account, read beside the gate and never inside it. Never throws. */
   readCreateFacts(rpc: GateRpc, cfg: CurveWriteConfig): Promise<CreateFacts>;
   prepareLpDeposit(rpc: WriteRpc, gate: LpOpenGate, reads: LpPrepareReads, a: LpDepositArgs): Promise<Prepared>;
+  /** Adding to an almost empty pool at the market price (restart.ts): the same arguments as a deposit. */
+  prepareLpRestart(rpc: WriteRpc, gate: LpOpenGate, reads: LpPrepareReads, a: LpDepositArgs): Promise<Prepared>;
   prepareLpWithdraw(rpc: WriteRpc, gate: LpOpenGate, a: LpWithdrawArgs): Promise<Prepared>;
   prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: LpPrepareReads, a: LpCreateArgs): Promise<Prepared>;
   submitPrepared(rpc: WriteRpc, signer: TxSigner, p: PreparedTx, deps?: SubmitDeps): Promise<TxOutcome>;

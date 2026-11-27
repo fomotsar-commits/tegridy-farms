@@ -324,7 +324,7 @@ export default function CurveTokenPage() {
             <p className="text-white/55 text-[12px] mt-1 leading-relaxed">
               Checked every chain the Memetics curve is deployed on. Nothing launched from our
               launcher lives at{' '}
-              <span className="font-mono break-all">{token}</span>. If it was just created, give
+              <span className="font-mono [overflow-wrap:anywhere]">{token}</span>. If it was just created, give
               the RPC a few seconds and reload.{' '}
               <Link className="text-sky-300/80 hover:text-sky-200" to="/eth-curve">
                 Back to the curve
