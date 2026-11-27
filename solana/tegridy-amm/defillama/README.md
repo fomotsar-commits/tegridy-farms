@@ -27,14 +27,13 @@ output is in each `PR.md`.
   that as our revenue. The Workshop gets 5.6% of it (0.056% of the swap): shown as paid out, not
   as our revenue. Opening a pool pays the vault 0.15 SOL: shown as revenue.
 
-## Three decisions before sending
+## Decisions before sending: one settled, two open
 
-1. **The price robot's swaps are left out of volume.** DefiLlama's written rule is that a
-   protocol's own trades are never volume, and our robot trades free of fees. The adapter
-   leaves out every swap that paid no fee, which is exactly the robot's. So DefiLlama's figure
-   will be lower than the one figure our site shows, and the pull request says why. Sending a
-   figure with the robot in it would break their rule and risks the listing. If a second,
-   smaller public figure is not wanted, send the value-locked listing alone.
+1. **Settled by the owner, 2026-11-27: the price robot's swaps stay out of volume, and both
+   listings go.** DefiLlama's written rule is that a protocol's own trades are never volume,
+   and our robot trades free of fees. The adapter leaves out every swap that paid no fee,
+   which is exactly the robot's. So DefiLlama's figure will be lower than the one figure our
+   site shows, and the pull request says why. Our site keeps its one figure, robot included.
 2. **The Workshop's share is shown as paid out, not as revenue.** DefiLlama counts as revenue
    only what a protocol's own treasury or token holders keep. This is a labelling choice; the
    amounts are the chain's either way.
