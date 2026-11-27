@@ -113,7 +113,7 @@ describe('the commitment line', () => {
     // The sentence plus the buyer's own read link, which the island ruled
     // carries the real number in every form. Nothing else rides along.
     expect(text).toContain('My clock on PEPE keeps running. Held time counts here.');
-    expect(text).toContain(`/read/${BUYER}`);
+    expect(text).toMatch(new RegExp(`/read/${BUYER}\\?(?:h=\\d+\\.\\d\\d|d=\\d{8})$`));
     expect(door.target).toBe('_blank');
 
     fireEvent.click(door);

@@ -69,6 +69,12 @@ export function ownTicker(mint: string, safety?: TokenSafety | null): string | n
   return c?.own ? c.shown : null;
 }
 
+/** `ownTicker` from a ticker read anywhere else (Jupiter's token list on the swap page): null when none, and for a copy. */
+export function ownTickerOf(mint: string, symbol: string | null | undefined): string | null {
+  const c = claim(mint, symbol);
+  return c?.own ? c.shown : null;
+}
+
 /**
  * A coin by its ticker and its whole address, for a range pool's coins: "BAYLA · 7hmV…pump" in
  * full. `ticker` is the name its check gave (tokenTicker with the check, "fake X" for a copy);

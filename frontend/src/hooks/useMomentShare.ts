@@ -1,12 +1,17 @@
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import { RECEIPT_WORDS } from '../lib/arrival';
-import { canShareGif, fetchMoment, saveMoment, shareMoment, type MomentClip } from '../lib/momentShare';
+import { canShareGif, saveMoment, shareMoment, takeMoment, type MomentClip } from '../lib/momentShare';
 
 type Step = 'idle' | 'getting' | 'ready' | 'saved' | 'none';
 
 /** A touch screen: its share sheet lists X. A computer's sheet does not, so a computer gets X's composer and the file. */
 function touchScreen(): boolean {
   return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
+}
+
+/** This screen can use the moment's GIF: a computer saves it, a phone hands it to its share sheet. Asked before any fetch. */
+export function momentWanted(): boolean {
+  return !touchScreen() || canShareGif();
 }
 
 /**
@@ -27,9 +32,10 @@ export function useMomentShare(clip: MomentClip | null): { onClick: (e: MouseEve
   useEffect(() => {
     file.current = null;
     pending.current = null;
-    if (!clip || (touchScreen() && !canShareGif())) return; // a phone with no share sheet for files: nothing to fetch
+    if (!clip || !momentWanted()) return; // a phone with no share sheet for files: nothing to fetch
     let live = true;
-    void fetchMoment(clip).then((f) => {
+    // The ask made as the wallet signed, when there was one (the moment for every coin); else one made now.
+    void takeMoment(clip).then((f) => {
       if (!live) return;
       file.current = f;
       const was = pending.current;

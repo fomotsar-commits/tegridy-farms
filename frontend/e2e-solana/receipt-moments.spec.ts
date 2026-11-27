@@ -82,6 +82,41 @@ async function person(browser: Browser, kp: Keypair, motion: Motion, jupiterPric
   return a;
 }
 
+/** The island's answer to a clip, here: a GIF of one pixel (vercel.json sends /share/moment/ to memetics.wtf; the preview server has no such road). */
+const GIF = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
+
+/**
+ * Every clip the page asks of the island, by file and when it left, and when the card was first put on the page, by
+ * the same machine's clock (the moment for every coin: the clip is asked as the wallet signs, lib/momentShare.ts
+ * askMoment, so the card's first tap carries it). The card's own ask (useMomentShare.ts) can only leave once the card
+ * is on the page, so an ask before that is the one made at signing. Asked at all because this browser is no touch
+ * screen (a context with no touch: `(pointer: coarse)` does not match), so momentWanted() is true.
+ */
+async function momentAsks(a: Actor): Promise<{ asks: { file: string; at: number }[]; cardAt: () => Promise<number | null> }> {
+  const asks: { file: string; at: number }[] = [];
+  await a.ctx.route('**/share/moment/**', (route: Route) => {
+    asks.push({ file: new URL(route.request().url()).pathname.split('/').pop()!, at: Date.now() });
+    return route.fulfill({ status: 200, contentType: 'image/gif', body: GIF });
+  });
+  await a.page.addInitScript(() => {
+    new MutationObserver(() => {
+      const w = window as unknown as { cardAt?: number };
+      if (w.cardAt === undefined && document.querySelector('[data-testid="receipt-card"]')) w.cardAt = Date.now();
+    }).observe(document, { childList: true, subtree: true });
+  });
+  return { asks, cardAt: () => a.page.evaluate(() => (window as unknown as { cardAt?: number }).cardAt ?? null) };
+}
+
+/** The clip was asked once, before the card was on the page: as the wallet signed, and the card took that ask. */
+async function askedAtSigning(a: Actor, m: Awaited<ReturnType<typeof momentAsks>>, file: string): Promise<void> {
+  const cardAt = await m.cardAt();
+  expect(cardAt, 'the card was put on the page').not.toBeNull();
+  const mine = m.asks.filter((x) => x.file === file);
+  test.info().annotations.push({ type: 'moment', description: `${file}: signed ${a.wallet.lastSigned().at}, asked ${mine.map((x) => new Date(x.at).toISOString()).join(', ')}, card ${new Date(cardAt!).toISOString()}` });
+  expect(mine, `${file} is asked of the island once`).toHaveLength(1);
+  expect(mine[0]!.at, `${file} is asked before the card is on the page`).toBeLessThan(cardAt!);
+}
+
 /** Sign what is on review, and wait for the card to rise over the page. */
 async function signAndRaise(a: Actor): Promise<void> {
   const p = a.page;
@@ -139,7 +174,9 @@ for (const motion of MOTIONS) {
     test.setTimeout(5 * 60_000);
     const a = await person(browser, await fundedKeypair(3), motion);
     const p = a.page;
+    const moments = await momentAsks(a);
     await swapToCard(a, `out=${mint.toBase58()}`, 'Amount of SOL to pay', '0.05', `Buy ${SYMBOL}`);
+    await askedAtSigning(a, moments, `shore-${mint.toBase58()}.gif`);
 
     // A buy's head is the shore: the flame ring, never the pool.
     await expect(card(p)).toHaveAttribute('data-flame', 'catching');
@@ -154,12 +191,16 @@ for (const motion of MOTIONS) {
     // This coin has no room on the island: no slot is kept for a line, and none is said.
     await expect(card(p).getByTestId('receipt-shore-slot')).toHaveCount(0);
 
-    // At rest, after the beats: still lit, still no line, the share button the island's card.
+    // At rest, after the beats: still lit, still no line, and Share on X with the coin's own post (the moment for every
+    // coin: its ticker is its own, so it is a name to post it under). Built from the words alone, as below.
     await p.waitForTimeout(AFTER_THE_BEATS_MS + 3_000);
     await expect(flameRing(p)).toHaveAttribute('data-shore', 'lit');
     await expect(shoreLine(p)).toHaveCount(0);
     await expect(card(p)).not.toContainText(RECEIPT_WORDS.shoreMark(SYMBOL));
-    await expect(card(p).getByTestId('receipt-share')).toHaveText(RECEIPT_WORDS.share);
+    const share = card(p).getByTestId('receipt-share');
+    await expect(share).toHaveText(RECEIPT_WORDS.shareX);
+    const post = `${RECEIPT_WORDS.buyPostAny(SYMBOL)} ${RECEIPT_WORDS.buyLinkAny(mint.toBase58())}`;
+    await expect(share).toHaveAttribute('href', `https://x.com/intent/post?text=${encodeURIComponent(post)}`);
     await expect(card(p).getByTestId('receipt-title')).toHaveText(new RegExp(`^Bought (.+ )?${SYMBOL}$`));
     await headOnScreen(p);
 
@@ -282,11 +323,14 @@ for (const motion of MOTIONS) {
     await transferTokens(creator, me.publicKey, mint, 100_000n * UNIT);
     const a = await person(browser, me, motion);
     const p = a.page;
+    const moments = await momentAsks(a);
     await openPools(p, mint);
     await connect(p);
     const { panel } = await addAndReview(a, pool.address, '0.2');
     await press(ui.lp.reviewAdd(panel), 'Review: add liquidity');
     await signAndRaise(a);
+    // Paired with SOL: the clip names no pairing coin.
+    await askedAtSigning(a, moments, `flash-${mint.toBase58()}.gif`);
 
     // An add's head is the pool: never the flame ring, never the shore line.
     await expect(card(p).getByTestId('floor-head')).toBeVisible();

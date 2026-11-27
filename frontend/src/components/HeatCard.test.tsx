@@ -376,7 +376,7 @@ describe('the share', () => {
     const text = new URL(post.getAttribute('href') ?? '').searchParams.get('text');
     expect(text).toBe(
       `1785.1° on Jungle Bay Island's instrument. Elder. 1694 days held. ` +
-        `Held time counts here. https://memetics.finance/read/${ADDR}`,
+        `Held time counts here. https://memetics.finance/read/${ADDR}?h=1785.14`,
     );
   });
 
@@ -388,7 +388,7 @@ describe('the share', () => {
     const text = new URL(post.getAttribute('href') ?? '').searchParams.get('text');
     expect(text).toBe(
       `95.0° on Jungle Bay Island's instrument. Observer. 1694 days held. ` +
-        `Held time counts here. https://memetics.finance/read/${ADDR}`,
+        `Held time counts here. https://memetics.finance/read/${ADDR}?h=95.00`,
     );
   });
 
@@ -1387,7 +1387,7 @@ describe('the rank in the room, as the island served it', () => {
     expect(text).toBe(
       `1785.1° on Jungle Bay Island's instrument. Elder. 1694 days held. ` +
         `12th of 498 measured in the PEPE room. ` +
-        `Held time counts here. https://memetics.finance/read/${ADDR}`,
+        `Held time counts here. https://memetics.finance/read/${ADDR}?h=1785.14`,
     );
   });
 

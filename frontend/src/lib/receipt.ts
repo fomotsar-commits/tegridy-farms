@@ -42,7 +42,8 @@ export interface Receipt {
   /**
    * On an add: `coin.symbol` is no ticker of the coin's own, because none was read ("tokens") or it copies
    * a well-known coin ("fake USDC": lib/solana/lp/identity.ts `ownTicker`). The floor line and the post
-   * then name no coin (island answer thirty-four).
+   * then name no coin (island answer thirty-four). On a buy (the moment for every coin, 11-19): the swap's
+   * ticker is no ticker of the coin's own (identity.ts `ownTickerOf`), so its moment is never posted under it.
    */
   unnamed?: boolean;
   /** The action's words, from what the transaction moved; null until read. */
