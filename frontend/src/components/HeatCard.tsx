@@ -5,6 +5,7 @@
 // different copy: an outage never renders as a zero.
 
 import { daysHeld } from '../lib/heat/daysHeld';
+import { readLink } from '../lib/readLink';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { m, AnimatePresence } from 'framer-motion';
@@ -34,7 +35,6 @@ import { shortenAddress } from '../lib/formatting';
 import { HEAT_WORDS, heatExampleLine, VENUE } from '../lib/arrival';
 import { injectedNetworks, readInjectedAddress, type FillNetwork } from '../lib/heat/walletFill';
 import { useSolanaSurface } from '../lib/solanaSurface';
-import { SITE_URL } from '../lib/constants';
 import { BUNGALOWS, bungalowLpDoor } from '../lib/bungalows';
 import { CardArt } from './ui/CardArt';
 import { FinePrint } from './ui/FinePrint';
@@ -528,7 +528,7 @@ function Reading({
 
   // The post, built from served numbers only, and the number leads. The rank is the
   // deepest live room's, named by its room, and absent when the island served none.
-  // SITE_URL rather than a literal host, so the link cannot drift from the venue's own.
+  // readLink: the venue's own host, and a new link when the number moves (X redraws only a new link).
   const shareIntent = useMemo(() => {
     const rank = deepest ? roomRankLine(deepest.roomRank, deepest.roomHolders) : null;
     const text =
@@ -536,7 +536,7 @@ function Reading({
       (printedTier(reading.tier) ? `${printedTier(reading.tier)}. ` : '') +
       `${days} days held. ` +
       (rank && deepest ? `${rank} in the ${deepest.symbol} room. ` : '') +
-      `Held time counts here. ${SITE_URL}/read/${reading.address}`;
+      `Held time counts here. ${readLink(reading.address, reading.degrees)}`;
     return `https://x.com/intent/post?text=${encodeURIComponent(text)}`;
   }, [reading.tier, reading.degrees, reading.address, deepest, days]);
 

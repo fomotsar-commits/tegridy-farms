@@ -10,7 +10,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { VENUE_PROGRAM, __reset, decimal, decodePool, eventsIn, eventsOf, feeBpsOf } from "../_lib/geckoterminal.js";
+import { MAX_TXS_PER_CALL, VENUE_PROGRAM, __reset, decimal, decodePool, eventsIn, eventsOf, feeBpsOf } from "../_lib/geckoterminal.js";
 import { EVENTS_PER_TXN, OPEN_TAGS, dexToolsEventsIn, dexToolsEventsOf, handleDexTools, openedPools, openings } from "../_lib/dextools.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -117,7 +117,7 @@ describe("events in DexTools' shape", () => {
 });
 
 /** A chain that answers from the fixtures. `poolLists` is what getProgramAccounts answers, call by call (the last repeats). */
-function chain({ tip = 466_420_000, txs = [createTx, swapTx, depositTx, withdrawTx], poolLists = [[POOL]], skipped = [] } = {}) {
+function chain({ tip = 466_420_000, txs = [createTx, swapTx, depositTx, withdrawTx], poolLists = [[POOL]], skipped = [], index = null } = {}) {
   const bySig = new Map(txs.map((t) => [sig(t), t]));
   const calls = [];
   let lists = 0;
@@ -134,7 +134,7 @@ function chain({ tip = 466_420_000, txs = [createTx, swapTx, depositTx, withdraw
       return 1_794_000_000 + (params[0] % 1000);
     }
     if (method === "getSignaturesForAddress") {
-      const list = [...bySig.values()].sort((a, b) => b.slot - a.slot).map((t) => ({ signature: sig(t), slot: t.slot, blockTime: t.blockTime, err: null }));
+      const list = [...bySig.values()].sort((a, b) => b.slot - a.slot).map((t) => ({ signature: sig(t), slot: t.slot, blockTime: t.blockTime, err: null, ...(index ? { transactionIndex: index(t) } : {}) }));
       const before = params[1]?.before;
       const from = before ? list.findIndex((s) => s.signature === before) + 1 : 0;
       return list.slice(from, from + (params[1]?.limit ?? 1000));
@@ -250,13 +250,24 @@ describe("the endpoints", () => {
     expect((await call(chain(), "events", { fromBlock: "1", toBlock: "100" })).body).toEqual({ events: [] });
   });
 
+  it("/events: a node that lists each transaction's place in its block is believed, and no block is read; 125 transactions in one range come back whole", async () => {
+    const listed = chain({ index: () => 9 });
+    const r = await call(listed, "events", { fromBlock: "466405061", toBlock: "466405274" });
+    expect(r.body.events.map((e) => [e.eventType, e.eventIndex])).toEqual([["swap", 9000], ["join", 9000]]);
+    expect(listed.calls).not.toContain("getBlock");
+    const busy = chain({ txs: Array.from({ length: 125 }, (_, i) => ({ ...swapTx, slot: 466405061 + i, transaction: { ...swapTx.transaction, signatures: [`sig${i}`] } })) });
+    const whole = await call(busy, "events", { fromBlock: "466405061", toBlock: "466405200" });
+    expect(whole.statusCode).toBe(200);
+    expect(whole.body.events.map((e) => e.txnId)).toEqual(Array.from({ length: 125 }, (_, i) => `sig${i}`));
+  });
+
   it("/events: bad slots and a range too wide are 400 with an issue each; too many transactions says to ask for less", async () => {
     const c = chain();
     expect((await call(c, "events", {})).body.issues.map((i) => [i.param, i.code])).toEqual([["fromBlock", "required"], ["toBlock", "required"]]);
     expect((await call(c, "events", { fromBlock: "10", toBlock: "5" })).body.issues).toEqual([expect.objectContaining({ param: "toBlock", code: "range" })]);
     expect((await call(c, "events", { fromBlock: "1", toBlock: "60000" })).statusCode).toBe(400);
-    const many = chain({ txs: Array.from({ length: 61 }, (_, i) => ({ ...swapTx, slot: 466405061 + i, transaction: { ...swapTx.transaction, signatures: [`sig${i}`] } })) });
-    const r = await call(many, "events", { fromBlock: "466405061", toBlock: "466405200" });
+    const many = chain({ txs: Array.from({ length: MAX_TXS_PER_CALL + 1 }, (_, i) => ({ ...swapTx, slot: 466405061 + i, transaction: { ...swapTx.transaction, signatures: [`sig${i}`] } })) });
+    const r = await call(many, "events", { fromBlock: "466405061", toBlock: String(466405061 + MAX_TXS_PER_CALL) });
     expect(r.statusCode).toBe(400);
     expect(r.body.issues[0].message).toMatch(/smaller range/);
   });

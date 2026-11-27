@@ -264,15 +264,23 @@ describe('an add shares on X', () => {
     expect(text).not.toMatch(/—/);
   });
 
-  it.each([
-    ['a sale', { action: 'sold' }],
-    ['a buy of a coin with no room', { action: 'bought', coin: { symbol: 'WIF', mint: WIF } }],
-  ] as const)('%s keeps Share your card', (_name, over) => {
-    act(() => raiseReceipt(receipt(over)));
+  it('a sale keeps Share your card', () => {
+    act(() => raiseReceipt(receipt({ action: 'sold' })));
     const share = screen.getByRole('link', { name: 'Share your card' });
     expect(share).toHaveAttribute('href', `https://memetics.wtf/card/${WALLET}`);
     expect(screen.queryByRole('link', { name: 'Share on X' })).toBeNull();
     expect(fetchClip).not.toHaveBeenCalled();
+  });
+
+  // The moment for every coin (the owner, 11-19: his $BIGBRAIN share posted words only): a buy of a coin with no
+  // room shares on X with its own moment, asked of the island by its mint.
+  it('a buy of a coin with no room: Share on X, the post written, its moment asked by its mint', async () => {
+    act(() => raiseReceipt(receipt({ action: 'bought', coin: { symbol: 'WIF', mint: WIF }, island: false })));
+    const share = screen.getByRole('link', { name: 'Share on X' });
+    expect(posted(share.getAttribute('href'))).toBe(`Just bought $WIF. https://memetics.finance/solana?out=${WIF}`);
+    expect(screen.queryByRole('link', { name: 'Share your card' })).toBeNull();
+    await act(async () => { await Promise.resolve(); });
+    expect(fetchClip).toHaveBeenCalledWith(`/share/moment/shore-${WIF}.gif`);
   });
 });
 
@@ -372,7 +380,9 @@ describe('the moment travels', () => {
     const share = phone();
     act(() => raiseReceipt(added()));
     await flush();
-    expect(fetchClip).toHaveBeenCalledTimes(1);
+    // Two asks: an answer that is not a GIF may be one the browser kept, so the network is asked once before the card
+    // goes without (momentShare.ts, fetchMoment).
+    expect(fetchClip.mock.calls).toEqual([['/share/moment/flash-bayla.gif'], ['/share/moment/flash-bayla.gif', { cache: 'reload' }]]);
     fireEvent.click(screen.getByRole('link', { name: 'Share on X' }));
     await flush();
     expect(share).not.toHaveBeenCalled();
