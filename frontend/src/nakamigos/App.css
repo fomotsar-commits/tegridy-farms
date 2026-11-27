@@ -558,6 +558,13 @@ body.theme-sovereign .nakamigos-portal {
 
 /* ═══ 7 · COLLECTION OPENING ═══════════════════════════════════════════════ */
 .nakamigos-app .hero { position: relative; z-index: 1; max-width: var(--page); margin: 0 auto; padding: 40px var(--gutter) 0; }
+/* A collection's own banner (constants.js `banner`): the picture whole on a phone (8:3, its
+   own shape), a strip no taller than 300px on a wide screen. Hairline and tight corners,
+   like every other plane here; no film, no glow. */
+.nakamigos-app .hero-banner {
+  display: block; width: 100%; aspect-ratio: 8 / 3; max-height: 300px; margin: 0 0 28px;
+  object-fit: cover; border: 1px solid var(--border); border-radius: 6px; background: var(--surface);
+}
 .nakamigos-app .hero-wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 520px); gap: 40px 56px; align-items: end; }
 .nakamigos-app .hero-info { min-width: 0; }
 .nakamigos-app .hero-badge-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }

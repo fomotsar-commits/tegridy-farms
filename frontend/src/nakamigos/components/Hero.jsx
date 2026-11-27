@@ -5,6 +5,7 @@ import { COLLECTION_LORE } from "../constants";
 import { descriptionSourceTag } from "../lib/venue";
 import Usd from "./Usd";
 import { FinePrint } from "../../components/ui/FinePrint";
+import { artImgProps } from "../../lib/artSrcSet";
 
 // The opening's picture: five of the collection's own pieces on one sheet, the
 // first one large. Each opens its piece. Nothing rotates and nothing is
@@ -69,6 +70,17 @@ export default function Hero({ stats, tokens, onPick }) {
 
   return (
     <section className="hero mk-plane">
+      {/* A collection's own banner, when its config names one (Jungle Bay only). */}
+      {collection.banner?.src && (
+        <img
+          className="hero-banner"
+          src={collection.banner.src}
+          {...artImgProps(collection.banner.src)}
+          alt=""
+          decoding="async"
+          style={{ objectPosition: collection.banner.position }}
+        />
+      )}
       <div className="hero-wrap">
         <div className="hero-info">
           <div className="hero-badge-row">
