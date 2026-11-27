@@ -12,7 +12,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { base58 } from "@scure/base";
 import STAKE_POOL_IDL from "@streamflow/staking/solana/idl/stake_pool.json";
 import { toFunctionSelector } from "viem";
-import { EVM_CHAINS } from "../../../scripts/lib/venue-volume-chain.mjs";
+import { EVM_CHAINS, HYPEREVM_V3 } from "../../../scripts/lib/venue-volume-chain.mjs";
 import REGISTRY from "../../../scripts/addresses.json";
 import { POOL_DISCRIMINATOR_B58, POOL_STATE_LEN, QUOTE_COINS } from "../pool-index.js";
 import { RANGE_PROGRAM_ADDRESS } from "../../../src/lib/solana/clmm/programId.ts";
@@ -150,6 +150,13 @@ function world() {
           },
         });
       }
+    }
+    // HyperEVM (deployed 2026-11-25): our V3 factory, which has opened no pool yet, so every
+    // getPool answers the zero address and the row reads $0 from 0 pools.
+    if (HYPEREVM_V3.rpcs.includes(u) && body.method === "eth_call") {
+      if (w.down.has("hyperevm")) return new Response("busy", { status: 503 });
+      const { to, data } = body.params[0];
+      if (to.toLowerCase() === HYPEREVM_V3.factory.toLowerCase() && data.startsWith("0x1698ee82")) return json({ result: "0x" + word(0) });
     }
     const chain = chainOf.get(u);
     if (chain && body.method === "eth_call") {
@@ -719,7 +726,18 @@ describe("the total: every chain, or it says which it is missing", () => {
     w.pairs.ethereum = [pair("0x00000000000000000000000000000000000000e1", "0x00000000000000000000000000000000000000f1", EVM_CHAINS.ethereum.weth.toLowerCase(), 1n, 10n ** 17n)];
     const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
     expect(body).toMatchObject({ state: "current", usd: 800, readAt: new Date(NOW).toISOString() });
-    expect(body.chains.map((c) => c.chain)).toEqual(["solana", "ethereum", "base", "robinhood"]);
+    expect(body.chains.map((c) => c.chain)).toEqual(["solana", "ethereum", "base", "robinhood", "hyperevm"]);
+    // Our HyperEVM factory, read: no pool opened yet.
+    expect(chain(body, "hyperevm")).toEqual({ chain: "hyperevm", read: true, usd: 0, pools: 0, unvalued: 0 });
+  });
+
+  it("is partial when HyperEVM cannot be read: it is named, with no number", async () => {
+    const w = world();
+    w.pool(CP, [SOL, 2], [MEME, 1]);
+    w.down.add("hyperevm");
+    const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
+    expect(body).toMatchObject({ state: "partial", usd: 400 });
+    expect(chain(body, "hyperevm")).toEqual({ chain: "hyperevm", read: false });
   });
 
   it("is partial when a chain cannot be read: that chain is named, with no number", async () => {
@@ -733,7 +751,7 @@ describe("the total: every chain, or it says which it is missing", () => {
 
   it("is unread, with no number at all, when no chain could be read", async () => {
     const w = world();
-    for (const c of ["solana", "ethereum", "base", "robinhood"]) w.down.add(c);
+    for (const c of ["solana", "ethereum", "base", "robinhood", "hyperevm"]) w.down.add(c);
     expect(await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW })).toEqual({ state: "unread" });
   });
 
@@ -787,7 +805,7 @@ describe("handleVenueTvl", () => {
     expect(partial.out.body.state).toBe("partial");
     expect(partial.out.headers["Cache-Control"]).toMatch(/s-maxage=15$/);
     __resetVenueTvl();
-    for (const c of ["solana", "ethereum", "robinhood"]) w.down.add(c);
+    for (const c of ["solana", "ethereum", "robinhood", "hyperevm"]) w.down.add(c);
     const unread = makeRes();
     await handleVenueTvl(makeReq(), unread.res, { fetchImpl: w.fetchImpl, nowMs: NOW });
     expect(unread.out.status).toBe(502);

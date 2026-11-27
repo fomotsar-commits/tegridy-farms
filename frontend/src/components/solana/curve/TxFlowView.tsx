@@ -3,7 +3,7 @@ import { describeTreasury, formatSol, formatTokenAmount } from '../../../lib/lau
 import { ExplorerLink, ImpactRows, Notice, Row } from './ui';
 import { DIVIDER, bpsPercent, fractionToBps, sharePercent } from './uiFormat';
 import { CREATOR_FEE_SWITCH, feeSplit } from '../../../lib/solana/cpswap/venue';
-import { feeRateText, formatSolPrice, tradeCostText } from '../../../lib/solana/lp/format';
+import { feeRateText, formatSolPrice, priceText as pricePerToken, tradeCostText, worthText } from '../../../lib/solana/lp/format';
 import { edgePercent } from '../../../lib/solana/route';
 import { perMillionPercent } from '../../../lib/solana/clmm/feeText';
 import type { FeeSplitView, NotSent, PreparedTx, SolanaCluster, TokenRole, TxKind, TxOutcome, TxSigner, TxSummary, TxViewApi } from './ports';
@@ -485,9 +485,13 @@ function LpDepositRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp
           mono={false}
         />
       )}
-      <Row label="You get" value={`${unitsExact(s.lpAmount, s.lpDecimals)} pool shares, exactly`} mono={false} />
+      {s.restart ? (
+        <LpRestartRows summary={s} restart={s.restart} />
+      ) : (
+        <Row label="You get" value={`${unitsExact(s.lpAmount, s.lpDecimals)} pool shares, exactly`} mono={false} />
+      )}
       <Row label="Your share of the pool" value={`${shareText(s.sharePct.before)} → ${shareText(s.sharePct.after)}`} />
-      <Row label="Price check" value={pricedText(s.price, q)} mono={false} line="market" />
+      {!s.restart && <Row label="Price check" value={pricedText(s.price, q)} mono={false} line="market" />}
       {s.priceGap && <Row label="Estimated cost of that gap" value={gapCostText(s.priceGap, q)} mono={false} line="market" />}
       <Row label="Pool fee to add" value="none" mono={false} />
       {s.tokenWarnings.length > 0 && (
@@ -512,6 +516,32 @@ function LpDepositRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp
             ? 'Your SOL is wrapped into a token account for the deposit, and the account is closed at the end, so anything not used comes back as plain SOL.'
             : `You already hold ${formatSol(s.wsolHeldBefore, 9)} wrapped SOL. None of it is spent. Up to ${solExact(unused)} of this deposit that the pool does not use stays in that account as wrapped SOL; your wallet app can unwrap it.`}
       </Notice>
+    </>
+  );
+}
+
+/**
+ * A restart's own rows (restart.ts): the price the pool is set to, what tops it up and stays
+ * in it for good, the shares kept, and the check-back that undoes everything if the pool was
+ * moved first. Every amount but the top-up's worth is decoded from the bytes.
+ */
+function LpRestartRows({ summary: s, restart: r }: { summary: Extract<TxSummary, { kind: 'lp-deposit' }>; restart: NonNullable<Extract<TxSummary, { kind: 'lp-deposit' }>['restart']> }) {
+  const q = s.quote;
+  const shares = (v: bigint) => unitsExact(v, s.lpDecimals);
+  return (
+    <>
+      <Row label="Restarts at" value={`${pricePerToken(r.perToken, q)}, Jupiter’s price read just now`} mono={false} line="market" />
+      <Row
+        label="Also goes in, for good"
+        value={`${coinExact(r.topUp.quote, q)} and ${unitsExact(r.topUp.token, s.tokenDecimals)} tokens (${worthText(coinAbout(r.costQuote, q, true))}), to set the pool to that price. They stay in the pool, and you cannot take them back out.`}
+        mono={false}
+      />
+      <Row label="You get" value={`${shares(r.keep)} pool shares, exactly`} mono={false} />
+      <Row
+        label="Check-back"
+        value={`${shares(r.checkLp)} pool shares come straight back out, as at least ${coinExact(r.checkMin.quote, q)} and ${unitsExact(r.checkMin.token, s.tokenDecimals)} tokens. If the pool changed by more than your tolerance before this runs, it fails and nothing goes in.`}
+        mono={false}
+      />
     </>
   );
 }
@@ -944,6 +974,7 @@ const RENT_ROW_LABEL: Record<TxKind, string> = {
   'venue-swap': 'One-time deposit for your new token account (it stays in that account)',
   'lp-deposit': 'One-time deposit for your new token account (it stays in that account)',
   'lp-withdraw': 'One-time deposit for your new token account (it stays in that account)',
+  'lp-restart': 'One-time deposit for your new token account (it stays in that account)',
   'lp-create':
     "One-time account deposits: the new pool's own accounts (never returned) and your pool-share account (yours to close later)",
   'range-open': 'One-time deposits: your position and its NFT (back when you close it), and any new price band of the pool (never returned)',
@@ -1028,6 +1059,7 @@ const TITLES: Record<PreparedTx['kind'], string> = {
   'lp-deposit': 'Review: add liquidity',
   'lp-withdraw': 'Review: remove liquidity',
   'lp-create': 'Review: open a pool',
+  'lp-restart': 'Review: restart this pool',
   'range-open': 'Review: open a range position',
   'range-remove': 'Review: take out of your range position',
   'range-close': 'Review: close your range position',

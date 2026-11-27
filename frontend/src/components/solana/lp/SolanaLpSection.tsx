@@ -28,6 +28,7 @@ import { browserLpReaders, type LpReaders } from './readers';
 import type { LpDoorAnchor } from './lpDoor';
 import { useSheet } from '../../sheet/sheetContext';
 import { SHEET_PRESS, sheetHref, sheetRoom } from '../../../lib/sheet';
+import { bringIntoView } from '../../../lib/bringIntoView';
 
 /**
  * The Solana LP section on /pools (owner, 2026-10-14:
@@ -135,7 +136,7 @@ function LpBody({ readers, mode, reloadKey, home, door, module }: { readers: LpR
     const el = positionsRef.current;
     if (!el) return;
     el.focus({ preventScroll: true });
-    el.scrollIntoView?.({ block: 'start' });
+    bringIntoView(el, { block: 'start' });
   }, []);
   // The other way round: Add more liquidity on a position goes to the finder. The
   // positions list does not look pools up or open Add forms; the finder does both, so the
@@ -195,7 +196,7 @@ function LpBody({ readers, mode, reloadKey, home, door, module }: { readers: LpR
     const el = allPoolsRef.current;
     if (!el) return;
     el.focus({ preventScroll: true });
-    el.scrollIntoView?.({ block: 'start' });
+    bringIntoView(el, { block: 'start' });
   }, []);
   // A link with ?priced=<a pairing coin> lists the pools priced in it instead (pricedIn.ts): what its community shares.
   // Its own parameter, never the finder's ?mint= (a chip, a typed token, a row's View or Add, Add more liquidity all write
@@ -350,6 +351,7 @@ const NOTE_WHAT: Record<LpKind, string> = {
   'lp-deposit': 'adding liquidity',
   'lp-withdraw': 'removing liquidity',
   'lp-create': 'opening a pool. Opening another pool stays off until this is checked.',
+  'lp-restart': 'restarting a pool at the market price',
 };
 
 /** The section's one sentence about what it can do, by LP's mode (spec 4.3). */

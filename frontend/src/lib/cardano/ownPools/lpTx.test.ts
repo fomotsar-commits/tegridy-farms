@@ -6,7 +6,7 @@ import type { TransactionOutput } from '@emurgo/cardano-serialization-lib-browse
 import type { Csl } from '../csl';
 import { composeAddress, hexToBytes, parseAddressBech32, type ParsedAddress } from '../address';
 import { ADA, MINSWAP_V2, readPool, type ChainUtxo, type PoolState } from '../minswapV2';
-import { orderAddressFor } from '../minswapV2';
+import { encodeSwapOrderDatum, lpAsset, orderAddressFor, orderValue } from '../minswapV2';
 import type { WalletUtxo } from '../orderTx';
 import { testCsl } from '../testkit.fixture';
 import { readOwnPoolsDeployment, type OwnPools } from './deployment';
@@ -63,7 +63,7 @@ describe('the test world’s pool', () => {
   });
 
   it('is never read as Minswap’s, and a pool naming another batcher is not ours', () => {
-    expect(readPool(csl, poolRow, [ADA, WORLD.token]).kind).toBe('not-a-pool');
+    expect(readPool(csl, poolRow, [ADA, WORLD.token], MINSWAP_V2).kind).toBe('not-a-pool');
     const otherBatcher = { ...dep, poolBatchingScriptHash: '99'.repeat(28) };
     expect(pickOwnPool(csl, otherBatcher, [poolRow], [ADA, WORLD.token])).toEqual({ status: 'unread', reason: 'a pool names another batcher' });
     expect(poolBatchingHashOf(csl, WORLD.pool.datumHex)).toBe(WORLD.scripts.poolBatching.hash);
@@ -83,6 +83,20 @@ describe('the orders, byte for byte the batcher world’s', () => {
   it('sits at OUR order script, with the trader’s stake part', () => {
     expect(orderAddressFor(t1, dep).bech32).toBe(WORLD.orderAddress['1']);
     expect(orderAddressFor(t1, dep).payment.hash).not.toBe(MINSWAP_V2.orderScriptHash);
+  });
+
+  it('never falls back to Minswap’s contracts or its batcher fee: a shared helper called without the deployment does not compile, and throws', () => {
+    // Each line fails tsc (-b, which checks the tests) unless the argument is required.
+    // @ts-expect-error the deployment is required
+    expect(() => orderAddressFor(t1)).toThrow();
+    // @ts-expect-error the deployment is required
+    expect(() => lpAsset(ADA, WORLD.token)).toThrow();
+    // @ts-expect-error the deployment is required
+    expect(() => readPool(csl, poolRow, [ADA, WORLD.token])).toThrow();
+    // @ts-expect-error the batcher fee is required
+    expect(() => encodeSwapOrderDatum(csl, { trader: t1, pool, assetIn: ADA, swapAmount: 1_000_000n, minimumReceive: 1n })).toThrow();
+    // @ts-expect-error the batcher fee is required
+    expect(() => orderValue({ assetIn: ADA, swapAmount: 1_000_000n })).toThrow();
   });
 
   it('locks the coins, the batcher fee and the 2 ADA deposit', () => {
@@ -115,7 +129,7 @@ describe('buildLpOrderTx + checkLpOrderTx', () => {
     const tx = csl.FixedTransaction.from_hex(txHex);
     const body = csl.TransactionBody.from_bytes(tx.raw_body());
     const outs = csl.TransactionOutputs.new();
-    const minswapOrder = orderAddressFor(t1);
+    const minswapOrder = orderAddressFor(t1, MINSWAP_V2);
     for (let i = 0; i < body.outputs().len(); i++) {
       const o: TransactionOutput = body.outputs().get(i);
       if (i > 0) {

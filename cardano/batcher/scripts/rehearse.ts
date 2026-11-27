@@ -24,7 +24,7 @@ import { keyFromFile } from '../src/signer.ts';
 import { decodePoolDatum } from '../src/types.ts';
 import { lpAssetName } from '../src/verify.ts';
 import type { ChainUtxo } from '../src/view.ts';
-import { addresses, NAMES, type Scripts } from '../src/deploy.ts';
+import { addresses, NAMES, scriptsFor, type Scripts } from '../src/deploy.ts';
 
 const [dir, step] = process.argv.slice(2) as [string, string];
 const flag = (f: string) => {
@@ -35,7 +35,8 @@ const send = process.argv.includes('--submit');
 const inputs = JSON.parse(readFileSync(join(dir, 'preprod-inputs.json'), 'utf8'));
 if (inputs.network !== 0) throw new Error('the rehearsal is for preprod (network 0) only');
 const run = join(dir, 'preprod-run');
-const scripts: Scripts = JSON.parse(readFileSync(join(run, 'scripts.json'), 'utf8')).scripts;
+// Compiled from exactly these inputs (scripts.json's params), or refused.
+const scripts: Scripts = scriptsFor(JSON.parse(readFileSync(join(run, 'scripts.json'), 'utf8')), inputs);
 const deployState = JSON.parse(readFileSync(join(run, 'state.json'), 'utf8')) as { refs: Record<string, string>; txs: Record<string, string> };
 const statePath = join(run, 'rehearsal.json');
 const state: Record<string, any> = existsSync(statePath) ? JSON.parse(readFileSync(statePath, 'utf8')) : { txs: {} };

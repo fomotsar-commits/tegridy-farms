@@ -6,7 +6,7 @@ import type { PrivateKey, TransactionBody, TransactionInput, TransactionOutput }
 import type { Csl } from './csl';
 import type { ProtocolParams } from './chain';
 import { bytesToHex, composeAddress, hexToBytes, type ParsedAddress } from './address';
-import { ADA, lpAsset, orderAddressFor, type PoolState } from './minswapV2';
+import { ADA, lpAsset, MINSWAP_V2, orderAddressFor, type PoolState } from './minswapV2';
 import { venueFeeFor } from './venueFee';
 import {
   MAX_NETWORK_FEE,
@@ -48,7 +48,7 @@ const POOL: PoolState = {
   ref: { txHash: '11'.repeat(32), index: 0 },
   assetA: ADA,
   assetB: ASCEND,
-  lp: lpAsset(ADA, ASCEND),
+  lp: lpAsset(ADA, ASCEND, MINSWAP_V2),
   reserveA: 1019463084218n,
   reserveB: 945869519487n,
   totalLiquidity: 807036682412n,
@@ -168,7 +168,7 @@ describe('buildSwapTx + checkSwapTx: the untampered build', () => {
     // All in: the order, the fee and the network fee, nothing else.
     expect(r.swap.paidLovelace).toBe(r.swap.orderLovelace + r.swap.venueFeeLovelace + r.swap.networkFee);
     const body = bodyOf(built.txHex);
-    expect(bytesToHex(body.outputs().get(0).address().to_bytes())).toBe(orderAddressFor(trader).hex);
+    expect(bytesToHex(body.outputs().get(0).address().to_bytes())).toBe(orderAddressFor(trader, MINSWAP_V2).hex);
     expect(bytesToHex(body.outputs().get(1).address().to_bytes())).toBe(venue.hex);
     expect(Number(body.ttl_bignum()!.to_str())).toBe(TIP + TTL_SLOTS);
   });
@@ -255,7 +255,7 @@ describe('checkSwapTx refuses every tamper', () => {
   });
 
   it('the order sent with another stake part', () => {
-    const other = composeAddress(orderAddressFor(trader).payment, { kind: 'key', hash: 'ef'.repeat(28) });
+    const other = composeAddress(orderAddressFor(trader, MINSWAP_V2).payment, { kind: 'key', hash: 'ef'.repeat(28) });
     const bad = rebuild(txHex, { outputs: (o) => o.map((x, i) => (i === 0 ? redirect(x, other) : x)) });
     expectRefused(bad, plan, /order is not addressed/);
   });

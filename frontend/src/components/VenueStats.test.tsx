@@ -20,6 +20,8 @@ const chains = () => [
   { chain: 'ethereum', read: true, usd: 441.66, pools: 1, unvalued: 0 },
   { chain: 'base', read: true, usd: 233.44, pools: 3, unvalued: 0 },
   { chain: 'robinhood', read: true, usd: 0, pools: 0, unvalued: 0 },
+  // Our own Uniswap V3 pools, named by the answer since the venue was deployed (2026-11-25).
+  { chain: 'hyperevm', read: true, usd: 0, pools: 0, unvalued: 0 },
 ];
 const staking = () => [
   { chain: 'solana', read: true, usd: 22440.26, vaults: 3, unvalued: 0 },
@@ -47,7 +49,7 @@ describe('parseVenueTvl', () => {
   it('reads a whole answer, every chain in order, pools and staking', () => {
     const t = parseVenueTvl(tvl());
     expect(t).toMatchObject({ state: 'current', usd: 34239.67 });
-    expect(t.state !== 'unread' && t.chains.map((c) => c.chain)).toEqual(['solana', 'ethereum', 'base', 'robinhood']);
+    expect(t.state !== 'unread' && t.chains.map((c) => c.chain)).toEqual(['solana', 'ethereum', 'base', 'robinhood', 'hyperevm']);
     expect(t.state !== 'unread' && t.staking).toEqual(staking());
   });
 
@@ -143,7 +145,7 @@ describe('<VenueStats />', () => {
     expect(await screen.findByText('$2,481')).toBeTruthy();
     expect(screen.getByTestId('venue-tvl').textContent).toBe('TVL $34,240');
     expect(screen.getByTestId('venue-tvl').querySelector('.rounded-full')).toBeTruthy();
-    expect(screen.getByTestId('venue-tvl-chains').textContent).toBe('Pools: Solana $11,060 · Ethereum $442 · Base $233 · Robinhood $0');
+    expect(screen.getByTestId('venue-tvl-chains').textContent).toBe('Pools: Solana $11,060 · Ethereum $442 · Base $233 · Robinhood $0 · HyperEVM $0');
     expect(screen.getByTestId('venue-tvl-staking').textContent).toBe('Staked: Solana $22,440 · Ethereum $65 · Base $0');
     expect(screen.getByTestId('venue-tvl-nfts').textContent).toBe('NFTs held: Ethereum $80');
     expect(screen.getByText(/what is staked in our staking pools, and the NFTs our contracts hold/)).toBeTruthy();
@@ -151,7 +153,8 @@ describe('<VenueStats />', () => {
     expect(screen.queryByText(/no OpenSea floor just now/)).toBeNull();
     expect(screen.queryByText(/staked coin with no market price/)).toBeNull();
     expect(screen.getByText(/Last counted /)).toBeTruthy();
-    expect(screen.getByText(/our pools on Ethereum, Base and Robinhood, new loans on NFT Lending \(the WETH lent\) and sales on our own NFT\s+order book\./)).toBeTruthy();
+    expect(screen.getByText(/our pools on Ethereum, Base, Robinhood and HyperEVM, new loans on NFT Lending \(the WETH lent\) and sales on our own NFT\s+order book\./)).toBeTruthy();
+    expect(screen.getByText(/A HyperEVM pool counts its USD₮0 and USDC at a dollar and its WHYPE at HYPE's price\./)).toBeTruthy();
     expect(screen.queryByText(/not up to date/)).toBeNull();
   });
 

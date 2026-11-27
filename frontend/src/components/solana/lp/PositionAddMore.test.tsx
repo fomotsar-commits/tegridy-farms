@@ -293,6 +293,20 @@ describe('Add more liquidity is on a position', () => {
     expect(card(mine.address)).toContainElement(panel);
   });
 
+  // Add more is a look-up in the finder, as a row's View is: held at the press, like a picked
+  // token (Fable narrow re-read at 390, 2026-11-25: no test pinned it).
+  it('the second tap of a double tap on Add more does not press what slid under the finger', async () => {
+    const mine = view();
+    mount(readers({ positions: held(position(mine)) }));
+    const add = await addMore(mine.address);
+    const under = within(await row(mine.address)).getByRole('button', { name: 'Remove liquidity' });
+    const finger = { clientX: 210, clientY: 530 };
+    fireEvent.pointerDown(add, finger);
+    fireEvent.click(add, finger);
+    fireEvent.pointerDown(under, finger);
+    expect(fireEvent.click(under, finger)).toBe(false);
+  });
+
   // A warning is not a refusal (owner ruling 2026-10-04). A pool whose price is off still
   // takes a deposit, so the holder's press ends in its form, and the form says the warning.
   // Only a pool that refuses a deposit, or could not be checked, shows its card instead.
@@ -425,6 +439,7 @@ describe('it goes to that pool or to nowhere', () => {
     },
     // Audit CM-2, 2026-11-03: everyone else has left. 1,100 shares, the locked 100 among them
     // and the holder's 1,000, over 3,480 lamports and 348 units: the market's own 0.01 SOL a token.
+    // Not restarted either, at a price read (restart.ts): a restart's top-up would be the holder's.
     {
       name: 'is almost empty (at the market price, too)',
       mine: () => view({ sol: 3_480n, tok: 348n, lpSupply: 1_100n }),

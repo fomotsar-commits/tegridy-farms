@@ -24,6 +24,7 @@ import {
   evmRpc,
   decodePool,
   evmSwapLeg,
+  hyperEvmCounted,
   jupiterSwap,
   poolSwap,
   readEvmChain,
@@ -33,7 +34,7 @@ import {
   unbase58,
 } from "./lib/venue-volume-chain.mjs";
 import { DB_TIMEOUT_MS, READERS, RUN_BUDGET_MS, addUp, islandPrices, legUsd, main, readOrderBookFills, spotPrice } from "./venue-volume.mjs";
-import { VOLUME_SOURCES, summarize } from "../api/_lib/venueVolumePolicy.js";
+import { VOLUME_SOURCES, summarize, volumeSources } from "../api/_lib/venueVolumePolicy.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FX = JSON.parse(readFileSync(join(HERE, "fixtures", "venue-volume", "mainnet.json"), "utf-8"));
@@ -768,10 +769,12 @@ describe("pins", () => {
       .filter((f) => f.endsWith(".sql") && readFileSync(join(dir, f), "utf-8").includes("ADD CONSTRAINT venue_volume_shape"))
       .sort()
       .at(-1);
-    expect(newest).toBe("031_venue_volume_nft_sources.sql");
+    expect(newest).toBe("033_venue_volume_hyperevm.sql");
     const sql = readFileSync(join(dir, newest), "utf-8");
     const list = sql.match(/source IN \(([^)]*)\)/)[1].match(/'([a-z-]+)'/g).map((s) => s.slice(1, -1));
-    expect(list).toEqual([...VOLUME_SOURCES]);
+    // As committed: the seven, and HyperEVM since its venue was deployed (2026-11-25).
+    expect(list).toEqual([...volumeSources(hyperEvmCounted())]);
+    expect(list).toEqual([...VOLUME_SOURCES, "hyperevm"]);
   });
 });
 

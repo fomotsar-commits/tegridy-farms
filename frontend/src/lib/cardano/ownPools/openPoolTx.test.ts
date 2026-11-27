@@ -11,7 +11,7 @@ import { testCsl } from '../testkit.fixture';
 import { readOwnPoolsDeployment, type OwnPools } from './deployment';
 import { FACTORY_NFT_NAME, type FactoryEntry } from './chainReads';
 import { MIN_POOL_ADA } from './lpMath';
-import { assembleSignedOpen, buildOpenPoolTx, checkOpenPoolTx, collateralTotal, factoryDatumHex, MAX_OPEN_NETWORK_FEE, OpenPoolBuildError, type OpenPoolPlan } from './openPoolTx';
+import { assembleSignedOpen, buildOpenPoolTx, checkOpenPoolTx, collateralTotal, factoryAddress, factoryDatumHex, MAX_OPEN_NETWORK_FEE, OpenPoolBuildError, type OpenPoolPlan } from './openPoolTx';
 import { PARAMS, PLUTUS, TEST_RECORD, VENUE_TREASURY, WORLD, walletUtxo } from './testWorld.fixture';
 
 const TIP = 201_255_884;
@@ -155,6 +155,25 @@ describe('buildOpenPoolTx + checkOpenPoolTx: the untampered build', () => {
   it('refuses without a plain-ADA coin of 5 ADA to pledge', () => {
     const noPledge = [walletUtxo(csl, 1, opener, 700n * ADA_1, [[NEW_TOKEN.policyId, NEW_TOKEN.assetName, 2_000_000_000n]])];
     expect(() => buildOpenPoolTx(csl, dep, PARAMS, PLUTUS, noPledge, plan())).toThrow(/5 ADA/);
+  });
+
+  it('spending an entry a stranger made with a stake part of their own (a key, a pointer), writes both new entries at our stakeless factory address', () => {
+    const ours = factoryAddress(dep);
+    expect(ours.stake).toBeNull();
+    expect(ours.payment).toEqual({ kind: 'script', hash: dep.factoryScriptHash });
+    const theirs = composeAddress({ kind: 'script', hash: dep.factoryScriptHash }, { kind: 'key', hash: 'ef'.repeat(28) });
+    for (const addressHex of [theirs.hex, `51${dep.factoryScriptHash}010203`]) {
+      const p = plan({ factory: { ...factory, utxo: { ...factory.utxo, addressHex } } });
+      const built = buildOpenPoolTx(csl, dep, PARAMS, PLUTUS, wallet, p);
+      const outs = bodyOf(built.txHex).outputs();
+      expect([1, 2].map((i) => Buffer.from(outs.get(i).address().to_bytes()).toString('hex'))).toEqual([ours.hex, ours.hex]);
+      const r = checkOpenPoolTx(csl, dep, built.txHex, p, wallet, PARAMS, PLUTUS);
+      expect(r.ok ? [] : r.problems).toEqual([]);
+      // The read-back agrees: a build that copied the stranger's stake part onward is refused.
+      const copied = rebuild(built.txHex, (_b, os) => os.map((o, i) => (i === 1 || i === 2 ? repay(o, theirs) : o)));
+      const bad = checkOpenPoolTx(csl, dep, copied, p, wallet, PARAMS, PLUTUS);
+      expect(bad.ok ? [] : bad.problems).toContain('a factory entry is not paid to its planned address');
+    }
   });
 });
 

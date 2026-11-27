@@ -23,6 +23,7 @@ import type { LpReaders } from './readers';
 import { DoorPortal, LpDoorFrame } from './LpDoorFrame';
 import { LpDoorContext } from './lpDoor';
 import { useSheet } from '../../sheet/sheetContext';
+import { bringIntoView, holdPress } from '../../../lib/bringIntoView';
 
 /** What a visitor came to do. The three are on the first screen, as buttons. */
 export type LpTask = 'create' | 'add' | 'remove';
@@ -376,6 +377,11 @@ export function PoolFinder({
     (next: string, want: LpWish['task'] | null, pool?: string, ask: Omit<AddAsk, 'pool'> & { door?: true } = {}) => {
       // The door's link draws its answer at the top, where the visitor already is.
       asked.current = !ask.top;
+      // A look-up a press asked for draws a line above the tokens before its answer moves the page:
+      // one row, so a double tap's second tap picked the token above (WebKit, Fable read 2026-11-24).
+      // A link's or the sheet's own look-up (`top`) has no press: held then, on the spot of the
+      // press that opened the sheet, it swallowed a prompt Back (Fable re-read, 2026-11-25).
+      if (!ask.top) holdPress();
       wishes.current += 1;
       setUnfound(null);
       if (pool) setExtra({ mint: next, pool });
@@ -419,7 +425,7 @@ export function PoolFinder({
   useEffect(() => {
     if (!asked.current || state.status === 'idle') return;
     asked.current = false;
-    answerRef.current?.scrollIntoView?.({ block: 'start' });
+    bringIntoView(answerRef.current, { block: 'start' });
   }, [state.status, mint, nonce]);
 
   const submit = useCallback(() => {
@@ -457,7 +463,7 @@ export function PoolFinder({
   // before, the line pushed Find pools under a phone's bottom bar.
   const [bringNext, setBringNext] = useState(0);
   useLayoutEffect(() => {
-    if (bringNext) nextRef.current?.scrollIntoView?.({ block: 'nearest' });
+    if (bringNext) bringIntoView(nextRef.current, { block: 'nearest' });
   }, [bringNext]);
   const answered = state.status === 'idle' ? null : state.mint;
   const choose = useCallback(
@@ -733,7 +739,9 @@ function SearchResults({
       if (p.kind !== 'pool' || (named !== null && p.view.address !== named)) continue;
       if (quote !== null && p.view.quote.mint !== quote) continue;
       const health = healths.get(p.view.address);
-      if (!health || depositOffer({ mode, gate, health, held: lpHeld(notes, p.view.address, 'add') }) !== 'offer') continue;
+      const offer = health ? depositOffer({ mode, gate, health, held: lpHeld(notes, p.view.address, 'add') }) : null;
+      // A restart (restart.ts) only when the wish named this very pool: never picked for a visitor.
+      if (!health || (offer !== 'offer' && !(offer === 'restart' && named !== null))) continue;
       if (!priceWarned(health)) return p.view.address;
       warned ??= p.view.address;
     }

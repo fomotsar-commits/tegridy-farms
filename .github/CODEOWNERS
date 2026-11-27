@@ -46,3 +46,11 @@
 # ---------------------------------------------------------------------------
 /contracts/script/              @tegridy-team/contracts-team @tegridy-team
 /scripts/                       @tegridy-team
+
+# ---------------------------------------------------------------------------
+# Cardano: Minswap's pinned copy and the guards that pin it. A PR may edit a
+# pin together with the code it pins, so a change here always draws the core
+# team's review. Last, so no wider pattern above (*.ts) takes these files.
+# ---------------------------------------------------------------------------
+/cardano/guards/                @tegridy-team
+/cardano/minswap-dex-v2/        @tegridy-team

@@ -6,9 +6,9 @@ import { chargedCreatorFeeRate } from '../cpswap/venue';
 import { quoteText } from './format';
 import { readPoolIndex } from './poolIndex';
 import { readPools, type PoolView, type ReadPoolsOptions } from './poolFinder';
-import { PRICE_TOLERANCE, assessPool, comparePrice, poolPricePerToken } from './poolHealth';
+import { NEARLY_EMPTY, PRICE_TOLERANCE, assessPool, comparePrice, poolPricePerToken } from './poolHealth';
 import { siteNamed } from './identity';
-import { poolFeesOf, tooFewShares } from './liquidityMath';
+import { LOCKED_LP, poolFeesOf, tooFewShares } from './liquidityMath';
 import { lastTrade } from './poolPast';
 import { QUOTE_COINS, SOL_QUOTE, USDC_QUOTE, isWithdrawOnly, orList, quoteCoin, type QuoteCoin } from './quotes';
 import { TOKEN_PROGRAM, readTokenSafety, type TokenSafety } from './tokenSafety';
@@ -131,6 +131,19 @@ export function poolTags(view: PoolView, chainNow: bigint | null, priceGap: numb
  */
 export function refusesDeposits(view: PoolView, chainNow: bigint | null, safety: TokenSafety | null): boolean {
   return assessPool({ view, tokenDecimals: tokenDecimalsOf(view), chainNow, outside: null, safety }).deposits.verdict === 'refused';
+}
+
+/**
+ * Would the pool's card offer a restart at the market price instead (poolHealth.ts
+ * `restart`, restart.ts)? From what the list read: the pool's ONE refusal is that it is
+ * almost empty, nobody holds any of it (its shares are the locked 100 alone), and Jupiter's
+ * list priced both its coins. The card asks again on its own
+ * reads, and the review once more on fresh ones.
+ */
+export function offersRestart(view: PoolView, chainNow: bigint | null, safety: TokenSafety | null, usd: ReadonlyMap<string, number> | null): boolean {
+  if (!usd || !usd.has(view.tokenMint) || !usd.has(view.quote.mint) || view.snapshot.pool.lpSupply !== LOCKED_LP) return false;
+  const d = assessPool({ view, tokenDecimals: tokenDecimalsOf(view), chainNow, outside: null, safety }).deposits;
+  return d.verdict === 'refused' && d.reasons.length === 1 && d.reasons[0] === NEARLY_EMPTY;
 }
 
 /**

@@ -84,14 +84,15 @@ export const EVM_CHAINS = {
 };
 
 // Our Uniswap V3 venue on HyperEVM (chain 999). The factory is the one in the site's record,
-// src/lib/chains/hyperEvmDeployment.ts (venue-volume.test.mjs pins the two equal); null until it
-// is deployed, and while it is null HyperEVM is no volume source and adds nothing to TVL.
-// startBlock is the factory's deploy block. Pools are found as the site finds them: our factory's
-// getPool for every pair of these coins at each fee tier. The public RPC serves 1,000 blocks of
-// logs a call (drpc's free plan 100), and the chain makes about a block a second.
+// src/lib/chains/hyperEvmDeployment.ts (hyperEvmVenueNumbers.test.js pins the two equal); while it
+// is null HyperEVM is no volume source and adds nothing to TVL. Deployed 2026-11-25.
+// startBlock is the factory's deploy block (52,183,228, receipt status 1). Pools are found as the
+// site finds them: our factory's getPool for every pair of these coins at each fee tier. The
+// public RPC serves 1,000 blocks of logs a call (drpc's free plan 100), and the chain makes
+// about a block a second.
 export const HYPEREVM_V3 = Object.freeze({
-  factory: null,
-  startBlock: null,
+  factory: "0xcaDc93E96De58EA554c71ca609974625615E046D",
+  startBlock: 52183228,
   rpcs: ["https://rpc.hyperliquid.xyz/evm", "https://hyperliquid.drpc.org"],
   coins: Object.freeze([
     Object.freeze({ address: "0x5555555555555555555555555555555555555555", symbol: "WHYPE", decimals: 18, value: "HYPE" }),
