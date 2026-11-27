@@ -2,17 +2,49 @@
 // seed and pool stake credential, in Minswap's src/script.ts parameter order (the same order
 // prove-build.mjs applyMainnet reproduces Minswap's mainnet scripts with), plus the role timelock
 // with its Params. The lock's committed plutus.json must be what the pinned compiler builds.
+// Only what CI proved is compiled (checkSource), and scripts.json records the parameters applied.
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import CSL from '@emurgo/cardano-serialization-lib-nodejs';
 import { cbor } from '../../guards/prove-build.mjs';
+import { checkAll } from '../../guards/provenance.mjs';
+import { compiledParams } from '../src/deploy.ts';
 import { applier, build, checkCompiler, fetchStdlib, stage } from './aiken.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const POOLS = resolve(HERE, '../../minswap-dex-v2');
 const LOCK = resolve(HERE, '../../role-timelock');
+const REPO = resolve(HERE, '../../..');
+export const TRUNK = 'origin/mvp-launch';
+const repoGit = (args) => execFileSync('git', args, { cwd: REPO, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+
+/**
+ * What compiles for a deploy is what CI proved: provenance passes (the copies are upstream's plus
+ * exactly the reviewed patch), nothing under cardano/ differs from the commit, and the commit is
+ * on trunk. `unproven` skips the two git checks, on preprod (network 0) only, for a rehearsal of
+ * a branch, and says so; provenance always runs.
+ */
+export function checkSource(network, { unproven = false, git = repoGit, root = REPO } = {}) {
+  if (unproven && network !== 0) throw new Error('--unproven is for preprod rehearsals only (network 0): a mainnet deploy compiles only a clean trunk commit');
+  const prov = checkAll(root);
+  if (prov.problems.length) throw new Error(`provenance refuses this tree, so nothing is compiled:\n${prov.problems.join('\n')}`);
+  const commit = git(['rev-parse', 'HEAD']);
+  const problems = [];
+  const dirty = git(['status', '--porcelain', '--', 'cardano/']);
+  if (dirty) problems.push(`cardano/ differs from commit ${commit}:\n${dirty}`);
+  try {
+    git(['merge-base', '--is-ancestor', commit, TRUNK]);
+  } catch {
+    problems.push(`commit ${commit} is not on ${TRUNK} (git fetch origin, then check out a trunk commit)`);
+  }
+  if (problems.length && !unproven) throw new Error(`only a clean trunk commit is compiled for a deploy:\n${problems.join('\n')}`);
+  for (const p of problems) console.warn(`WARNING --unproven (preprod rehearsal only): ${p}`);
+  if (unproven) console.warn('WARNING --unproven: CI never proved this tree as it is; these scripts are for a preprod rehearsal, never a deploy');
+  return { commit, proven: !problems.length };
+}
 
 const txIn = (ref) => {
   const [txId, index] = ref.split('#');
@@ -32,10 +64,12 @@ export function addressData(bech32) {
 }
 
 /**
- * p: { seedTxIn, poolStake: {type: 'Key'|'Script', hash}, lockSeedTxIn, ownerA, ownerB, treasury }.
- * Returns every applied script (hash + compiledCode) and the compiler that built them.
+ * p: { network, seedTxIn, poolStake: {type: 'Key'|'Script', hash}, lockSeedTxIn, ownerA, ownerB, treasury }.
+ * Returns every applied script (hash + compiledCode), the compiler that built them, the commit
+ * they came from, and the parameters applied (every later step refuses inputs that differ).
  */
-export function compileDeployment(p) {
+export function compileDeployment(p, opts = {}) {
+  const source = checkSource(p.network, opts);
   const version = checkCompiler(HERE);
   const work = mkdtempSync(join(tmpdir(), 'cardano-deploy-'));
   try {
@@ -81,7 +115,7 @@ export function compileDeployment(p) {
     lock.apply('role_timelock.spend', params);
     scripts.lock = lock.pick('role_timelock.mint');
     if (lock.pick('role_timelock.spend').hash !== scripts.lock.hash) throw new Error("the lock's mint and spend hashes differ");
-    return { compiler: version, scripts };
+    return { compiler: version, source, params: compiledParams(p), scripts };
   } finally {
     rmSync(work, { recursive: true, force: true });
   }

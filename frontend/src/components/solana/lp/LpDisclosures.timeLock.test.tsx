@@ -1,7 +1,8 @@
 // THE VAULT'S 48-HOUR WAIT, SAID AS READ. Since Squads #14 (2026-10-19) the multisig's time lock
 // is 172,800 s (read again 2026-11-14 UTC, finalized slot 469,210,343), so every vault action, a
 // pause too, runs 48 hours after its second approval at the earliest. Every Risks list that says
-// what the vault can do says the wait, with the date it was read, and none says it acts at once.
+// what the vault can do says the wait once, with the date it was read, says every action has it
+// (a switch-off too), and none says it acts at once.
 
 import { describe, expect, it } from 'vitest';
 import { render } from '@testing-library/react';
@@ -13,8 +14,10 @@ const TIER: AmmConfigView = {
   fundFeeRate: 56_000n, createPoolFee: 150_000_000n, creatorFeeRate: 0n, protocolOwner: 'vault', fundOwner: 'workshop',
 };
 const SAYS_NO_WAIT = /at once|no waiting period|time lock of 0/i;
-const AS_READ = '(as read on chain on 2026-11-14)';
-const VAULT_WAIT = 'Every vault action waits 48 hours after both have signed, a switch-off too.';
+const AS_READ = '(read on chain 2026‑11‑14)';
+/** The vault line after RISK_SHORT: every other action, the other switch-offs too, waits the same. */
+const SAME_WAIT = 'every action it takes has the same wait';
+const timesSaid = (text: string, said: string) => text.split(said).length - 1;
 
 const SURFACES = {
   'the Add liquidity form': () => <LpBeforeYouAdd launchPool config={TIER} enableCreatorFee={false} />,
@@ -25,23 +28,27 @@ const SURFACES = {
 
 describe('the vault waits 48 hours, and every Risks list says so', () => {
   it('the short sentence says what the vault can do, and when, as read on chain with the date', () => {
-    expect(RISK_SHORT).toContain(`can pause removing, change fees or replace the program, 48 hours after both its keys approve ${AS_READ}.`);
+    expect(RISK_SHORT).toContain(`can switch off withdrawals, change fees or replace the program, 48 hours after both keys approve ${AS_READ}.`);
     expect(RISK_SHORT).not.toMatch(SAYS_NO_WAIT);
     expect(RISK_SHORT).not.toContain('—');
   });
 
   for (const [where, draw] of Object.entries(SURFACES)) {
-    it(`on ${where}: the wait, as read, and a switch-off waits too`, () => {
+    it(`on ${where}: the wait, as read and said once, and a switch-off waits too`, () => {
       const text = render(draw()).container.textContent ?? '';
       expect(text).toContain(AS_READ);
-      expect(text).toContain(VAULT_WAIT);
+      expect(text).toContain(SAME_WAIT);
+      // Said once: the lists said it three times in three wordings ("both its keys approve", "both have signed").
+      expect(timesSaid(text, '48 hours')).toBe(1);
+      expect(text).not.toContain('have signed');
       expect(text).not.toMatch(SAYS_NO_WAIT);
       expect(text).not.toContain('—');
     });
   }
 
-  it('the fee-tier line says a change to the rates waits too, then reaches what is already in', () => {
+  it('the fee-tier line says a change to the rates reaches what is already in, under the wait the first line says', () => {
     const text = render(<LpBeforeYouAdd launchPool={false} config={TIER} enableCreatorFee={false} />).container.textContent ?? '';
-    expect(text).toContain("The vault can change that tier's rates. A change waits 48 hours after both its keys approve, then applies to what you put in too.");
+    expect(text).toContain("If the vault changes that tier's rates, the change applies to what you put in too.");
+    expect(text).toContain('change fees or replace the program, 48 hours after both keys approve');
   });
 });

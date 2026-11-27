@@ -53,6 +53,20 @@ ddf8b25d41c5286459d5726ceb153a25061bd1b6:.gitleaksignore:generic-api-key:30
 # hash, not a secret. Filed here, not at the end, so it never meets another PR's new last line.
 a88f8f15dd628b457ac6ce6c42610be134c78249:frontend/src/lib/cardano/ownPools/deployment.ts:generic-api-key:23
 #
+# 2026-11-25, PR #1326. Public Cardano key hashes, not secrets: the batcher's own payment key
+# hash (its address is public on chain) in the mainnet inputs template and the test that pins
+# it, and Minswap's public pool stake key hash, refused by the deploy's mainnet pins.
+19dee4284cad2d369c6ce3e8be163f76c15a46e0:cardano/batcher/deploy/mainnet-inputs.template.json:generic-api-key:15
+19dee4284cad2d369c6ce3e8be163f76c15a46e0:cardano/batcher/test/deploy.test.ts:generic-api-key:116
+19dee4284cad2d369c6ce3e8be163f76c15a46e0:cardano/batcher/src/deploy.ts:generic-api-key:43
+#
+# 2026-11-26, PR #1338. The pool-restart test's own maths: a variable holding the sum of two
+# plan fields, and a comparison of a deposit's cost with its limit. The `generic-api-key`
+# rule reads each as a name followed by a high-entropy value. They are property paths in
+# test code, no credential. Both lines are reworded in the commit that adds these.
+36e437210615079024d49fe31c6636f2dd26549c:frontend/src/lib/solana/lp/restart.test.ts:generic-api-key:118
+36e437210615079024d49fe31c6636f2dd26549c:frontend/src/lib/solana/lp/restart.test.ts:generic-api-key:150
+#
 # 2026-11-01, PR #1079. The price keeper's dashboard tests name real token accounts from the
 # keeper's own transactions in a field called `key`: the same `generic-api-key` rule. They
 # are public chain addresses, no credential. The field is renamed `address` in the commit

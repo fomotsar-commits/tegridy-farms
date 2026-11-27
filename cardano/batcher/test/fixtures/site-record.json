@@ -1,0 +1,33 @@
+{
+ "authenPolicy": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+ "poolScriptHash": "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2",
+ "poolBatchingScriptHash": "a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3",
+ "orderScriptHash": "a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4",
+ "factoryScriptHash": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5",
+ "poolAddress": "addr1xx329g4z52329g4z52329g4z52329g4z52329g4z52329gspv7vdp6er80lvtdm32cqvvetu93ams9yrggg5pm5tq3usckqz4q",
+ "orderRef": {
+  "ref": "0101010101010101010101010101010101010101010101010101010101010101#0",
+  "scriptSize": 2659
+ },
+ "factoryRef": {
+  "ref": "0202020202020202020202020202020202020202020202020202020202020202#0",
+  "scriptSize": 4049
+ },
+ "authenRef": {
+  "ref": "0303030303030303030303030303030303030303030303030303030303030303#0",
+  "scriptSize": 5223
+ },
+ "treasury": "addr1xy6kxswfkhnxfwllzcxkqfumhyjedvkvkvlt3p7mhwxwp3spv7vdp6er80lvtdm32cqvvetu93ams9yrggg5pm5tq3usr47kat",
+ "openingFeeLovelace": "73000000",
+ "batcherFeeLovelace": "2000000",
+ "openPoolBudget": {
+  "factory": {
+   "mem": 1500000,
+   "steps": 500000000
+  },
+  "authen": {
+   "mem": 800000,
+   "steps": 300000000
+  }
+ }
+}

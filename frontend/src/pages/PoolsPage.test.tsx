@@ -207,9 +207,12 @@ describe('when the venue is live', () => {
     expect(hero.querySelector('details')).toBeNull();
     expect(within(hero).queryByText('Details')).toBeNull();
     const share = screen.getByRole('heading', { level: 2, name: 'Deposit a pair, hold your share' }).parentElement!;
-    expect(share).toHaveTextContent("No lock, but the team's vault can pause removing.");
+    expect(share).toHaveTextContent("No lock; the team's vault can switch off withdrawals.");
     expect(within(share).queryByText(/^Nothing to claim\./)).toBeNull();
-    // The section's own first line says it (SolanaLpSection.test.tsx pins "Fees grow your pool shares.").
+    // The section's own first line says it (SolanaLpSection.test.tsx pins "Fees grow your pool shares."),
+    // and the card's second bullet says how: the small print does not open by saying it a third time.
+    expect(share).not.toHaveTextContent('Fees grow your share as the pool trades.');
+    expect(share).toHaveTextContent('Every trade adds its fee to the reserves, so your share is worth more each time the pool trades.');
   });
 });
 
@@ -348,11 +351,13 @@ describe('always', () => {
 
   // The team's vault can switch withdrawals off on any pool (update_pool_status, admin only),
   // so the page may not promise a removal "any time"; it says the pause on screen instead.
-  it('never promises withdrawing any time, and says on screen that the vault can pause removing', async () => {
+  it('never promises withdrawing any time, and says on screen that the vault can switch off withdrawals', async () => {
     await mount();
-    await waitFor(() => expect(screen.getByText(/can pause removing/i)).toBeVisible());
+    await waitFor(() => expect(screen.getByText(/No lock; the team's vault can switch off withdrawals\./)).toBeVisible());
     expect(document.body.textContent).not.toMatch(/withdraw any ?time/i);
-    expect(screen.getByText(/can switch removing off on a pool/i)).toBeInTheDocument();
+    expect(screen.getByText(/can switch off withdrawals on a pool/i)).toBeInTheDocument();
+    // One wording for the one power, on screen and in the small print (pre-merge read, 2026-11-14).
+    expect(document.body.textContent).not.toMatch(/pause removing|switch removing off/);
   });
 
   it('says a browser has no way to list pools itself, and how the server index fills that gap', async () => {

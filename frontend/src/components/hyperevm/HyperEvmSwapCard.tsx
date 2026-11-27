@@ -19,14 +19,16 @@ const IMPACT_WARN_BPS = 300;
  * The HyperEVM swap: our own pools only, priced by our QuoterV2, signed through our Universal
  * Router with the site fee paid to the treasury Safe in the same transaction. A press of Review
  * always comes first (owner, 2026-10-13: a swap in our own pool is always a review).
+ * `pageHeading`: on /hyperevm its title is the page's h1; in the sheet it stays an h2.
  */
-export function HyperEvmSwapCard({ lead }: { lead?: ReactNode }) {
+export function HyperEvmSwapCard({ lead, pageHeading = false }: { lead?: ReactNode; pageHeading?: boolean }) {
   const venue = hyperEvmVenue();
   if (!venue) return null;
-  return <SwapForm venue={venue} lead={lead} />;
+  return <SwapForm venue={venue} lead={lead} pageHeading={pageHeading} />;
 }
 
-function SwapForm({ venue, lead }: { venue: HyperEvmVenue; lead?: ReactNode }) {
+function SwapForm({ venue, lead, pageHeading }: { venue: HyperEvmVenue; lead?: ReactNode; pageHeading: boolean }) {
+  const Title = pageHeading ? 'h1' : 'h2';
   const client = useHyperEvmClient();
   const { state: poolsState } = usePools(venue);
   const send = useHyperEvmSend();
@@ -128,7 +130,7 @@ function SwapForm({ venue, lead }: { venue: HyperEvmVenue; lead?: ReactNode }) {
       <CardArt pageId="trade" idx={1} />
       <div className="relative z-10 space-y-3">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-white font-semibold text-[15px]">Swap on HyperEVM</h2>
+          <Title className="text-white font-semibold text-[15px]">Swap on HyperEVM</Title>
           {lead}
         </div>
         <p className="text-white/75 text-[12px]">Our own pools. The site keeps {bpsText(venue.siteFeeBps)} of each swap, paid to the venue's treasury in the same transaction.</p>

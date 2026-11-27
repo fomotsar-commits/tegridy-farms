@@ -8,6 +8,7 @@ import { resolve } from 'node:path';
 import { parse as parseQuery } from 'node:querystring';
 import { parseOverrideModule, mergeScoped, type OverrideEntry } from './src/lib/dev/overrideFileMerge';
 import { changelogFilesPlugin } from './changelogFilesPlugin.ts';
+import { solanaFeeGuardPlugin } from './solanaFeeGuardPlugin.ts';
 
 // R002: only a same-origin localhost dev server may POST to the save handler
 // (DNS rebinding, LAN CSRF, or any hostile tab could fetch() it otherwise).
@@ -463,6 +464,7 @@ export default defineConfig(({ command, mode }) => {
     // operator dials. Never import.meta.env.DEV, which NODE_ENV can turn on in a build.
     define: { __VITE_DEV_SERVER__: JSON.stringify(command === 'serve') },
     plugins: [
+      solanaFeeGuardPlugin(),
       react(),
       tailwindcss(),
       artStudioPlugin(),

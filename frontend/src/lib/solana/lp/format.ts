@@ -81,6 +81,9 @@ export function quoteText(raw: bigint, quote: QuoteCoin, up = false): string {
   return quote.native ? solText(raw, up) : `${formatTokenAmount(raw, quote.decimals, 4, { up }).text} ${quote.symbol}`;
 }
 
+/** "worth about 0.0012 SOL", or "worth under 0.0001 SOL" for an amount its rounding shows as "<0.0001 SOL". */
+export const worthText = (about: string): string => (about.startsWith('<') ? `worth under ${about.slice(1)}` : `worth about ${about}`);
+
 /** "1 token = 0.025 USDC": a pool's price, or its reference, in the pool's own coin. `unit` names a listed token ("1 BAYLA"). */
 export function priceText(perToken: number, quote: QuoteCoin, unit = 'token'): string {
   return `1 ${unit} = ${formatSolPrice(perToken)} ${quote.symbol}`;

@@ -1,6 +1,7 @@
 import { useEffect, useId, type ReactNode, type RefObject } from 'react';
 import { SHADOW } from '../curve/uiFormat';
 import { useInDoor } from './lpDoor';
+import { bringIntoView } from '../../../lib/bringIntoView';
 
 /**
  * The panel's frame: a section named by its heading, which takes focus when the panel opens.
@@ -32,7 +33,7 @@ export function PanelFrame({
     // The top of the panel goes to the top of the screen. The page's scroll-padding
     // (index.css) keeps it clear of the fixed bar and the tab strip. On a phone 'nearest'
     // left the heading at the bottom edge and the form itself below the screen.
-    if (!inDoor) h.scrollIntoView?.({ block: 'start' });
+    if (!inDoor) bringIntoView(h, { block: 'start' });
     // Once, on open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

@@ -1,6 +1,7 @@
 import { formatUnits } from 'viem';
 import { useVenuePairs, type VenuePair, type VenuePairToken } from '../../hooks/useVenuePairs';
 import { liquidityVenueOn, OPENING_FEE_TEXT, openingVenueOn } from '../../lib/chains/liquidityVenue';
+import { venueCutOf } from '../../lib/evm/venueCut';
 import { DEFAULT_TOKENS, defaultTokensFor, type TokenInfo } from '../../lib/tokenList';
 import { formatTokenAmountGrouped, shortenAddress } from '../../lib/formatting';
 import { getAddressUrl } from '../../lib/explorer';
@@ -102,7 +103,8 @@ function Row({ chainId, weth, pair, onPick }: { chainId: number; weth: string; p
         <span className="block whitespace-nowrap text-white/80">{quote.reserve} {quote.label}</span>
       </td>
       <td className="pl-2 pr-4 sm:pl-4 py-3.5 text-right">
-        {pair.address && formA && formB ? (
+        {/* A pool whose cut did not read is not offered: unread is never shown as clean. */}
+        {pair.address && formA && formB && venueCutOf(pair.kLast) === 'on' ? (
           <span className="inline-flex flex-col sm:flex-row gap-1.5">
             {(['add', 'remove'] as const).map((mode) => (
               <a key={mode} href="#provide" onClick={() => onPick({ chainId, a: formA, b: formB, mode })}
@@ -143,7 +145,7 @@ export function ChainPoolTable({ chainId, onPick }: { chainId: number; onPick: (
       <div className="relative isolate rounded-2xl overflow-hidden"
         style={{ background: 'rgba(4,9,18,0.72)', border: '1px solid var(--color-purple-25)' }}>
         <CardArt pageId="liquidity" idx={1} />
-        {read.status === 'listed' && venue ? (
+        {read.status === 'listed' && venue && read.pairs.length > 0 ? (
           <div className="relative overflow-x-auto">
             <table className="w-full text-left border-collapse sm:min-w-[520px]">
               <thead>
@@ -165,13 +167,15 @@ export function ChainPoolTable({ chainId, onPick }: { chainId: number; onPick: (
             {read.status === 'loading' && `Reading ${name} pools…`}
             {read.status === 'unread' && `Could not read ${name} pools. Reload to try again.`}
             {read.status === 'empty' && 'No pools yet. The first deposit below creates one.'}
+            {read.status === 'listed' && "No pools listed: none has the venue's cut on yet."}
           </p>
         )}
       </div>
 
       {read.status === 'listed' && (
         <p className="mt-2.5 text-[11.5px] text-white/50 leading-relaxed">
-          {read.total > read.pairs.length && `The first ${read.pairs.length} of ${read.total} pools. `}
+          {read.total > read.pairs.length + read.hidden && `The first ${read.pairs.length + read.hidden} of ${read.total} pools. `}
+          {read.hidden > 0 && `${read.hidden} not listed: the venue's cut is not on there yet. `}
           A dash: not read, never zero.
         </p>
       )}

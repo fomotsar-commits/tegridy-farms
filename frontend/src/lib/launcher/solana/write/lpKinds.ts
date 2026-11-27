@@ -15,6 +15,7 @@ export const LP_KINDS: Readonly<Record<LpKind, true>> = {
   'lp-deposit': true,
   'lp-withdraw': true,
   'lp-create': true,
+  'lp-restart': true,
 };
 
 /** True for a liquidity kind, and for nothing else (an unknown string, null and undefined included). */

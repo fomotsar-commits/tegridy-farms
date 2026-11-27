@@ -18,6 +18,6 @@ describe('the FAQ says where removing can be paused', () => {
     const answer = venueFaq(80).flatMap((s) => s.items).find((i) => i.q === 'How does providing liquidity work?')?.a ?? '';
     expect(answer).not.toMatch(/withdraw any ?time/i);
     expect(answer).toContain('On Ethereum pools you can remove any time');
-    expect(answer).toContain("the team's vault can pause removing");
+    expect(answer).toContain("the team's vault can switch off withdrawals");
   });
 });

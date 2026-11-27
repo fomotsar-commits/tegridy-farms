@@ -104,7 +104,9 @@ beforeEach(() => {
   localStorage.clear();
   Object.values(toast).forEach((fn) => fn.mockReset());
   writeContract.mockReset().mockImplementation((_args, opts: { onSuccess: (h: string) => void }) => opts.onSuccess(HASH));
-  client.readContract.mockReset().mockResolvedValue([10n ** 16n, 10n ** 19n]);
+  // Our pool's cut is on (getPair, then kLast non-zero); every quote answers [10n ** 16n, 10n ** 19n].
+  client.readContract.mockReset().mockImplementation(async ({ functionName }: { functionName: string }) =>
+    (functionName === 'getPair' ? '0x00000000000000000000000000000000000000a1' : functionName === 'kLast' ? 7n : [10n ** 16n, 10n ** 19n]));
   client.waitForTransactionReceipt.mockReset().mockResolvedValue({ status: 'success' });
   client.getTransactionReceipt.mockReset().mockResolvedValue({ status: 'success' });
   seed(order('order-1'));

@@ -253,6 +253,9 @@ function system(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
 function token(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
   const d = ix.data;
   const wsolAta = associatedTokenAddress(WSOL_MINT, ctx.signer);
+  // A restart's top-up runs under either token program: the coin's own (familyOf).
+  if (isPoolIntent(ctx) && ctx.kind === 'lp-restart' && d[0] === TOKEN_IX_TRANSFER_CHECKED) return poolTopUp(ix, ctx);
+  if (!ix.programId.equals(TOKEN_PROGRAM_ID)) return refuse('a Token-2022 instruction other than a restart’s top-up');
   switch (d[0]) {
     case 20: {
       if (isPoolLike(ctx)) return refuse('this kind of transaction never creates a token');
@@ -574,6 +577,9 @@ function cpswap(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
         return poolWithdraw(ix, ctx);
       case 'lp-create':
         return startsWith(ix.data, IX_CREATE_LP_METADATA) ? poolName(ix, ctx) : poolInitialize(ix, ctx);
+      case 'lp-restart':
+        // The deposit, and the check-back that holds its price from below (restart.ts).
+        return startsWith(ix.data, IX_WITHDRAW) ? poolWithdraw(ix, ctx) : poolDeposit(ix, ctx);
       default:
         return noPoolInstructionFor(ctx);
     }
@@ -679,6 +685,31 @@ function poolWithdraw(ix: TransactionInstruction, ctx: PoolIntent): IntentStep {
   if (lpAmount === 0n) refuse('the withdrawal asks for zero pool shares');
   if (min0 === 0n || min1 === 0n) refuse('the withdrawal accepts any payout (no minimum)');
   return { kind: 'pool-withdraw', pool: p.address, lpAccount: p.lpAccount, lpAmount, min0, min1 };
+}
+
+/**
+ * A restart's top-up (restart.ts): `TransferChecked` of `amount` of one of the pool's two
+ * coins, from the signer's own account for it, straight into THAT coin's vault of the pinned
+ * pool, under that coin's own token program, signed by the signer alone. Nothing else may
+ * be sent anywhere: every other kind refuses a transfer outright.
+ */
+function poolTopUp(ix: TransactionInstruction, ctx: PoolIntent): IntentStep {
+  const d = ix.data;
+  if (d.length !== 1 + 8 + 1) refuse('a top-up of the wrong size');
+  expectKeyCount(ix, 4, 'pool top-up');
+  const p = ctx.pins;
+  pinnedQuote(ctx);
+  const mint = key(ix, 1);
+  const side = mint.equals(p.token0Mint) ? 0 : mint.equals(p.token1Mint) ? 1 : refuse('the top-up moves a coin this pool does not hold');
+  const program = side === 0 ? p.token0Program : p.token1Program;
+  if (!ix.programId.equals(program)) refuse('the top-up runs under another token program than its coin’s');
+  if (!key(ix, 0).equals(associatedTokenAddress(mint, ctx.signer, program))) refuse('the top-up spends from an account that is not yours');
+  const vault = side === 0 ? p.vault0 : p.vault1;
+  if (!key(ix, 2).equals(vault)) refuse('the top-up goes somewhere other than this pool’s own vault for that coin');
+  if (!key(ix, 3).equals(ctx.signer)) refuse('the top-up is signed for by someone else');
+  const amount = u64(d, 1);
+  if (amount === 0n) refuse('the top-up moves nothing');
+  return { kind: 'pool-topup', pool: p.address, mint, vault, amount };
 }
 
 /** cp-swap `initialize`: `IX_INITIALIZE ‖ init_amount_0 u64 ‖ init_amount_1 u64 ‖ open_time u64`. */
@@ -1002,6 +1033,9 @@ export const PROGRAMS_BY_KIND: Readonly<Record<TxKind, ReadonlySet<ProgramFamily
   // Opening a pool wraps SOL exactly like adding liquidity, and nothing more: the pool
   // program creates the pool's own accounts and the pool-share account itself.
   'lp-create': new Set<ProgramFamily>(['compute', 'system', 'token', 'ata', 'pool']),
+  // A restart wraps SOL exactly like adding liquidity, and its top-up is a transfer under
+  // the coin's own token program, Token-2022 included (familyOf).
+  'lp-restart': new Set<ProgramFamily>(['compute', 'system', 'token', 'ata', 'pool']),
   // A range opening wraps SOL for a SOL pool; taking out and closing only unwrap. The
   // position's NFT is made by the range program itself, so Token-2022 is never called here.
   'range-open': new Set<ProgramFamily>(['compute', 'system', 'token', 'ata', 'range']),
@@ -1022,6 +1056,7 @@ const OWN_STEP: Readonly<Record<LpKind, { step: IntentStep['kind']; refuse: stri
   'lp-deposit': { step: 'pool-deposit', refuse: 'it does not hold exactly one deposit into the pool' },
   'lp-withdraw': { step: 'pool-withdraw', refuse: 'it does not hold exactly one withdrawal from the pool' },
   'lp-create': { step: 'pool-create', refuse: 'it does not open exactly one pool' },
+  'lp-restart': { step: 'pool-deposit', refuse: 'it does not hold exactly one deposit into the pool' },
 };
 
 function familyOf(p: PublicKey, ctx: IntentContext): ProgramFamily | null {
@@ -1031,7 +1066,9 @@ function familyOf(p: PublicKey, ctx: IntentContext): ProgramFamily | null {
   // Token-2022 is a family only for the launch-program kinds (it is the create's plant,
   // and PROGRAMS_BY_KIND refuses it in every other curve kind). A liquidity transaction
   // and a swap never call it at the top level, so to them it is a program this page never uses.
-  if (p.equals(TOKEN_2022_PROGRAM_ID)) return isPoolLike(ctx) ? null : 't22';
+  // A restart's top-up is the one exception: a transfer of the pool's own coin under its
+  // own program, which `token` holds to exactly that.
+  if (p.equals(TOKEN_2022_PROGRAM_ID)) return isPoolLike(ctx) ? (ctx.kind === 'lp-restart' ? 'token' : null) : 't22';
   if (p.equals(ASSOCIATED_TOKEN_PROGRAM_ID)) return 'ata';
   if (p.equals(METAPLEX_TOKEN_METADATA_ID)) return 'metadata';
   if (p.equals(ctx.cfg.programId)) return 'launch';
@@ -1100,6 +1137,7 @@ export function decodeIntent(
         refuse('it does not name the new pool share exactly once, right after opening the pool');
       }
       if (ctx.kind !== 'lp-create' && names !== 0) refuse('it names a pool share, and only an opening does');
+      if (ctx.kind === 'lp-restart') restartShape(steps);
     }
     // One swap per transaction, for the same reasons.
     if (isSwapIntent(ctx) && steps.filter((s) => s.kind === 'pool-swap').length !== 1) refuse('it does not hold exactly one swap in the pool');
@@ -1156,6 +1194,21 @@ export function decodeIntent(
     if (e instanceof Refuse) return { ok: false, reason: `This transaction was blocked because ${e.message}.` };
     return { ok: false, reason: 'This transaction could not be checked, so it was blocked.' };
   }
+}
+
+/**
+ * A restart (restart.ts) in the order that makes it safe: at most one top-up into each of
+ * the pool's two vaults, all before the deposit, then exactly one withdrawal (the
+ * check-back), after it. A check-back before the deposit would test nothing.
+ */
+function restartShape(steps: readonly IntentStep[]): void {
+  const deposit = steps.findIndex((s) => s.kind === 'pool-deposit');
+  const checks = steps.flatMap((s, i) => (s.kind === 'pool-withdraw' ? [i] : []));
+  if (checks.length !== 1) refuse('a restart does not take exactly one check-back out of the pool');
+  if (checks[0]! < deposit) refuse('it takes the check-back out before the deposit goes in');
+  const ups = steps.flatMap((s, i) => (s.kind === 'pool-topup' ? [{ s, i }] : []));
+  if (new Set(ups.map((u) => u.s.vault.toBase58())).size !== ups.length) refuse('it tops up one of the pool’s vaults more than once');
+  if (ups.some((u) => u.i > deposit)) refuse('it tops up the pool after the deposit');
 }
 
 /** The runtime's default unit limit per instruction when a transaction sets none. */

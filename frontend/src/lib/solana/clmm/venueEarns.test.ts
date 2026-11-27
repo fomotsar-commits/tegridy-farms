@@ -19,28 +19,28 @@ const STRANGER = '9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin';
 const tier = (o: Partial<{ tradeFeeRate: number; protocolFeeRate: number; fundFeeRate: number; owner: string; fundOwner: string }> = {}) => ({
   tradeFeeRate: 10_000, protocolFeeRate: 104_000, fundFeeRate: 56_000, owner: VAULT, fundOwner: WORKSHOP, ...o,
 });
-const DIFFERS = 'The venue’s cut does not follow the agreed split (10.4% of each fee to the team’s shared wallet and 5.6% to the island’s Workshop). As this fee tier stands: ';
+const DIFFERS = 'The venue’s cut does not follow the agreed split (10.4% of each fee to the team’s vault and 5.6% to the island’s Workshop). As this fee tier stands: ';
 
 describe('where a range pool’s venue cut goes', () => {
   it('the island’s split is named, each part as a share of the fee and of the swap, with its two wallets, and flags nothing', () => {
     const v = rangeVenueEarns(tier());
     expect(v.cut).toBe('16% of each swap’s fee (0.16% of the swap)');
     expect(v.where).toBe(
-      'The venue’s cut is split: 10.4% of each fee (0.104% of the swap) to the team’s shared wallet, which needs two signatures and can change the pool rates, and 5.6% of each fee (0.056% of the swap) to the island’s Workshop, the island’s agreed share.',
+      'The venue’s cut is split: 10.4% of each fee (0.104% of the swap) to the team’s vault, which can change fee rates if both keys approve, and 5.6% of each fee (0.056% of the swap) to the island’s Workshop, the island’s agreed share.',
     );
-    expect(v.wallets).toEqual([{ label: 'Team’s shared wallet', address: VAULT }, { label: 'Island’s Workshop', address: WORKSHOP }]);
+    expect(v.wallets).toEqual([{ label: 'Team’s vault', address: VAULT }, { label: 'Island’s Workshop', address: WORKSHOP }]);
     expect(v.elsewhere).toBe(false);
     // The 0.25% tier: the same split of a smaller fee.
     const quarter = rangeVenueEarns(tier({ tradeFeeRate: 2_500 }));
     expect(quarter.cut).toBe('16% of each swap’s fee (0.04% of the swap)');
-    expect(quarter.where).toContain('10.4% of each fee (0.026% of the swap) to the team’s shared wallet');
+    expect(quarter.where).toContain('10.4% of each fee (0.026% of the swap) to the team’s vault');
   });
 
   it('the vault as fund owner (the program’s default) takes the island’s share: flagged, never said as the agreed split', () => {
     const v = rangeVenueEarns(tier({ fundOwner: VAULT }));
     expect(v.elsewhere).toBe(true);
-    expect(v.where).toBe(`${DIFFERS}16% of each fee (0.16% of the swap) to the team’s shared wallet, 0% of each fee (0% of the swap) to the island’s Workshop.`);
-    expect(v.wallets).toEqual([{ label: 'Team’s shared wallet, 16% of each fee (0.16% of the swap)', address: VAULT }]);
+    expect(v.where).toBe(`${DIFFERS}16% of each fee (0.16% of the swap) to the team’s vault, 0% of each fee (0% of the swap) to the island’s Workshop.`);
+    expect(v.wallets).toEqual([{ label: 'Team’s vault, 16% of each fee (0.16% of the swap)', address: VAULT }]);
     // A tier with no fund part at all leaves the island nothing too.
     expect(rangeVenueEarns(tier({ protocolFeeRate: 160_000, fundFeeRate: 0, fundOwner: STRANGER })).elsewhere).toBe(true);
   });
@@ -49,7 +49,7 @@ describe('where a range pool’s venue cut goes', () => {
     const v = rangeVenueEarns(tier({ owner: STRANGER }));
     expect(v.elsewhere).toBe(true);
     expect(v.where).toBe(
-      `${DIFFERS}0% of each fee (0% of the swap) to the team’s shared wallet, 5.6% of each fee (0.056% of the swap) to the island’s Workshop, 10.4% of each fee (0.104% of the swap) to another wallet.`,
+      `${DIFFERS}0% of each fee (0% of the swap) to the team’s vault, 5.6% of each fee (0.056% of the swap) to the island’s Workshop, 10.4% of each fee (0.104% of the swap) to another wallet.`,
     );
     expect(v.wallets).toEqual([
       { label: 'Island’s Workshop, 5.6% of each fee (0.056% of the swap)', address: WORKSHOP },
@@ -64,7 +64,7 @@ describe('where a range pool’s venue cut goes', () => {
     const v = rangeVenueEarns(tier({ tradeFeeRate: 3_333 }));
     // The venue 0.053328% of each swap, the team 0.0346632%, the Workshop 0.0186648%.
     expect(v.cut).toBe('16% of each swap’s fee (0.0534% of the swap)');
-    expect(v.where).toContain('10.4% of each fee (0.0347% of the swap) to the team’s shared wallet');
+    expect(v.where).toContain('10.4% of each fee (0.0347% of the swap) to the team’s vault');
     expect(v.where).toContain('5.6% of each fee (0.0187% of the swap) to the island’s Workshop');
   });
 
@@ -101,7 +101,7 @@ describe('where a range pool’s venue cut goes', () => {
       expect(doc.description, String(tradeFeeRate)).toContain(`the venue keeps 16% (${s.venueOfSwap} of the swap)`);
       const team = rangeVenueEarns(tier({ tradeFeeRate }), ceiling).where;
       const teamShare = /10\.4% of each fee \(([^)]+) of the swap\)/.exec(team)![1];
-      expect(doc.description, String(tradeFeeRate)).toContain(`10.4% of the fee (${teamShare} of the swap) to the team’s shared wallet`);
+      expect(doc.description, String(tradeFeeRate)).toContain(`10.4% of the fee (${teamShare} of the swap) to the team’s vault`);
     }
   });
 
@@ -117,9 +117,8 @@ describe('the pool-opening fee, as the range screens say it', () => {
   it('says the amount the program charges and the wallet it pays, by the name the cut uses for it', () => {
     expect(CREATE_POOL_FEE_LAMPORTS).toBe(500_000_000n);
     expect(CREATE_POOL_FEE_RECEIVER.toBase58()).toBe(VAULT);
-    // The opening card and the review call this wallet the venue's vault; the split line calls it
-    // the team's shared wallet. This sentence names it both ways, so a stranger reads one wallet.
-    expect(RANGE_OPENING_FEE_TEXT).toBe('Whoever opens a new range pool also pays the venue 0.5 SOL, to the venue’s vault, the team’s shared wallet.');
-    expect(rangeVenueEarns(tier()).where).toContain('to the team’s shared wallet');
+    // The opening card, the review, the split line and the Risks list all call it the team's vault.
+    expect(RANGE_OPENING_FEE_TEXT).toBe('Whoever opens a new range pool also pays the venue 0.5\u00A0SOL, to the team’s vault.');
+    expect(rangeVenueEarns(tier()).where).toContain('to the team’s vault');
   });
 });
