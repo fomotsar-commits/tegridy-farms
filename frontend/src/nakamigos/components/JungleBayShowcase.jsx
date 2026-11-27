@@ -87,7 +87,7 @@ const ECOSYSTEM_CHAINS = [
     color: "var(--naka-blue)",
     bg: "rgba(255,255,255,0.07)",
     items: [
-      { name: "Jungle Bay Ape Club", supply: 5555, description: "Main collection -- 5,555 hand-drawn apes" },
+      { name: "Jungle Bay", supply: 5555, description: "Main collection -- 5,555 hand-drawn apes" },
       ...familyItems("Ethereum"),
     ],
   },

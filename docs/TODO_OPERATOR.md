@@ -39,21 +39,24 @@ on 2026-11-26 you asked for it on this list. Your paper is `START-HERE.md` in
 the upgrade of 2026-11-17. The pool program has not changed since then (last deploy slot
 470,581,826), and its account is still 725,221 bytes, too small for this build.
 
-**What it is.** One vault proposal: upgrade the pool program to `3f36e8ad…` (747,272 bytes), the
-build of pull request #1309 (merged 2026-11-21, `c6332412f`). The program is enlarged by 22,096
-bytes first. Everything #35 installed stays: the swap guard, the fee rules, the price robot's free
+**What it is.** One vault proposal: upgrade the pool program to `4082fcfb…` (749,000 bytes), the
+build of pull requests #1309 (merged 2026-11-21, `c6332412f`) and #1321 (merged 2026-11-27,
+`566da5ee7`; your word on 2026-11-26: "Yes, include it"). The program is enlarged by 23,824 bytes
+first. Everything #35 installed stays: the swap guard, the fee rules, the price robot's free
 swaps. New: anyone may call `sweep_fees`, which moves the venue's share of a pool's fees (10.4% of
 each trade fee) to the vault's own accounts, and the island's share (5.6%) to the Workshop's own
 accounts. Nobody can point a share anywhere else. The caller pays 5,000 lamports a sweep. About
 $14.25 of the venue's and $7.29 of the island's shares were waiting on 2026-11-20. It also carries
-#1248's fixes (the keeper can resign, a fee setting can charge at most 1 SOL to open a pool).
+#1248's fixes (the keeper can resign, a fee setting can charge at most 1 SOL to open a pool), and
+#1321's: a pool's price record can no longer be set by sending coins straight into the pool. The
+price a trade gets does not change.
 
-**The SOL.** The paying wallet `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` needs 3.913 SOL at
-its peak: 0.1122 SOL locked in the program for good (the enlarge), 3.797 SOL parked for the upload
+**The SOL.** The paying wallet `CqcVvaMvesrSKrUSbqBqr9mLjKLJuYqhaXg1gXpR41cg` needs 3.931 SOL at
+its peak: 0.1210 SOL locked in the program for good (the enlarge), 3.806 SOL parked for the upload
 and returned to it when the upgrade executes, and about 0.004 SOL of network fees. It held 3.692 SOL
 on 2026-11-26, and that day you chose to send 3.68 SOL of it to the price robot
-`9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz`. After that send, **send the paying wallet about
-3.91 SOL** (not the paper's 0.25). Member A `5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz` needs
+`9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz`. After that send, it holds 0.0124: **send the paying
+wallet 3.93 SOL** (not the paper's 0.25). Member A `5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz` needs
 **0.01 SOL**. Step 2's check prints what each still lacks: trust it over these figures.
 
 **Sitting 1, about an hour:** the paper's steps 1 to 13. One `REFUSED` line is expected in step 2,
@@ -62,7 +65,7 @@ it in the Squads app, and read back the proposal number on the page before every
 one is #36 unless another proposal takes it first).
 
 **Sitting 2, 48 hours after member B's approval:** steps 14 to 19. Step 15's first line must name
-`3f36e8ad`. Step 18 is the site's release the same day: a session opens it, you merge it.
+`4082fcfb`. Step 18 is the site's release the same day: a session opens it, you merge it.
 
 **Only after both sittings AND your merge of pull request #1316** (the daily job's own fix, a
 draft): switch the daily sweep on. Send about 0.05 SOL to its gas wallet

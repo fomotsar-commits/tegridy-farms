@@ -99,7 +99,7 @@ export const OG_COLLECTIONS = {
     features: TRADING_FEATURES,
   },
   junglebay: {
-    name: "Jungle Bay Ape Club",
+    name: "Jungle Bay",
     contract: "0xd37264c71e9AF940E49795f0D3A8336aFAaFdda9",
     supply: "5,555",
     image: "https://nft-cdn.alchemy.com/eth-mainnet/5da8fc69b3357b9bfe42717280e7c102",

@@ -730,6 +730,58 @@ dated 2026-11-20 ran on that day's build, before the two rules of 2026-11-21.
 
 ---
 
+### The price record is fed from what the last swap left (2026-11-24)
+
+**What it means.** Every swap adds "a price, times the seconds since the record was last
+written" to the pool's price record (`states/oracle.rs`), the running total a time-weighted
+average is read from. Upstream reads that price from the vaults' balances as the swap finds
+them. Coins sent straight into a vault (a plain transfer, no swap) change the balances without
+the record being written, so the next swap booked the gifted price for the whole quiet stretch
+before it. Anyone could set the pool's average for that stretch in one transaction, at the cost
+of the gift, which goes to the pool's liquidity providers; for whoever holds most of a pool's
+liquidity that cost is close to nothing. Found by the in-house audit of the VWAP order program
+on 2026-11-24, the first thing here to read that average.
+
+**The owner's ruling, 2026-11-24:** fix it in the pool program, in the same upgrade as the fee
+sweep.
+
+**The rule now** (Uniswap V2's: its record is fed from the reserves it stored, never from
+balances). Each swap leaves the two balances it ended with, less the fees owed, in the pool's
+account, and the next swap books THAT price for the time between them. Coins sent to a vault
+count from the next swap on, never before it.
+
+| What | Where |
+|---|---|
+| `recorded_price_x32` (the price the last swap left; none for a pool that has not swapped since this build, which then uses the balances, as upstream) and `record_balances_after_swap` | `states/pool.rs` |
+| The two words are `padding[0]` and `padding[1]` of `PoolState`. The field keeps its name and size, so no account layout and no IDL line moves, and an account written before this build reads 0, 0 there | `states/pool.rs` |
+| Both swap instructions read the recorded price for the record, and write the balances they leave | `instructions/swap_base_input.rs`, `instructions/swap_base_output.rs` |
+
+Nothing else moves: the swap's own arithmetic, its fees and its shares still read the balances,
+as upstream. A deposit or a withdrawal moves both balances in proportion and writes nothing, so
+the recorded price stays the pool's price. Collecting fees moves coins that were never in it.
+
+**How money moves.** It does not: no fee, no share and no receiver changes. A swap costs a few
+hundred compute units more.
+
+**What it is NOT.** It does not stop a price moved by real swaps and held there: that costs the
+pool fee both ways and stands against whoever trades it back, as before.
+
+**How it was proved, 2026-11-24** (Solana 2.3.0, Anchor 0.32.1).
+
+| run | result |
+|---|---|
+| unit tests (`cargo test --lib`): one on the two functions in `states/pool.rs` (nothing on record for a fresh pool; the recorded price is the balances less the fees owed, either direction; a later gift is not in it; only two words are used) | 50 of 50 with the 49 before |
+| the VWAP order program's suite and its rehearsal on the real BAYLA/SOL pool's accounts (draft #1302, LiteSVM), beside this build | 21 of 21, as beside mainnet's build and trunk's |
+| the audit's proof beside this build: 30% of the pool's depth sent to a vault, then a slice in the same transaction | refused by the average (it got 190,022,844 where the average asked 245,000,004); beside mainnet's build the same slice went through |
+| `tests/cp-swap-price-record.test.ts` on a local validator (CI's migration-rehearsal job) | see the pull request |
+| `node solana/guards/provenance.mjs cp-swap` after the re-pin | upstream plus the reviewed patch: 37 files compared, 13 patched (`states/pool.rs` joins the list) |
+
+**What it costs the upgrade waiting for the vault.** This changes the program's bytes, so the
+build named above for the one swap-pool upgrade (`3f36e8ad…`, 747,272 bytes) is no longer the
+one to deploy once this is merged: built on the operator's machine this source is 749,000 bytes
+(`4082fcfb…`; CI's deploy artifact is the one that counts). The upgrade pack, its "grow the
+program first" step and its rehearsal must be made again from the new build before any sitting.
+
 ## How Tegridy earns (no code change for the fee recipient)
 
 The per-swap **protocol fee is config-driven**, not hardcoded:
