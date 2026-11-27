@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type Ref } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
@@ -23,6 +23,7 @@ import type { LpReaders } from './readers';
 import { DoorPortal, LpDoorFrame } from './LpDoorFrame';
 import { LpDoorContext } from './lpDoor';
 import { useSheet } from '../../sheet/sheetContext';
+import { bringIntoView, holdPress } from '../../../lib/bringIntoView';
 
 /** What a visitor came to do. The three are on the first screen, as buttons. */
 export type LpTask = 'create' | 'add' | 'remove';
@@ -121,6 +122,8 @@ function unfoundText(pools: PoolSearchRead, pool: string, door = false): string 
 
 // "Open a pool": the one name the site gives opening a pool, on this button, the card and its button.
 const TASK_LABEL: Record<LpTask, string> = { create: 'Open a pool', add: 'Add liquidity', remove: 'Remove liquidity' };
+/** Each task button's index-tab letter on /pools' sheet (styles/dwg-pools.css draws it from data-n). */
+const TASK_TAB = ['A', 'B', 'C'] as const;
 const TASK_LINE: Record<LpTask, string> = {
   create: `Pick a token. You can pair it with ${QUOTE_COINS_OR}.`,
   add: 'Pick a token. If it has no pool yet, your deposit opens one.',
@@ -374,6 +377,11 @@ export function PoolFinder({
     (next: string, want: LpWish['task'] | null, pool?: string, ask: Omit<AddAsk, 'pool'> & { door?: true } = {}) => {
       // The door's link draws its answer at the top, where the visitor already is.
       asked.current = !ask.top;
+      // A look-up a press asked for draws a line above the tokens before its answer moves the page:
+      // one row, so a double tap's second tap picked the token above (WebKit, Fable read 2026-11-24).
+      // A link's or the sheet's own look-up (`top`) has no press: held then, on the spot of the
+      // press that opened the sheet, it swallowed a prompt Back (Fable re-read, 2026-11-25).
+      if (!ask.top) holdPress();
       wishes.current += 1;
       setUnfound(null);
       if (pool) setExtra({ mint: next, pool });
@@ -417,7 +425,7 @@ export function PoolFinder({
   useEffect(() => {
     if (!asked.current || state.status === 'idle') return;
     asked.current = false;
-    answerRef.current?.scrollIntoView?.({ block: 'start' });
+    bringIntoView(answerRef.current, { block: 'start' });
   }, [state.status, mint, nonce]);
 
   const submit = useCallback(() => {
@@ -445,13 +453,18 @@ export function PoolFinder({
     },
     [lookUp, task, canAdd],
   );
-  // Create and Add: the tokens and the address box come onto the screen under the three
-  // buttons (on a phone they start at its foot). Remove: the section goes to the positions.
-  // With a token already answered on the page (a ?mint= link, which is how a wallet app's
-  // own browser arrives, or an earlier lookup), Create and Add go straight to its form:
-  // the answer is on the page (or on its way), so nothing is read again. The card says
+  // Create and Add: the tokens and the address box come onto the screen, only as far as they
+  // are not on it yet, so the pressed button stays under the pointer. Remove: the section goes
+  // to the positions. With a token already answered on the page (a ?mint= link, or an earlier
+  // lookup), Create and Add go straight to its form, and nothing is read again. The card says
   // which token that is before the press, by where its address is, never by its name.
-  const tasksRef = useRef<HTMLDivElement>(null);
+  const nextRef = useRef<HTMLFormElement>(null);
+  // Measured after the press's own line is drawn above the tokens, not before it: measured
+  // before, the line pushed Find pools under a phone's bottom bar.
+  const [bringNext, setBringNext] = useState(0);
+  useLayoutEffect(() => {
+    if (bringNext) bringIntoView(nextRef.current, { block: 'nearest' });
+  }, [bringNext]);
   const answered = state.status === 'idle' ? null : state.mint;
   const choose = useCallback(
     (t: LpTask) => {
@@ -464,7 +477,10 @@ export function PoolFinder({
         wishes.current += 1;
         setUnfound(null);
         setWish({ task: t, mint: answered, n: wishes.current });
-      } else tasksRef.current?.scrollIntoView?.({ block: 'start' });
+      } else {
+        // The address box sits under the tokens, so with it on the screen the tokens are too.
+        setBringNext((n) => n + 1);
+      }
     },
     [onRemove, answered, canAdd],
   );
@@ -496,12 +512,13 @@ export function PoolFinder({
         art={<CardArt pageId="solana-lp" idx={2} />}
       >
         {tasks.length > 0 && (
-          <div ref={tasksRef} data-testid="lp-tasks" className="space-y-2">
+          <div data-testid="lp-tasks" className="space-y-2">
             <div className="flex gap-2" role="group" aria-label="What do you want to do?">
-              {tasks.map((t) => (
+              {tasks.map((t, k) => (
                 <button
                   key={t}
                   type="button"
+                  data-n={TASK_TAB[k]}
                   className={`${task === t ? 'btn-primary' : 'btn-secondary'} flex-1 min-w-0 min-h-[48px] px-2 text-[13px] leading-tight`}
                   aria-pressed={task === t}
                   onClick={() => choose(t)}
@@ -545,6 +562,7 @@ export function PoolFinder({
           </div>
         )}
         <form
+          ref={nextRef}
           onSubmit={(e) => {
             e.preventDefault();
             submit();
@@ -721,7 +739,9 @@ function SearchResults({
       if (p.kind !== 'pool' || (named !== null && p.view.address !== named)) continue;
       if (quote !== null && p.view.quote.mint !== quote) continue;
       const health = healths.get(p.view.address);
-      if (!health || depositOffer({ mode, gate, health, held: lpHeld(notes, p.view.address, 'add') }) !== 'offer') continue;
+      const offer = health ? depositOffer({ mode, gate, health, held: lpHeld(notes, p.view.address, 'add') }) : null;
+      // A restart (restart.ts) only when the wish named this very pool: never picked for a visitor.
+      if (!health || (offer !== 'offer' && !(offer === 'restart' && named !== null))) continue;
       if (!priceWarned(health)) return p.view.address;
       warned ??= p.view.address;
     }
@@ -825,17 +845,23 @@ function SearchResults({
             </ul>
             </div>
           )}
+          {/* The notes under the list, at the cards' size (a Notice sets no size of its own). */}
           {!only && pools.search.pools.length > 0 && pools.search.otherPairs > 0 && (
-            <Notice>{pools.search.otherPairs} more pool(s) pair this token with something other than {QUOTE_COINS_OR} and are not shown.</Notice>
+            <div className="text-[12px] leading-relaxed">
+              <Notice>{pools.search.otherPairs} more pool(s) pair this token with something other than {QUOTE_COINS_OR} and are not shown.</Notice>
+            </div>
           )}
           {!only && pools.search.launchTierPools.length > 0 && (
-            <Notice tone="warn">
-              <strong>{launchTierLine(pools.search.launchTierPools.length)}</strong>
-            </Notice>
+            <div className="text-[12px] leading-relaxed">
+              <Notice tone="warn">
+                <strong>{launchTierLine(pools.search.launchTierPools.length)}</strong>
+              </Notice>
+            </div>
           )}
-          {/* With pools listed there is no "no pools" sentence to carry it, so it is said under the list. */}
+          {/* With pools listed there is no "no pools" sentence to carry it, so it is said under the list,
+              once: the Open a pool card below does not say it again. */}
           {pools.search.pools.length > 0 && otherSide && (
-            <div data-testid="lp-other-side">
+            <div data-testid="lp-other-side" className="text-[12px] leading-relaxed">
               <Notice>{otherSide}</Notice>
             </div>
           )}

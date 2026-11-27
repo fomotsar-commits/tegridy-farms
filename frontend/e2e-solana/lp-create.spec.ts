@@ -82,7 +82,7 @@ async function tierView(index: 0 | 1): Promise<AmmConfigView> {
 }
 const tierText = (c: AmmConfigView) =>
   // A pool this site opens goes through `initialize`, which switches its creator fee off.
-  `${c.index}: traders pay ${tradeCostText(c, CREATOR_FEE_SWITCH.publicOpen)}; LPs keep ${feeSplit(c).lpKeepsPct.toFixed(3)}% of each trade`;
+  `Tier ${c.index}: traders pay ${tradeCostText(c, CREATOR_FEE_SWITCH.publicOpen)}; LPs keep ${feeSplit(c).lpKeepsPct.toFixed(3)}% of each trade, the venue ${feeSplit(c).venueTakesPct.toFixed(3)}%`;
 
 /**
  * What Metaplex keeps for making a record, on top of its rent: a flat 0.01 SOL, measured on
@@ -484,8 +484,12 @@ test.describe('group A (chromium and mobile-chrome)', () => {
     expect(await pendingNotes(p)).toContain(signature);
     await expect(createCard(p)).toHaveAttribute('data-create', 'held');
 
-    // Released: Check again settles it, and the tab now knows the pool it opened.
+    // Released: Check again settles it, and the tab now knows the pool it opened. The load
+    // checks the note once on its own; released before that check is refused, it settles
+    // the note and the card leaves before Check again can be pressed.
+    const loadBefore = a.rpc.failedCount('getSignatureStatuses');
     await openPools(p, A.t2);
+    await expect.poll(() => a.rpc.failedCount('getSignatureStatuses'), { timeout: 60_000 }).toBeGreaterThan(loadBefore);
     a.rpc.release('getSignatureStatuses');
     await press(ui.lp.pending(p).getByRole('button', { name: 'Check again' }), 'Check again');
     await expect(ui.lp.pending(p)).toHaveCount(0, { timeout: 60_000 });
@@ -1436,7 +1440,7 @@ test.describe('group B (chromium only)', () => {
     await expect(preview).toContainText(`${LOCKED_SHARES}, worth about ${solExact(staysSol)} and ${units(staysTok, 0)} tokens`);
     // And what leaves the wallet in all names the tokens too, not the SOL alone.
     const [tier, rents] = await Promise.all([tierView(1), liveRents()]);
-    await expect(preview).toContainText(`about ${formatSol(tenSol + tier.createPoolFee + rents.neverRefunded + rents.nameRecord + rents.r165, 4)} SOL and 2 tokens, plus the network fee`);
+    await expect(preview).toContainText(`about ${formatSol(tenSol + tier.createPoolFee + rents.neverRefunded + rents.nameRecord + rents.r165, 4, { up: true })} SOL and 2 tokens, plus the network fee`);
     const rows = await reviewCreate(p);
     const pool = await checkCreateReview(p, rows, { mint, sol: tenSol, token: 2n, origin: 'standard', market: null, decimals: 0 });
     expect(rows['You get']).toBe(`${units(supply - 100n, 9)} pool shares, exactly`);

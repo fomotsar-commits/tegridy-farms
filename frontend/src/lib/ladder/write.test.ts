@@ -21,8 +21,9 @@ import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { describe, it, expect, vi } from 'vitest';
-import { Connection, PublicKey, Keypair, SystemProgram, TransactionInstruction } from '@solana/web3.js';
+import { Connection, PublicKey, Keypair, SystemProgram, Transaction, TransactionInstruction, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
 import { WalletNotConnectedError, WalletSendTransactionError, WalletSignTransactionError, type SignerWalletAdapter } from '@solana/wallet-adapter-base';
+import { RENT_EXEMPT_EMPTY_LAMPORTS, WALLET_FEE_ROOM_LAMPORTS, WALLET_GUARD_ROOM_BYTES, WRITE_COPY, solShortCopy } from '../solana/walletWrite';
 import { base58 } from '@scure/base';
 import { V1_VERSION_BYTE, assembleV1, decodeV1, loadedDataLimitFromSimulation, signV1WithKeypairs } from '../launcher/solana/write/v1';
 import { MAX_OWN_PRIORITY_LAMPORTS, computeLimitFromSimulation } from '../launcher/solana/write/budget';
@@ -35,6 +36,7 @@ import { createAtaIdempotentIx } from './ix';
 import {
   LADDER_ERRORS, anchorCode, classifyWriteError, refusalReason, submitLadder,
   ladderStake, ladderClaim, ladderExit, ladderHatch, ladderClaimCarried, ladderClaimCarriedIxs, ladderClaimIxs,
+  LADDER_CLAIMS_PER_TX, ladderClaimAll, ladderClaimAllIxs,
   type LadderWriteCtx,
 } from './write';
 
@@ -44,7 +46,9 @@ const IDL_JSON = resolve(HERE, '../../../../solana/tegridy-amm/idl/bayla_ladder.
 
 const PROGRAM = new PublicKey('HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK');
 const MINT = new PublicKey('8opsYTPSp2AckjmAc2vx49kohs8CFtNcyR2sNURfrfoL');
-const OWNER = new PublicKey('Gut9toQMqtrFL5ERLsAThmtq6e1Hq9BGtWPcjNqziHrj');
+// A real key: the wallet in these tests signs for real, and the send reads the signature off it.
+const OWNER_KP = Keypair.generate();
+const OWNER = OWNER_KP.publicKey;
 const TOKEN_2022 = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
 const LEGACY = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 const POOL = poolPda(PROGRAM, MINT, 0);
@@ -252,15 +256,33 @@ describe('the classifier only promises "nothing moved" when it can prove it', ()
 
 type Status = { err: unknown; confirmationStatus?: string; slot?: number } | null;
 
+/** The test runs' answers, in turn (the last repeating): the payer's SOL after each run is `balance` less `spends`. */
+type Run = { err: unknown; logs?: string[] };
+
 function fakeConn(opts: {
   statuses: Status[];
   logs?: string[];
   onStatuses?: () => void;
   throwOnStatuses?: number;
+  runs?: Run[];
+  balance?: number;
+  spends?: number;
+  sendThrows?: unknown;
 }) {
   let call = 0;
+  let run = 0;
+  const balance = opts.balance ?? 1_000_000_000;
   return {
     getLatestBlockhash: vi.fn(async () => ({ blockhash: '11111111111111111111111111111111', lastValidBlockHeight: 1 })),
+    getBalance: vi.fn(async () => balance),
+    simulateTransaction: vi.fn(async () => {
+      const r = (opts.runs ?? [{ err: null }])[Math.min(run++, (opts.runs ?? [{ err: null }]).length - 1)]!;
+      return { context: { slot: 1 }, value: { err: r.err, logs: r.logs ?? [], unitsConsumed: 40_000, accounts: [{ lamports: balance - (opts.spends ?? 2_039_280), data: ['', 'base64'] }] } };
+    }),
+    sendRawTransaction: vi.fn(async () => {
+      if (opts.sendThrows) throw opts.sendThrows;
+      return 'ignored: the signature is read off the signed bytes';
+    }),
     getSignatureStatuses: vi.fn(async () => {
       const i = call++;
       opts.onStatuses?.();
@@ -271,8 +293,21 @@ function fakeConn(opts: {
   } as unknown as Connection;
 }
 
-function fakeWallet(send: (tx: unknown) => Promise<string>, publicKey: PublicKey | null = OWNER) {
-  return { publicKey, sendTransaction: vi.fn(send) } as unknown as SignerWalletAdapter;
+/**
+ * A wallet with no version 1 and no version 0 (a legacy adapter): it SIGNS a legacy
+ * transaction for real with `kp` and hands it back. `onSign` sees it first; a throw there
+ * is the wallet's. `signed`: the signatures it made, in order.
+ */
+function fakeWallet(onSign?: (tx: Transaction) => unknown, kp: Keypair | null = OWNER_KP) {
+  const signed: string[] = [];
+  const signTransaction = vi.fn(async (tx: Transaction) => {
+    await onSign?.(tx);
+    tx.partialSign(kp!);
+    signed.push(base58.encode(tx.signature!));
+    return tx;
+  });
+  const sendTransaction = vi.fn(async () => { throw new Error('a wallet never sends here'); });
+  return Object.assign({ publicKey: kp?.publicKey ?? null, signTransaction, sendTransaction } as unknown as SignerWalletAdapter, { signed });
 }
 
 const noSleep = { sleep: async () => {}, now: () => 0, timeoutMs: 60_000 };
@@ -284,32 +319,34 @@ const SOME_IX = [createAtaIdempotentIx({
 })];
 
 describe('submitLadder', () => {
-  it('holds the page from reloading for a new deploy until the write is answered, sent or thrown', async () => {
+  it('holds the page from reloading for a new deploy until the write is answered, signed or thrown', async () => {
     const heldAtWallet: boolean[] = [];
     const conn = fakeConn({ statuses: [{ err: null, confirmationStatus: 'confirmed' }], onStatuses: () => heldAtWallet.push(reloadHeld()) });
     expect(reloadHeld()).toBe(false);
-    await submitLadder(conn, fakeWallet(async () => { heldAtWallet.push(reloadHeld()); return SIG; }), SOME_IX, noSleep);
+    await submitLadder(conn, fakeWallet(() => { heldAtWallet.push(reloadHeld()); }), SOME_IX, noSleep);
     expect(heldAtWallet).toEqual([true, true]);
     expect(reloadHeld()).toBe(false);
-    await submitLadder(conn, fakeWallet(async () => { throw new WalletSendTransactionError('lost'); }), SOME_IX, noSleep);
+    await submitLadder(conn, fakeWallet(() => { throw new WalletSignTransactionError('lost'); }), SOME_IX, noSleep);
     expect(reloadHeld()).toBe(false);
   });
 
-  it('returns the signature once the status says confirmed', async () => {
+  it('returns the signature the wallet made once the status says confirmed', async () => {
     const conn = fakeConn({ statuses: [{ err: null, confirmationStatus: 'confirmed' }] });
-    const r = await submitLadder(conn, fakeWallet(async () => SIG), SOME_IX, noSleep);
-    expect(r).toEqual({ ok: true, signature: SIG, slot: null });
+    const wallet = fakeWallet();
+    const r = await submitLadder(conn, wallet, SOME_IX, noSleep);
+    expect(r).toEqual({ ok: true, signature: wallet.signed[0], slot: null });
   });
 
   it('carries the slot the write CONFIRMED at — the card fences its share on it', async () => {
     const conn = fakeConn({ statuses: [{ err: null, confirmationStatus: 'confirmed', slot: 412_345_678 }] });
-    const r = await submitLadder(conn, fakeWallet(async () => SIG), SOME_IX, noSleep);
-    expect(r).toEqual({ ok: true, signature: SIG, slot: 412_345_678 });
+    const wallet = fakeWallet();
+    const r = await submitLadder(conn, wallet, SOME_IX, noSleep);
+    expect(r).toEqual({ ok: true, signature: wallet.signed[0], slot: 412_345_678 });
   });
 
   it('accepts `finalized` as confirmed too', async () => {
     const conn = fakeConn({ statuses: [{ err: null, confirmationStatus: 'finalized' }] });
-    const r = await submitLadder(conn, fakeWallet(async () => SIG), SOME_IX, noSleep);
+    const r = await submitLadder(conn, fakeWallet(), SOME_IX, noSleep);
     expect(r.ok).toBe(true);
   });
 
@@ -321,8 +358,9 @@ describe('submitLadder', () => {
       statuses: [null, { err: null, confirmationStatus: 'confirmed' }],
       throwOnStatuses: 0,
     });
-    const r = await submitLadder(conn, fakeWallet(async () => SIG), SOME_IX, noSleep);
-    expect(r).toEqual({ ok: true, signature: SIG, slot: null });
+    const wallet = fakeWallet();
+    const r = await submitLadder(conn, wallet, SOME_IX, noSleep);
+    expect(r).toEqual({ ok: true, signature: wallet.signed[0], slot: null });
   });
 
   it('asks the chain WHY when it lands and reverts, and names the error', async () => {
@@ -330,9 +368,10 @@ describe('submitLadder', () => {
       statuses: [{ err: { InstructionError: [1, { Custom: 7 }] }, confirmationStatus: 'confirmed' }],
       logs: ['Program log: AnchorError. Error Number: 6027. Error Message: cap'],
     });
-    const r = await submitLadder(conn, fakeWallet(async () => SIG), SOME_IX, noSleep);
+    const wallet = fakeWallet();
+    const r = await submitLadder(conn, wallet, SOME_IX, noSleep);
     expect(!r.ok && r.reason).toMatch(/per-wallet limit/i);
-    expect(!r.ok && r.signature).toBe(SIG);
+    expect(!r.ok && r.signature).toBe(wallet.signed[0]);
   });
 
   it('stays generic rather than wrong when the logs name no code', async () => {
@@ -340,37 +379,124 @@ describe('submitLadder', () => {
       statuses: [{ err: { InstructionError: [0, 'ProgramFailedToComplete'] }, confirmationStatus: 'confirmed' }],
       logs: ['Program log: something else entirely'],
     });
-    const r = await submitLadder(conn, fakeWallet(async () => SIG), SOME_IX, noSleep);
+    const r = await submitLadder(conn, fakeWallet(), SOME_IX, noSleep);
     expect(!r.ok && r.reason).toMatch(/landed on chain and reverted/i);
   });
 
   it('reports an unconfirmed transaction as unknown, WITH its signature', async () => {
     let t = 0;
     const conn = fakeConn({ statuses: [null] });
-    const r = await submitLadder(conn, fakeWallet(async () => SIG), SOME_IX, {
+    const wallet = fakeWallet();
+    const r = await submitLadder(conn, wallet, SOME_IX, {
       sleep: async () => { t += 2_000; },
       now: () => t,
       timeoutMs: 6_000,
     });
     expect(!r.ok && r.reason).toMatch(/may still land/i);
     expect(!r.ok && r.reason).not.toMatch(/nothing moved/i);
-    expect(!r.ok && r.signature).toBe(SIG);
+    expect(!r.ok && r.signature).toBe(wallet.signed[0]);
   });
 
   it('refuses to build anything without a connected wallet', async () => {
     const conn = fakeConn({ statuses: [] });
-    const wallet = fakeWallet(async () => SIG, null);
+    const wallet = fakeWallet(undefined, null);
     const r = await submitLadder(conn, wallet, [], noSleep);
     expect(!r.ok && r.reason).toMatch(/connect a wallet/i);
-    expect(wallet.sendTransaction).not.toHaveBeenCalled();
+    expect(wallet.signTransaction).not.toHaveBeenCalled();
   });
 
   it('sets the fee payer and a fresh blockhash on the transaction it signs', async () => {
     const conn = fakeConn({ statuses: [{ err: null, confirmationStatus: 'confirmed' }] });
-    let seen: { feePayer?: PublicKey; recentBlockhash?: string } | null = null;
-    await submitLadder(conn, fakeWallet(async (tx) => { seen = tx as never; return SIG; }), SOME_IX, noSleep);
+    let seen: Transaction | null = null;
+    await submitLadder(conn, fakeWallet((tx) => { seen = tx; }), SOME_IX, noSleep);
     expect(seen!.feePayer!.toBase58()).toBe(OWNER.toBase58());
     expect(seen!.recentBlockhash).toBe('11111111111111111111111111111111');
+  });
+});
+
+/* ──── 4b. Phantom's answer on ticket #467471: test, check the SOL, sign one, send ours ──── */
+//
+// Before 2026-11-17 a wallet that did not list version 1 (a legacy adapter, and maybe
+// Phantom's phone app) was handed a legacy transaction nothing had tested, and SIGNED AND
+// SENT it itself. Each test here fails on that path (MUTATION-CHECKED against write.ts at
+// trunk 08c2814f9).
+
+// A chain that would confirm at once: a stop before the wallet must be the code's, never a hang.
+const CONFIRMED: Status[] = [{ err: null, confirmationStatus: 'confirmed' }];
+
+describe('every wallet signs only: tested first, its SOL checked, and sent by us', () => {
+  it('the test run comes before the wallet, the wallet only signs, and our send has preflight on', async () => {
+    const conn = fakeConn({ statuses: [{ err: null, confirmationStatus: 'confirmed' }] });
+    const wallet = fakeWallet();
+    const r = await submitLadder(conn, wallet, SOME_IX, noSleep);
+    expect(r.ok).toBe(true);
+    expect(wallet.sendTransaction).not.toHaveBeenCalled();
+    expect(wallet.signTransaction).toHaveBeenCalledTimes(1);
+    const sim = conn.simulateTransaction as unknown as ReturnType<typeof vi.fn>;
+    expect(sim).toHaveBeenCalledTimes(1);
+    expect(sim.mock.invocationCallOrder[0]).toBeLessThan((wallet.signTransaction as unknown as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0]!);
+    expect(sim.mock.calls[0]![1]).toMatchObject({ sigVerify: false, accounts: { addresses: [OWNER.toBase58()] } });
+    const send = conn.sendRawTransaction as unknown as ReturnType<typeof vi.fn>;
+    expect(send.mock.calls[0]![1]).toMatchObject({ skipPreflight: false, preflightCommitment: 'confirmed' });
+  });
+
+  it('a test run the program refuses: the wallet is never asked, and the program says why', async () => {
+    const conn = fakeConn({ statuses: CONFIRMED, runs: [{ err: { InstructionError: [1, { Custom: 6027 }] }, logs: ['Program log: AnchorError. Error Number: 6027. Error Message: cap'] }] });
+    const wallet = fakeWallet();
+    const r = await submitLadder(conn, wallet, SOME_IX, noSleep);
+    expect(!r.ok && r.reason).toMatch(/per-wallet limit/i);
+    expect(wallet.signTransaction).not.toHaveBeenCalled();
+    expect(conn.sendRawTransaction).not.toHaveBeenCalled();
+  });
+
+  it('a test run that cannot finish stops it: the wallet is never asked', async () => {
+    const conn = fakeConn({ statuses: CONFIRMED });
+    (conn.simulateTransaction as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('429 Too Many Requests'));
+    const wallet = fakeWallet();
+    const r = await submitLadder(conn, wallet, SOME_IX, noSleep);
+    expect(!r.ok && r.reason).toMatch(/could not finish/i);
+    expect(wallet.signTransaction).not.toHaveBeenCalled();
+    expect(conn.sendRawTransaction).not.toHaveBeenCalled();
+  });
+
+  it('a node behind its own blockhash is no verdict either: the wallet is never asked', async () => {
+    const conn = fakeConn({ statuses: CONFIRMED, runs: [{ err: 'BlockhashNotFound' }] });
+    const wallet = fakeWallet();
+    const r = await submitLadder(conn, wallet, SOME_IX, noSleep);
+    expect(!r.ok && r.reason).toBe(WRITE_COPY.noAnswer);
+    expect(wallet.signTransaction).not.toHaveBeenCalled();
+    expect(wallet.sendTransaction).not.toHaveBeenCalled();
+  });
+
+  it('a wallet short of SOL for the fee and the rent is told so, with both figures, and never asked', async () => {
+    // 0.003 SOL, and the test run took the 0.00203928 SOL rent of a token account.
+    const conn = fakeConn({ statuses: CONFIRMED, balance: 3_000_000, spends: 2_039_280 });
+    const wallet = fakeWallet();
+    const r = await submitLadder(conn, wallet, SOME_IX, noSleep);
+    expect(!r.ok && r.reason).toBe(solShortCopy(2_039_280n + 5_000n + WALLET_FEE_ROOM_LAMPORTS + RENT_EXEMPT_EMPTY_LAMPORTS, 3_000_000n));
+    expect(!r.ok && r.reason).toMatch(/needs about 0\.003036 SOL .* holds 0\.003 SOL/);
+    expect(wallet.signTransaction).not.toHaveBeenCalled();
+  });
+
+  it('a balance that cannot be read stops it too', async () => {
+    const conn = fakeConn({ statuses: CONFIRMED });
+    (conn.getBalance as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fetch failed'));
+    const wallet = fakeWallet();
+    const r = await submitLadder(conn, wallet, SOME_IX, noSleep);
+    expect(!r.ok && r.reason).toBe(WRITE_COPY.unreachable);
+    expect(wallet.signTransaction).not.toHaveBeenCalled();
+    expect(wallet.sendTransaction).not.toHaveBeenCalled();
+  });
+
+  it('a wallet that lists version 0 gets version 0, signed only', async () => {
+    const conn = fakeConn({ statuses: [{ err: null, confirmationStatus: 'confirmed' }] });
+    const signTransaction = vi.fn(async (tx: VersionedTransaction) => { tx.sign([OWNER_KP]); return tx; });
+    const sendTransaction = vi.fn();
+    const wallet = { publicKey: OWNER, supportedTransactionVersions: new Set(['legacy', 0]), signTransaction, sendTransaction } as unknown as SignerWalletAdapter;
+    const r = await submitLadder(conn, wallet, SOME_IX, noSleep);
+    expect(r.ok).toBe(true);
+    expect(signTransaction.mock.calls[0]![0].version).toBe(0);
+    expect(sendTransaction).not.toHaveBeenCalled();
   });
 });
 
@@ -391,14 +517,20 @@ describe('no failure a write can return carries an em dash', () => {
     add(classifyWriteError(new Error('block height exceeded'), SIG));
     add(await submitLadder(
       fakeConn({ statuses: [{ err: { InstructionError: [0, 'ProgramFailedToComplete'] }, confirmationStatus: 'confirmed' }], logs: [] }),
-      fakeWallet(async () => SIG), SOME_IX, noSleep,
+      fakeWallet(), SOME_IX, noSleep,
     ));
     let t = 0;
-    add(await submitLadder(fakeConn({ statuses: [null] }), fakeWallet(async () => SIG), SOME_IX, {
+    add(await submitLadder(fakeConn({ statuses: [null] }), fakeWallet(), SOME_IX, {
       sleep: async () => { t += 2_000; }, now: () => t, timeoutMs: 6_000,
     }));
-    add(await submitLadder(fakeConn({ statuses: [] }), fakeWallet(async () => SIG, null), [], noSleep));
-    expect(reasons).toHaveLength(Object.keys(LADDER_ERRORS).length + 9);
+    add(await submitLadder(fakeConn({ statuses: [] }), fakeWallet(undefined, null), [], noSleep));
+    // The stops before the wallet: a test run refused, one that could not finish, SOL short.
+    add(await submitLadder(fakeConn({ statuses: CONFIRMED, runs: [{ err: { InstructionError: [0, { Custom: 1 }] } }] }), fakeWallet(), SOME_IX, noSleep));
+    const silent = fakeConn({ statuses: CONFIRMED });
+    (silent.simulateTransaction as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('429'));
+    add(await submitLadder(silent, fakeWallet(), SOME_IX, noSleep));
+    add(await submitLadder(fakeConn({ statuses: CONFIRMED, balance: 1_000 }), fakeWallet(), SOME_IX, noSleep));
+    expect(reasons).toHaveLength(Object.keys(LADDER_ERRORS).length + 12);
     for (const reason of reasons) expect(reason).not.toContain('—');
   });
 });
@@ -409,9 +541,8 @@ describe('every door prepends an idempotent ATA create', () => {
   const capture = async (fn: (ctx: LadderWriteCtx) => Promise<unknown>, tokenProgram = TOKEN_2022) => {
     const sent: { keys: { pubkey: PublicKey }[]; programId: PublicKey; data: Buffer }[] = [];
     const conn = fakeConn({ statuses: [{ err: null, confirmationStatus: 'confirmed' }] });
-    const wallet = fakeWallet(async (tx) => {
-      sent.push(...(tx as { instructions: typeof sent }).instructions);
-      return SIG;
+    const wallet = fakeWallet((tx) => {
+      sent.push(...(tx as unknown as { instructions: typeof sent }).instructions);
     });
     await fn({
       connection: conn, invoker: wallet, programId: PROGRAM, pool: POOL,
@@ -455,8 +586,7 @@ describe('every door prepends an idempotent ATA create', () => {
     expect(ix[0]!.programId.toBase58()).toBe(ASSOCIATED_TOKEN_PROGRAM_ID.toBase58());
   });
 
-  // Harvest signs several claims on one prompt from these (lib/harvest/solana.ts): the
-  // instructions it builds must be the ones the door sends, ATA create included.
+  // The claim doors' unsent instructions, ATA create included, are the ones each door sends.
   it('the claim doors’ unsent instructions are exactly what they send', async () => {
     const accounts = { programId: PROGRAM, pool: POOL, poolAccounts };
     expect(ladderClaimIxs(accounts, OWNER, { positionNonce: 4 })).toEqual(await capture((c) => ladderClaim(c, { positionNonce: 4 })));
@@ -486,7 +616,7 @@ describe('every door prepends an idempotent ATA create', () => {
 
   it('refuses every door without a connected wallet, and signs nothing', async () => {
     const conn = fakeConn({ statuses: [] });
-    const wallet = fakeWallet(async () => SIG, null);
+    const wallet = fakeWallet(undefined, null);
     const ctx: LadderWriteCtx = {
       connection: conn, invoker: wallet, programId: PROGRAM, pool: POOL, poolAccounts, deps: noSleep,
     };
@@ -498,7 +628,7 @@ describe('every door prepends an idempotent ATA create', () => {
       ladderClaimCarried(ctx),
     ]);
     for (const r of results) expect(!r.ok && r.reason).toMatch(/connect a wallet/i);
-    expect(wallet.sendTransaction).not.toHaveBeenCalled();
+    expect(wallet.signTransaction).not.toHaveBeenCalled();
   });
 
   it('addresses the ladder instruction at the ladder program, not the ATA program', async () => {
@@ -508,13 +638,13 @@ describe('every door prepends an idempotent ATA create', () => {
   });
 
   it('the ATA create is for THIS wallet, not a remembered one', async () => {
-    const other = Keypair.generate().publicKey;
+    const otherKp = Keypair.generate();
+    const other = otherKp.publicKey;
     const sent: { keys: { pubkey: PublicKey }[] }[] = [];
     const conn = fakeConn({ statuses: [{ err: null, confirmationStatus: 'confirmed' }] });
-    const wallet = fakeWallet(async (tx) => {
-      sent.push(...(tx as { instructions: typeof sent }).instructions);
-      return SIG;
-    }, other);
+    const wallet = fakeWallet((tx) => {
+      sent.push(...(tx as unknown as { instructions: typeof sent }).instructions);
+    }, otherKp);
     await ladderClaim(
       { connection: conn, invoker: wallet, programId: PROGRAM, pool: POOL, poolAccounts, deps: noSleep },
       { positionNonce: 0 },
@@ -574,6 +704,7 @@ function v1Conn(opts: { runs?: Array<{ err: unknown; logs?: string[] }>; sendThr
   const conn = {
     ...(fakeConn({ statuses: opts.statuses ?? [{ err: null, confirmationStatus: 'confirmed', slot: 7 }] }) as unknown as object),
     getLatestBlockhash: vi.fn(async () => ({ blockhash: BLOCKHASH, lastValidBlockHeight: 100 })),
+    getBalance: vi.fn(async () => 1_000_000_000),
     simulateTransaction,
     sendRawTransaction,
   } as unknown as Connection;
@@ -587,6 +718,55 @@ const refusedWith = (r: { ok: boolean; reason?: string; signature?: string }, sa
   expect(r.reason).not.toContain('—');
   expect(r.signature).toBeUndefined();
 };
+
+// Owner, 2026-11-24: "you just have to claim once and confirm once". Every lock's claim,
+// and the carried one, side by side in ONE transaction: one wallet approval.
+describe('claim all: several locks on one transaction', () => {
+  const accounts = { programId: PROGRAM, pool: POOL, poolAccounts };
+  const capture = async (fn: (ctx: LadderWriteCtx) => Promise<unknown>) => {
+    const signed: { instructions: TransactionInstruction[] }[] = [];
+    const conn = fakeConn({ statuses: [{ err: null, confirmationStatus: 'confirmed' }] });
+    const wallet = fakeWallet((tx) => { signed.push(tx as unknown as { instructions: TransactionInstruction[] }); });
+    const result = await fn({ connection: conn, invoker: wallet, programId: PROGRAM, pool: POOL, poolAccounts, deps: noSleep });
+    return { signed, result };
+  };
+
+  it('one transaction, one approval: one ATA create, then each lock’s own claim and the carried one', async () => {
+    const { signed, result } = await capture((c) => ladderClaimAll(c, { positionNonces: [0, 4, 7], carried: true }));
+    expect(signed).toHaveLength(1);
+    expect(result).toMatchObject({ ok: true });
+    const one = (n: number) => ladderClaimIxs(accounts, OWNER, { positionNonce: n })[1];
+    expect(signed[0]!.instructions).toEqual([
+      ladderClaimIxs(accounts, OWNER, { positionNonce: 0 })[0], // the ATA create, once
+      one(0), one(4), one(7),
+      ladderClaimCarriedIxs(accounts, OWNER)[1],
+    ]);
+  });
+
+  it('one lock alone is exactly the lock’s own Claim, and carried alone is Claim carried', () => {
+    expect(ladderClaimAllIxs(accounts, OWNER, { positionNonces: [4], carried: false })).toEqual(ladderClaimIxs(accounts, OWNER, { positionNonce: 4 }));
+    expect(ladderClaimAllIxs(accounts, OWNER, { positionNonces: [], carried: true })).toEqual(ladderClaimCarriedIxs(accounts, OWNER));
+  });
+
+  it('refuses nothing to claim, and more than fit', () => {
+    expect(() => ladderClaimAllIxs(accounts, OWNER, { positionNonces: [], carried: false })).toThrow(/nothing to claim/);
+    const all = [...Array(LADDER_CLAIMS_PER_TX).keys()];
+    expect(() => ladderClaimAllIxs(accounts, OWNER, { positionNonces: all, carried: true })).toThrow(/at most/);
+    expect(ladderClaimAllIxs(accounts, OWNER, { positionNonces: all, carried: false })).toHaveLength(LADDER_CLAIMS_PER_TX + 1);
+  });
+
+  // The largest one, as a wallet that cannot sign version 1 sends it (legacy and version 0
+  // both cap at 1,232 bytes), must leave Phantom room for its Lighthouse guards: 325 bytes on
+  // a ladder claim landed 2026-11-23 (2csQUSTN…, 797 bytes against our 472 for one claim).
+  it('the most claims one transaction carries still leave room for the wallet’s guards', () => {
+    const PHANTOM_GUARDS = WALLET_GUARD_ROOM_BYTES;
+    const blockhash = PublicKey.default.toBase58();
+    const ixs = ladderClaimAllIxs(accounts, OWNER, { positionNonces: [...Array(LADDER_CLAIMS_PER_TX - 1).keys()], carried: true });
+    const legacy = new Transaction({ feePayer: OWNER, blockhash, lastValidBlockHeight: 1 }).add(...ixs).serialize({ requireAllSignatures: false, verifySignatures: false }).length;
+    const v0 = new VersionedTransaction(new TransactionMessage({ payerKey: OWNER, recentBlockhash: blockhash, instructions: ixs }).compileToV0Message()).serialize().length;
+    expect(Math.max(legacy, v0) + PHANTOM_GUARDS).toBeLessThanOrEqual(1_232);
+  });
+});
 
 describe('a wallet that signs version 1 gets version 1: tested first, signed only, sent by us', () => {
   it('the test runs come first, the wallet only signs version 1 bytes, and we send what it signed', async () => {
@@ -662,14 +842,34 @@ describe('a wallet that signs version 1 gets version 1: tested first, signed onl
     expect(sendRawTransaction).not.toHaveBeenCalled();
   });
 
-  it('a test run the node did not answer is no verdict: it goes at the ceiling, and our send is checked by the network', async () => {
-    const { conn, sendRawTransaction } = v1Conn();
-    (conn.simulateTransaction as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('429 Too Many Requests'));
+  // Phantom, ticket #467471: "stop before requesting approval whenever the final simulation
+  // fails or cannot complete". Until 2026-11-17 an unanswered run went at the ceiling, untested.
+  it.each([
+    ['the sizing run', [0]],
+    ['the final run', [1]],
+  ])('a test run the node did not answer (%s) stops it: the wallet is never asked, nothing is sent', async (_, silent) => {
+    const { conn, sendRawTransaction, simulateTransaction } = v1Conn();
+    let n = 0;
+    simulateTransaction.mockImplementation(async () => {
+      if (silent.includes(n++)) throw new Error('429 Too Many Requests');
+      return { context: { slot: 1 }, value: { err: null, logs: [], unitsConsumed: 40_000, loadedAccountsDataSize: 100_000, accounts: null } };
+    });
     const { adapter, signTransaction } = v1Wallet();
-    const r = await submitLadder(conn, adapter, V1_IXS, noSleep);
-    expect(r.ok).toBe(true);
-    expect(decodeV1(signTransaction.mock.calls[0]![0].transaction).config).toEqual({ computeUnitLimit: 1_400_000, loadedAccountsDataSizeLimit: 64 * 1024 * 1024, priorityFeeLamports: 0n });
-    expect(sendRawTransaction.mock.calls[0]![1]).toMatchObject({ skipPreflight: false });
+    refusedWith(await submitLadder(conn, adapter, V1_IXS, noSleep), WRITE_COPY.noAnswer);
+    expect(signTransaction).not.toHaveBeenCalled();
+    expect(sendRawTransaction).not.toHaveBeenCalled();
+  });
+
+  it('the final run reads the payer\'s SOL after it, and a wallet short of it is never asked', async () => {
+    const { conn, simulateTransaction } = v1Conn();
+    (conn.getBalance as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(2_500_000);
+    simulateTransaction.mockImplementation((async () => ({
+      context: { slot: 1 }, value: { err: null, logs: [], unitsConsumed: 40_000, loadedAccountsDataSize: 100_000, accounts: [{ lamports: 2_500_000 - 2_039_280, data: ['', 'base64'] }] },
+    })) as never);
+    const { adapter, signTransaction } = v1Wallet();
+    refusedWith(await submitLadder(conn, adapter, V1_IXS, noSleep), /^Not enough SOL: this needs about 0\.003036 SOL .* holds 0\.0025 SOL/);
+    expect(simulateTransaction.mock.calls[1]![1]).toMatchObject({ accounts: { encoding: 'base64', addresses: [V1_OWNER.publicKey.toBase58()] } });
+    expect(signTransaction).not.toHaveBeenCalled();
   });
 
   it('a decline in the wallet: nothing was sent, in the words every write uses', async () => {
@@ -693,14 +893,18 @@ describe('a wallet that signs version 1 gets version 1: tested first, signed onl
     expect(r.ok).toBe(true);
   });
 
-  it('a wallet that does not list version 1 keeps the legacy path: the wallet signs and sends, as before', async () => {
-    const { conn, simulateTransaction } = v1Conn();
-    const { adapter, signTransaction, sendTransaction } = v1Wallet({ versions: ['legacy', 0] });
+  it('a wallet that does not list version 1 gets version 0: tested first, signed only, sent by us', async () => {
+    const { conn, simulateTransaction, sendRawTransaction } = v1Conn();
+    const { sendTransaction } = v1Wallet({ versions: ['legacy', 0] });
+    const plainSign = vi.fn(async (tx: VersionedTransaction) => { tx.sign([V1_OWNER]); return tx; });
+    const adapter = { ...(v1Wallet({ versions: ['legacy', 0] }).adapter as object), supportedTransactionVersions: new Set(['legacy', 0]), signTransaction: plainSign, sendTransaction } as unknown as SignerWalletAdapter;
     const r = await submitLadder(conn, adapter, V1_IXS, noSleep);
-    expect(r).toEqual({ ok: true, signature: SIG, slot: 7 });
-    expect(sendTransaction).toHaveBeenCalledTimes(1);
-    expect(signTransaction).not.toHaveBeenCalled();
-    expect(simulateTransaction).not.toHaveBeenCalled();
+    expect(r.ok).toBe(true);
+    expect(sendTransaction).not.toHaveBeenCalled();
+    expect(simulateTransaction).toHaveBeenCalledTimes(1);
+    expect(simulateTransaction.mock.invocationCallOrder[0]).toBeLessThan(plainSign.mock.invocationCallOrder[0]!);
+    expect(plainSign.mock.calls[0]![0].version).toBe(0);
+    expect(sendRawTransaction.mock.calls[0]![1]).toMatchObject({ skipPreflight: false });
   });
 
   it('keeps the pool writes’ numbers: the same compute rule and the same priority-fee cap', () => {

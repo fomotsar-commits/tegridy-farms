@@ -72,7 +72,7 @@ export function RangeCreateCard(p: RangeCreateProps) {
       <Row label="Fee tier" value={`${split.fee} of each swap`} mono={false} />
       {/* What opening costs and how a position earns: said before Review, never folded away. */}
       <Notice tone="warn">
-        {`Opening this pool costs ${sol(CREATE_POOL_FEE_LAMPORTS)}, paid to the venue’s vault (${CREATE_POOL_FEE_RECEIVER.toBase58()}). It is not refunded. On top of it come deposits for the pool’s own accounts and its first price bands, which never come back, and for your position, which come back when you close it. The review says each to the lamport.`}
+        {`Opening this pool costs ${sol(CREATE_POOL_FEE_LAMPORTS)}, paid to the team’s vault (${CREATE_POOL_FEE_RECEIVER.toBase58()}). It is not refunded. On top of it come deposits for the pool’s own accounts and its first price bands, which never come back, and for your position, which come back when you close it. The review says each to the lamport.`}
       </Notice>
       <p className="text-white/85" data-testid="range-create-earns">
         {`Positions whose range the price is in share ${split.lpOfFee} of each ${split.fee} swap fee (${split.lpOfSwap} of the swap), split by how much liquidity each has there. The venue keeps ${split.venueOfFee} (${split.venueOfSwap} of the swap).`}
@@ -201,6 +201,7 @@ function FirstPosition(p: RangeCreateProps & { pair: Pair; named: NamedPair; sqr
   const at = useMemo(() => ({ sqrtPriceX64: p.sqrt, tickCurrent: getTickAtSqrtPrice(p.sqrt) }), [p.sqrt]);
   const pick = useRangePick(pair, at);
   const [busy, setBusy] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
   const onBusy = (b: boolean) => {
     setBusy(b);
     p.onBusy(b);
@@ -222,7 +223,7 @@ function FirstPosition(p: RangeCreateProps & { pair: Pair; named: NamedPair; sqr
       />
       {plan && (
         <div className="space-y-1.5" data-testid="range-create-plan">
-          <Row label="You put in" value={`${bothAmounts(named, plan.amount0, plan.amount1)}, exactly`} mono={false} />
+          <Row label="You put in" value={`${bothAmounts(named, plan.amount0, plan.amount1, true)}, exactly`} mono={false} />
           <p className="text-white/45 text-[10px]">The pool opens at your price in the same transaction, so nothing can move it in between. Review reads the chain again and test-runs it.</p>
         </div>
       )}
@@ -232,10 +233,10 @@ function FirstPosition(p: RangeCreateProps & { pair: Pair; named: NamedPair; sqr
       {p.why ? (
         <Notice tone="warn">{p.why}</Notice>
       ) : (
-        p.write && r && plan && <CreateFlow {...p} onBusy={onBusy} write={p.write} range={r} side={side} amount={amount!} agrees={agrees} />
+        p.write && r && plan && <CreateFlow {...p} onBusy={onBusy} onReviewing={setReviewing} write={p.write} range={r} side={side} amount={amount!} agrees={agrees} />
       )}
       {!p.canOpen && !p.why && <Notice>Amounts here are only worked out: opening a pool is not switched on here.</Notice>}
-      <RangeRisks />
+      <RangeRisks reviewing={reviewing} />
       {/* Said beside every deposit, never folded away. */}
       <Notice tone="warn">
         Out of range, a position earns nothing.{' '}
@@ -246,13 +247,13 @@ function FirstPosition(p: RangeCreateProps & { pair: Pair; named: NamedPair; sqr
 }
 
 function CreateFlow(
-  p: RangeCreateProps & { write: { api: RangeWriteApi; cfg: CurveWriteConfig }; pair: Pair; start: Price; range: TickRange; side: 'token' | 'coin'; amount: bigint; agrees: boolean },
+  p: RangeCreateProps & { write: { api: RangeWriteApi; cfg: CurveWriteConfig }; pair: Pair; start: Price; range: TickRange; side: 'token' | 'coin'; amount: bigint; agrees: boolean; onReviewing: (reviewing: boolean) => void },
 ) {
   const { api, cfg } = p.write;
   const flow = useTxFlow(api, p.rpc, p.pending.record, p.pending.sent);
   const { target: reviewRef } = useReturnFocus(flow.state.step);
   const signer = p.signerState.kind === 'ready' ? p.signerState.signer : null;
-  useFlowReports(flow.state.step, flow.locked, p.onBusy, p.onFinished);
+  useFlowReports(flow.state.step, flow.locked, p.onBusy, p.onFinished, p.onReviewing);
   const busy = flow.state.step !== 'idle';
   const can = p.canOpen && !!signer && p.agrees && !p.held && !flow.locked;
   const review = () => {

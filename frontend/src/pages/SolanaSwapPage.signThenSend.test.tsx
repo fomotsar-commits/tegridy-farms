@@ -11,6 +11,9 @@
 // wallet is asked to sign only and the page sends the bytes it signed; a refusal at that
 // first send is "Not sent" in the network's words (Phantom's own guard named), with no
 // hold and the amount kept; a swap that lands ends on its receipt.
+//
+// And since 2026-11-17 (Phantom, ticket #467471): the very bytes the wallet is handed are
+// test-run, and the wallet's SOL checked, before it is asked; a run that fails stops there.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
@@ -28,6 +31,7 @@ const { toast, connection, wallet, jup, state } = vi.hoisted(() => ({
     getBlockHeight: vi.fn(),
     isBlockhashValid: vi.fn(),
     sendRawTransaction: vi.fn(),
+    simulateTransaction: vi.fn(),
   },
   wallet: { sendTransaction: vi.fn(), signTransaction: vi.fn() },
   jup: { getQuote: vi.fn(), buildSwapTransaction: vi.fn(), simulateSwap: vi.fn() },
@@ -38,7 +42,7 @@ const { toast, connection, wallet, jup, state } = vi.hoisted(() => ({
 
 interface FakeTx {
   version: 0;
-  message: { recentBlockhash: string; staticAccountKeys: PublicKey[]; compiledInstructions: { programIdIndex: number }[] };
+  message: { recentBlockhash: string; staticAccountKeys: PublicKey[]; compiledInstructions: { programIdIndex: number }[]; header: { numRequiredSignatures: number } };
   signatures: Uint8Array[];
   serialize(): Uint8Array;
 }
@@ -107,6 +111,7 @@ function jupiterTx(): FakeTx {
       recentBlockhash: new PublicKey(new Uint8Array(32).fill(7)).toBase58(),
       staticAccountKeys: [OWNER, new PublicKey('ComputeBudget111111111111111111111111111111'), new PublicKey(LIGHTHOUSE_PROGRAM)],
       compiledInstructions: [{ programIdIndex: 1 }, { programIdIndex: 2 }],
+      header: { numRequiredSignatures: 1 },
     },
     signatures: [new Uint8Array(64)],
     serialize: () => new Uint8Array([1, 2, 3]),
@@ -129,6 +134,8 @@ beforeEach(() => {
   connection.getBlockHeight.mockReset().mockResolvedValue(1_000);
   connection.isBlockhashValid.mockReset().mockResolvedValue({ context: { slot: 600 }, value: true });
   connection.sendRawTransaction.mockReset().mockResolvedValue('sent');
+  // The final test run passes: the swap took 0.5 SOL and its fee from the wallet.
+  connection.simulateTransaction.mockReset().mockResolvedValue({ context: { slot: 1 }, value: { err: null, logs: [], accounts: [{ lamports: 9_499_000_000, data: ['', 'base64'] }] } });
   wallet.sendTransaction.mockReset().mockRejectedValue(new Error('the wallet must not send: this page does'));
   state.tx = jupiterTx();
   wallet.signTransaction.mockReset().mockImplementation(async (tx: FakeTx) => {
@@ -158,6 +165,13 @@ describe('a wallet that can sign alone: it signs, this page sends', () => {
     expect(wallet.sendTransaction).not.toHaveBeenCalled();
     // Signed on the fresh blockhash put on before the wallet, not Jupiter's.
     expect((wallet.signTransaction.mock.calls[0]![0] as FakeTx).message.recentBlockhash).toBe(FRESH_HASH);
+    // Those very bytes were test-run first, the wallet's SOL read after the run, and only then was the wallet asked.
+    expect(connection.simulateTransaction).toHaveBeenCalledTimes(1);
+    const [wire, options] = connection.simulateTransaction.mock.calls[0]! as [{ serialize(): Uint8Array }, unknown];
+    expect(wire.serialize()).toEqual(new Uint8Array([1, 2, 3]));
+    expect(options).toEqual({ sigVerify: false, replaceRecentBlockhash: false, commitment: 'confirmed', accounts: { encoding: 'base64', addresses: [OWNER.toBase58()] } });
+    expect(connection.getLatestBlockhashAndContext.mock.invocationCallOrder[0]!).toBeLessThan(connection.simulateTransaction.mock.invocationCallOrder[0]!);
+    expect(connection.simulateTransaction.mock.invocationCallOrder[0]!).toBeLessThan(wallet.signTransaction.mock.invocationCallOrder[0]!);
     // The page sent the signed bytes itself, through the network's own check first.
     expect(connection.sendRawTransaction.mock.calls[0]![0]).toEqual(new Uint8Array([1, 2, 3]));
     expect(connection.sendRawTransaction.mock.calls[0]![1]).toMatchObject({ skipPreflight: false });
@@ -168,7 +182,7 @@ describe('a wallet that can sign alone: it signs, this page sends', () => {
     connection.sendRawTransaction.mockRejectedValue(Object.assign(new Error(`Simulation failed. \nMessage: ${msg}.`), { transactionMessage: msg, transactionLogs: [] }));
     await press();
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Not sent', expect.objectContaining({
-      description: expect.stringMatching(/wallet’s own safety check stopped it.*Nothing was sent/),
+      description: expect.stringMatching(/wallet’s own safety check ran out of room.*Nothing was sent/),
     })));
     await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
     // Not "may have been sent", not "couldn't confirm", and Buy is not held for this wallet.
@@ -188,5 +202,18 @@ describe('a wallet that can sign alone: it signs, this page sends', () => {
     expect(toast.warning).not.toHaveBeenCalled();
     expect(connection.sendRawTransaction).not.toHaveBeenCalled();
     expect(screen.queryByText(/A swap may have been sent/)).toBeNull();
+  });
+
+  it('a final test run that refuses the swap: the wallet is never asked, and "Not sent" says why', async () => {
+    connection.simulateTransaction.mockResolvedValue({ context: { slot: 1 }, value: { err: { InstructionError: [1, { Custom: 1 }] }, logs: ['Program log: refused here'], accounts: [{ lamports: 9_499_000_000, data: ['', 'base64'] }] } });
+    render(<SolanaSwapPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Buy USDC' }, { timeout: 5_000 }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Not sent', { description: 'It did not pass its test run just now (Program log: refused here). Your wallet was not asked. Nothing was sent.' }));
+    expect(wallet.signTransaction).not.toHaveBeenCalled();
+    expect(wallet.sendTransaction).not.toHaveBeenCalled();
+    expect(connection.sendRawTransaction).not.toHaveBeenCalled();
+    expect(toast.warning).not.toHaveBeenCalled();
+    expect((screen.getByLabelText('Amount of SOL to pay') as HTMLInputElement).value).toBe('0.5');
+    expect(lastReceipt()).toBeNull();
   });
 });

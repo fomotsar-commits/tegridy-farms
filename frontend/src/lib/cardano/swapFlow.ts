@@ -5,7 +5,7 @@
 
 import type { Csl } from './csl';
 import { readPoolCandidates, readProtocolParams, readTip, type ProtocolParams, type Read } from './chain';
-import { lpAssetName, readPool, ADA, type CardanoAsset, type PoolState } from './minswapV2';
+import { lpAssetName, readPool, ADA, MINSWAP_V2, type CardanoAsset, type PoolState } from './minswapV2';
 import { quoteSwap, type SwapQuote } from './quote';
 import { minAdaForPayment, buildSwapTx, checkSwapTx, assembleSigned, parseWalletUtxos, TTL_SLOTS, type CheckedSwap, type SwapPlan } from './swapTx';
 import { venueFeeAddress } from './venueFee';
@@ -18,7 +18,7 @@ import { MAINNET_NETWORK_ID } from './address';
 export async function findAdaPool(csl: Csl, token: CardanoAsset, signal?: AbortSignal): Promise<Read<PoolState | null>> {
   const candidates = await readPoolCandidates(lpAssetName(ADA, token), signal);
   if (candidates.status !== 'ok') return candidates;
-  const pools = candidates.data.map((u) => readPool(csl, u, [ADA, token])).filter((r) => r.kind === 'pool');
+  const pools = candidates.data.map((u) => readPool(csl, u, [ADA, token], MINSWAP_V2)).filter((r) => r.kind === 'pool');
   // Minswap's factory keeps one pool per pair; two passing every check is not a state this
   // page can price, so it refuses rather than picking one.
   if (pools.length > 1) return { status: 'unread', reason: 'two pools claim this pair' };

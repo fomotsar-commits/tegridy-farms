@@ -55,6 +55,7 @@ export function RangeOpenCard(p: {
   const [tolerance, setTolerance] = useState<bigint | null>(DEFAULT_SLIPPAGE_BPS);
   // While a deposit is under review or on its way, the range and the amount it was built from stay put.
   const [busy, setBusy] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
   const onBusy = (b: boolean) => {
     setBusy(b);
     p.onBusy(b);
@@ -114,7 +115,7 @@ export function RangeOpenCard(p: {
       />
       {plan && (
         <div className="space-y-1.5" data-testid="range-plan">
-          <Row label="You put in about" value={bothAmounts(pair, plan.amount0, plan.amount1)} mono={false} />
+          <Row label="You put in about" value={bothAmounts(pair, plan.amount0, plan.amount1, true)} mono={false} />
           <p className="text-white/45 text-[10px]">Worked out from the pool as the page read it; read again and test-run when you press Review.</p>
         </div>
       )}
@@ -124,10 +125,10 @@ export function RangeOpenCard(p: {
       {p.why ? (
         <Notice tone="warn">{p.why}</Notice>
       ) : (
-        p.write && r && plan && <OpenFlow {...p} onBusy={onBusy} write={p.write} range={r} side={side} amount={amount!} tolerance={tolerance} setTolerance={setTolerance} />
+        p.write && r && plan && <OpenFlow {...p} onBusy={onBusy} onReviewing={setReviewing} write={p.write} range={r} side={side} amount={amount!} tolerance={tolerance} setTolerance={setTolerance} />
       )}
       {!p.canOpen && !p.why && <Notice>Amounts here are only worked out: opening a position is not switched on here.</Notice>}
-      <RangeRisks />
+      <RangeRisks reviewing={reviewing} />
       {/* Said beside every deposit, never folded away. */}
       <Notice tone="warn">Out of range, a position earns nothing. {plan ? `This one is worth ${tokenAmount(pair, pair.tokenIsToken0 ? plan.amount0 : plan.amount1)} and ${coinAmount(pair, pair.tokenIsToken0 ? plan.amount1 : plan.amount0)} at this pool’s price.` : ''}</Notice>
     </Card>
@@ -146,6 +147,7 @@ function OpenFlow(p: {
   pending: PendingTradesState;
   held: boolean;
   onBusy: (busy: boolean) => void;
+  onReviewing: (reviewing: boolean) => void;
   onFinished: () => void;
   range: TickRange;
   side: 'token' | 'coin';
@@ -157,7 +159,7 @@ function OpenFlow(p: {
   const flow = useTxFlow(api, p.rpc, p.pending.record, p.pending.sent);
   const { target: reviewRef } = useReturnFocus(flow.state.step);
   const signer = p.signerState.kind === 'ready' ? p.signerState.signer : null;
-  useFlowReports(flow.state.step, flow.locked, p.onBusy, p.onFinished);
+  useFlowReports(flow.state.step, flow.locked, p.onBusy, p.onFinished, p.onReviewing);
   const busy = flow.state.step !== 'idle';
   const can = p.canOpen && !!signer && p.tolerance !== null && !p.held && !flow.locked;
   const review = () => {

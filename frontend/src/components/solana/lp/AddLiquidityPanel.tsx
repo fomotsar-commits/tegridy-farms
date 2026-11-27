@@ -5,13 +5,14 @@ import { ownTicker, tokenTicker } from '../../../lib/solana/lp/identity';
 import { PublicKey } from '@solana/web3.js';
 import { parseDecimalToBaseUnits } from '../../../lib/launcher/solana/curve/format';
 import { displaySafe } from '../../../lib/launchMetadata/validate';
-import { feeReserveFor, isPlanProblem, planDeposit, poolFeesOf, solSetAside, spendableSol, type DepositPlan, type PlanProblem } from '../../../lib/solana/lp/liquidityMath';
+import { feeReserveFor, planDeposit, poolFeesOf, solSetAside, spendableSol, type DepositPlan } from '../../../lib/solana/lp/liquidityMath';
+import { planRestart, type RestartPlan, type RestartProblem } from '../../../lib/solana/lp/restart';
 import { feeNow, feeRateText } from '../../../lib/solana/lp/transferFee';
 import { estimatedLoss } from '../../../lib/solana/lp/opening';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import { REFERENCE_NAME, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { solText, tokenText } from '../../../lib/solana/lp/format';
+import { priceText, solText, tokenText, worthText } from '../../../lib/solana/lp/format';
 import { Notice, Row, SlippagePicker } from '../curve/ui';
 import { DEFAULT_SLIPPAGE_BPS, baseUnitsToInput } from '../curve/uiFormat';
 import { TxFlowView } from '../curve/TxFlowView';
@@ -56,6 +57,11 @@ export const OPEN_ON_REVIEW_MS = 8_000;
  * Each is said here, above Review, and again on the review, which reads everything fresh.
  * A price that is off also gets what it is estimated to cost at the amounts typed, in the
  * pool's own coin. A warning never switches Review off: the visitor is told, and decides.
+ *
+ * A RESTART (restart.ts). A pool whose one refusal is that it is almost empty, with the
+ * outside price read (`health.restart`), is added to as a restart: the same form, worked
+ * out on the pool as the top-up to that price leaves it (`planRestart`), with the top-up
+ * and the check-back said, and Review builds `prepareLpRestart`.
  */
 export function AddLiquidityPanel(p: AddPanelProps) {
   const writes = useLpWrites();
@@ -90,7 +96,7 @@ function AddInner({
   tokenDecimals,
   onClose,
   initial,
-  title = 'Add liquidity to this pool',
+  title: titleGiven,
   lead,
   onSettled,
   leg,
@@ -104,6 +110,9 @@ function AddInner({
 }) {
   const pool = view.snapshot.pool;
   const coin = view.quote;
+  // A restart at the market price, when that is the only way in (restart.ts); null for an ordinary add.
+  const restartAt = health.deposits.verdict !== 'allowed' ? health.restart : null;
+  const title = titleGiven ?? (restartAt ? 'Restart this pool at the market price' : 'Add liquidity to this pool');
   // The pool records its token's decimals; the token read must agree before Review
   // builds anything, so the record is a safe fallback for the preview.
   const decimals = tokenDecimals ?? (view.quoteIsToken0 ? pool.mint1Decimals : pool.mint0Decimals);
@@ -176,18 +185,28 @@ function AddInner({
   // the network's epoch: with a change pending this is the larger of the two settings, and
   // the review says exactly (transferFee.ts `feeNow`).
   const tokenFee = feeNow(safety?.kind === 'read' ? safety.facts?.transferFee : null, null);
-  const plans = useMemo(() => {
+  const plans = useMemo((): { free: DepositPlan | RestartPlan | RestartProblem; plan: DepositPlan | RestartPlan | RestartProblem } | null => {
     if (!typed || maxIn === null || maxIn === 0n) return null;
     const base = { quoteIsToken0: view.quoteIsToken0, driving: typed.side, maxIn, bps: slippageBps ?? DEFAULT_SLIPPAGE_BPS, fees: poolFeesOf(view.quoteIsToken0, tokenFee) };
+    if (restartAt) {
+      const at = { ...base, quoteDecimals: coin.decimals, tokenDecimals: decimals, perToken: restartAt.perToken };
+      return {
+        free: planRestart(view.snapshot, { ...at, availableQuote: null, availableToken: null }),
+        plan: planRestart(view.snapshot, { ...at, availableQuote, availableToken }),
+      };
+    }
     return {
       // The pool's own answer, with no balance rule: what the other box shows.
       free: planDeposit(view.snapshot, { ...base, availableQuote: null, availableToken: null }),
       plan: planDeposit(view.snapshot, { ...base, availableQuote, availableToken }),
     };
-  }, [typed, maxIn, slippageBps, view, availableQuote, availableToken, tokenFee]);
-  const free = plans && !isPlanProblem(plans.free) ? plans.free : null;
-  const plan: DepositPlan | null = plans && !isPlanProblem(plans.plan) ? plans.plan : null;
-  const problem: PlanProblem | null = plans && isPlanProblem(plans.plan) ? plans.plan : null;
+  }, [typed, maxIn, slippageBps, view, availableQuote, availableToken, tokenFee, restartAt, coin.decimals, decimals]);
+  // A restart's deposit is a deposit like any other, on the pool as its top-up leaves it.
+  const depositOf = (x: DepositPlan | RestartPlan | RestartProblem | undefined): DepositPlan | null => (!x || 'problem' in x ? null : 'deposit' in x ? x.deposit : x);
+  const free = depositOf(plans?.free);
+  const plan = depositOf(plans?.plan);
+  const restarted: RestartPlan | null = plans && !('problem' in plans.plan) && 'deposit' in plans.plan ? plans.plan : null;
+  const problem: RestartProblem | null = plans && 'problem' in plans.plan ? plans.plan : null;
 
   // The coin's side of a plan, in the coin's own base units, and the token's.
   const coinOf = (pl: DepositPlan) => ({ cost: view.quoteIsToken0 ? pl.cost0 : pl.cost1, max: view.quoteIsToken0 ? pl.max0 : pl.max1 });
@@ -265,7 +284,7 @@ function AddInner({
           problemText = `This needs up to ${coinExact(problem.need, coin)} and your wallet has ${coinExact(have, coin)}.`;
           if (have > 0n) fix = { label: `Use ${coinExact(have, coin)}`, run: () => setDriving('quote', have) };
         } else {
-          problemText = `This needs up to ${tok(problem.need)} and your wallet has ${tok(problem.have)}. Lower the ${typed.side === 'quote' ? coin.symbol : 'token'} amount, or use the most both balances allow.`;
+          problemText = `This needs up to ${tokensAbout(problem.need, decimals, true)} and your wallet has ${tok(problem.have)}. Lower the ${typed.side === 'quote' ? coin.symbol : 'token'} amount, or use the most both balances allow.`;
           const most = problem.mostBoth;
           if (most !== null && most > 0n) fix = { label: 'Use the most both balances allow', run: () => setDriving(typed.side, most) };
         }
@@ -279,6 +298,18 @@ function AddInner({
       case 'transfer-fee':
         problemText = 'The pool program would refuse this token’s transfer fee at exactly this amount. Change the amount a little.';
         break;
+      case 'too-small-to-restart': {
+        const least = problem.least;
+        problemText =
+          least === null
+            ? 'Too small to restart this pool. Put in more.'
+            : `Too small to restart this pool. Put in at least ${typed.side === 'quote' ? coinExact(least, coin) : `${unitsExact(least, decimals)} tokens`}.`;
+        if (least !== null) fix = { label: 'Use the least that restarts it', run: () => setDriving(typed.side, least) };
+        break;
+      }
+      case 'no-target':
+        problemText = 'This pool could not be set to the market price just read. Close this and read the pool again.';
+        break;
       default:
         problemText = 'These amounts could not be worked out.';
     }
@@ -289,10 +320,12 @@ function AddInner({
   // ── the preview ──
   const S = pool.lpSupply;
   const held = writes.heldShares(pool.lpMint);
+  // A restart keeps its shares less the check-back's.
+  const gets = restarted ? restarted.keep : (plan?.lp ?? 0n);
   const shareRow = plan
     ? held === null
-      ? `about ${sharePct(plan.lp, S + plan.lp)} from this deposit`
-      : `${sharePct(held, S)} → ${sharePct(held + plan.lp, S + plan.lp)}`
+      ? `about ${sharePct(gets, S + gets)} from this deposit`
+      : `${sharePct(held, S)} → ${sharePct(held + gets, S + gets)}`
     : '';
   const wsolKept = facts?.kind === 'ok' && facts.wsol.exists && facts.wsol.amount > 0n;
 
@@ -302,7 +335,8 @@ function AddInner({
   // the review's (opening.ts `estimatedLoss`), fed what goes in (not the maximums) and
   // the price the check compared with. The answer is in the COIN's base units and is
   // printed in the coin's decimals. Null is "could not be worked out", never 0.
-  const off = health.price.state === 'disagrees' ? health.price : null;
+  // A restart sets the pool's price, so how far off it was costs nothing.
+  const off = !restartAt && health.price.state === 'disagrees' ? health.price : null;
   const loss =
     off && plan
       ? estimatedLoss({ quoteAmount: coinOf(plan).cost, token: tokOf(plan).cost - tokOf(plan).fee, tokenDecimals: decimals, marketPricePerToken: off.reference, quote: coin })
@@ -315,13 +349,14 @@ function AddInner({
         : 'Type an amount to see about how much that could cost you.'
       : priceGapLossText(loss === null ? null : coinExact(loss, coin), REFERENCE_NAME[off.against]);
   // The pool's own warnings, then the cost line: the same order as on the review.
-  const warningLines = lossLine ? [...health.deposits.warnings, lossLine] : health.deposits.warnings;
+  const ownWarnings = restartAt ? restartAt.warnings : health.deposits.warnings;
+  const warningLines = lossLine ? [...ownWarnings, lossLine] : ownWarnings;
   // An open form stays open when its pool is read again, so it can sit under a card that
   // no longer takes deposits. That is said whenever the pool's check is not 'allowed',
   // with warnings or with none: drawn only beside warnings, a form on a pool with none
   // said nothing at all (review, 2026-10-04). Review is left as it is: the builder reads
   // everything again and refuses.
-  const allowed = health.deposits.verdict === 'allowed';
+  const allowed = health.deposits.verdict === 'allowed' || restartAt !== null;
   const showWarnings = warningLines.length > 0 || !allowed;
   // "You can still add" is about the pool AND this wallet: not said when the form has just
   // told this wallet, above, that it cannot add.
@@ -340,7 +375,7 @@ function AddInner({
   // A price that is off is read out with the amounts: its cost changes with them.
   const status = useDebounced(
     plan
-      ? `You would add about ${coinAbout(coinOf(plan).cost, coin)} and ${tok(tokOf(plan).cost)} and get ${unitsExact(plan.lp, pool.lpMintDecimals)} pool shares.${lossLine ? ` ${lossLine}` : ''}`
+      ? `You would add about ${coinAbout(coinOf(plan).cost, coin)} and ${tok(tokOf(plan).cost)} and get ${unitsExact(gets, pool.lpMintDecimals)} pool shares.${lossLine ? ` ${lossLine}` : ''}`
       : '',
   );
 
@@ -352,7 +387,7 @@ function AddInner({
     if (!signer || !plan || !typed || maxIn === null || slippageBps === null) return;
     const shownOtherMax = typed.side === 'quote' ? tokOf(plan).max : coinOf(plan).max;
     const build = () =>
-      api.prepareLpDeposit(writes.rpc, gate, writes.readers, {
+      (restartAt ? api.prepareLpRestart : api.prepareLpDeposit)(writes.rpc, gate, writes.readers, {
         owner: signer.publicKey,
         txVersion: txVersionOf(signer),
         pool: new PublicKey(view.address),
@@ -478,11 +513,21 @@ function AddInner({
               {tokenFee && (
                 <Row
                   label="The token’s own transfer fee"
-                  value={`about ${tok(tokOf(plan).fee)} of those (${feeRateText(tokenFee)}), kept by the token for its fee collector; the pool gets the rest`}
+                  value={`about ${tokensAbout(tokOf(plan).fee, decimals, true)} of those (${feeRateText(tokenFee)}), kept by the token for its fee collector; the pool gets the rest`}
                   mono={false}
                 />
               )}
-              <Row label="You get" value={`${unitsExact(plan.lp, pool.lpMintDecimals)} pool shares, exactly`} mono={false} />
+              {restarted && restartAt && (
+                <>
+                  <Row label="Restarts at" value={`${priceText(restartAt.perToken, coin)} (Jupiter)`} mono={false} />
+                  <Row
+                    label="Also goes in, for good"
+                    value={`${coinExact(view.quoteIsToken0 ? restarted.topUpSent0 : restarted.topUpSent1, coin)} and ${unitsExact(view.quoteIsToken0 ? restarted.topUpSent1 : restarted.topUpSent0, decimals)} tokens (${worthText(coinAbout(restarted.costQuote, coin, true))}), to set the pool to that price`}
+                    mono={false}
+                  />
+                </>
+              )}
+              <Row label="You get" value={`${unitsExact(gets, pool.lpMintDecimals)} pool shares, exactly`} mono={false} />
               <Row label="Your share of the pool" value={shareRow} mono={false} />
               <Row label="Pool fee to add" value="none" mono={false} />
             </div>
@@ -532,7 +577,7 @@ function AddInner({
               disabled={!canReview}
               onClick={review}
             >
-              Review: add liquidity
+              {restartAt ? 'Review: restart this pool' : 'Review: add liquidity'}
             </button>
             <button type="button" className="btn-secondary min-h-[44px] px-4 text-[13px]" onClick={onClose}>
               Close

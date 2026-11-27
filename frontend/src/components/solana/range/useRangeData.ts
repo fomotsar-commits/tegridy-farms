@@ -60,18 +60,35 @@ export function useRangeWrites(enabled: boolean, load: () => Promise<RangeWriteA
 /**
  * A range panel's flow, reported to the section: busy from Review until it is back to idle
  * (so no other range form starts meanwhile), and finished when an outcome is closed (the
- * pools and positions are read again).
+ * pools and positions are read again). `onReviewing`: while the review is on screen, so the
+ * card's Risks box leaves out the lines the review says.
  */
-export function useFlowReports(step: string, locked: boolean, onBusy: (busy: boolean) => void, onFinished: () => void) {
+export function useFlowReports(
+  step: string,
+  locked: boolean,
+  onBusy: (busy: boolean) => void,
+  onFinished: () => void,
+  onReviewing: (reviewing: boolean) => void = () => {},
+) {
   const busy = step !== 'idle' || locked;
-  const report = useRef({ onBusy, onFinished });
+  const reviewing = step === 'review';
+  const report = useRef({ onBusy, onFinished, onReviewing });
   useEffect(() => {
-    report.current = { onBusy, onFinished };
+    report.current = { onBusy, onFinished, onReviewing };
   });
   useEffect(() => {
     report.current.onBusy(busy);
   }, [busy]);
-  useEffect(() => () => report.current.onBusy(false), []);
+  useEffect(() => {
+    report.current.onReviewing(reviewing);
+  }, [reviewing]);
+  useEffect(
+    () => () => {
+      report.current.onBusy(false);
+      report.current.onReviewing(false);
+    },
+    [],
+  );
   const prev = useRef(step);
   useEffect(() => {
     const was = prev.current;

@@ -9,8 +9,11 @@ import { resolve } from 'node:path';
 import { isAllowedPath } from '../../../../api/_lib/gecko-read.js';
 import { SOL_MINT, USDC_MINT } from '../../solana';
 import {
+  MIN_PROFILE_TRADED_HOURS,
   MIN_TRADED_QUARTER_HOURS,
   fetchPairAverage,
+  fetchPairVolumeProfile,
+  hourlyProfile,
   findPairPool,
   forgetPairAverages,
   orientAverage,
@@ -291,4 +294,70 @@ describe('real answers (GeckoTerminal, read 2026-10-14, kept in geckoTerminal/fi
       return new Response(JSON.stringify(path.endsWith('/pools') ? list : candles), { status: 200 });
     }));
   }
+});
+
+// The shape of a pair's day, for the slices of a VWAP order (vwapOrder.ts).
+describe('hourlyProfile', () => {
+  /** n hourly candles, newest first, each [ts, o, h, l, c, v], the newest opened an hour before NOW. */
+  const hours = (n: number, vol: (ts: number) => number) =>
+    Array.from({ length: n }, (_, i) => {
+      const ts = NOW - 3_600 * (i + 1);
+      return [ts, 1, 1, 1, 1, vol(ts)];
+    });
+  const hourOf = (ts: number) => new Date(ts * 1_000).getUTCHours();
+
+  it('averages each hour of the day (UTC) over the 7 days read', () => {
+    // Busy at 14:00 UTC (70 a day), 1 every other hour.
+    const p = hourlyProfile(hours(168, (ts) => (hourOf(ts) === 14 ? 70 : 1)), NOW);
+    expect(Array.isArray(p)).toBe(true);
+    if (!Array.isArray(p)) return;
+    expect(p).toHaveLength(24);
+    expect(p[14]).toBeCloseTo(70, 9);
+    expect(p[3]).toBeCloseTo(1, 9);
+  });
+
+  it(`has no shape under ${MIN_PROFILE_TRADED_HOURS} traded hours, and an hour with no trading is not one`, () => {
+    expect(hourlyProfile(hours(MIN_PROFILE_TRADED_HOURS - 1, () => 5), NOW)).toBeNull();
+    expect(hourlyProfile(hours(168, (ts) => (hourOf(ts) < 3 ? 5 : 0)), NOW)).toBeNull(); // 21 traded hours
+    expect(Array.isArray(hourlyProfile(hours(MIN_PROFILE_TRADED_HOURS, () => 5), NOW))).toBe(true);
+  });
+
+  it('candles older than 7 days, or not yet opened, are left out; a malformed one is "unread"', () => {
+    const old = [[NOW - 169 * 3_600, 1, 1, 1, 1, 1_000]];
+    const p = hourlyProfile([...hours(24, () => 1), ...old, [NOW + 3_600, 1, 1, 1, 1, 1_000]], NOW);
+    expect(Array.isArray(p) && Math.max(...p)).toBeCloseTo(1 / 7, 9);
+    expect(hourlyProfile([...hours(30, () => 1), [NOW - 100, 1, 1, 1, 1, 'x']], NOW)).toBe('unread');
+    expect(hourlyProfile([...hours(30, () => 1), [NOW - 100, 1, 1, 1, 1, -1]], NOW)).toBe('unread');
+  });
+
+  describe('fetchPairVolumeProfile', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      forgetPairAverages();
+    });
+    const now = () => NOW * 1000;
+
+    it('reads the top pool, then its hourly candles for 7 days, through our own origin and its allowlist', async () => {
+      const urls: string[] = [];
+      vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+        urls.push(url);
+        const path = new URL(url, 'https://memetics.finance').searchParams.get('path') ?? '';
+        const body = path.endsWith('/pools') ? { data: [poolEntry(BAYLA_SOL_POOL, BAYLA, SOL_MINT)] } : ohlcv(BAYLA, SOL_MINT, hours(168, () => 2));
+        return new Response(JSON.stringify(body), { status: 200 });
+      }));
+      const p = await fetchPairVolumeProfile(SOL_MINT, BAYLA, undefined, now);
+      expect(p).toHaveLength(24);
+      expect(urls[1]).toContain(`/networks/solana/pools/${BAYLA_SOL_POOL}/ohlcv/hour`);
+      expect(urls[1]).toContain('limit=168');
+      for (const u of urls) expect(isAllowedPath(new URL(u, 'https://memetics.finance').searchParams.get('path'))).toBe(true);
+    });
+
+    it('anything it cannot read is null (even slices), never a throw', async () => {
+      vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 429 })));
+      expect(await fetchPairVolumeProfile(SOL_MINT, BAYLA, undefined, now)).toBeNull();
+      vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('offline'); }));
+      expect(await fetchPairVolumeProfile(SOL_MINT, BAYLA, undefined, now)).toBeNull();
+      expect(await fetchPairVolumeProfile(BAYLA, BAYLA, undefined, now)).toBeNull();
+    });
+  });
 });

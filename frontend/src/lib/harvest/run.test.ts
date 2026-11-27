@@ -198,6 +198,44 @@ describe('runHarvest, a chain on one prompt', () => {
     expect(out.map((s) => s.kind)).toEqual(['claimed', 'claimed', 'claimed']);
     expect(h.sent).toEqual(['e1']);
   });
+
+  // Solana packs its sure claims into one transaction and hands back the ones that may not
+  // pay, each to go on its own prompt after (lib/harvest/solana.ts solanaTogether).
+  const handsBack = (keys: string[], answer: ClaimResult = { kind: 'claimed', tx: 'ONE' }) => {
+    const batches: string[][] = [];
+    const batch: SendTogether<HarvestClaim> = async (cs, settle) => {
+      batches.push(cs.map((c) => c.key));
+      for (const c of cs) if (!keys.includes(c.key)) settle(c.key, answer);
+      return { alone: cs.filter((c) => keys.includes(c.key)) };
+    };
+    return { batches, batch };
+  };
+
+  it('claims a batch hands back go one by one after it, and the run goes on to the next chain', async () => {
+    const h = harness();
+    const t = handsBack(['s3']);
+    const out = await runHarvest([claim('s1', 'solana'), claim('s2', 'solana'), claim('s3', 'solana', 'may not pay'), claim('e1', 'ethereum')], 'ethereum', { ...h.deps, together: (ch) => (ch === 'solana' ? t.batch : null) });
+    expect(t.batches).toEqual([['s1', 's2', 's3']]);
+    expect(h.sent).toEqual(['s3', 'e1']);
+    expect(out).toEqual([{ kind: 'claimed', tx: 'ONE' }, { kind: 'claimed', tx: 'ONE' }, { kind: 'claimed', tx: 'tx-s3' }, { kind: 'claimed', tx: 'tx-e1' }]);
+  });
+
+  it('a cancel of the batch stops the run: the claims it handed back are never asked', async () => {
+    const h = harness();
+    const t = handsBack(['s3'], { kind: 'declined' });
+    await runHarvest([claim('s1', 'solana'), claim('s2', 'solana'), claim('s3', 'solana', 'may not pay'), claim('e1', 'ethereum')], 'ethereum', { ...h.deps, together: (ch) => (ch === 'solana' ? t.batch : null) });
+    expect(h.sent).toEqual([]);
+    expect(h.states.get('s3')).toEqual({ kind: 'not-sent' });
+    expect(h.states.get('e1')).toEqual({ kind: 'not-sent' });
+  });
+
+  it('a claim handed back that is cancelled stops the run there', async () => {
+    const h = harness({ s3: { kind: 'declined' } });
+    const t = handsBack(['s3', 's4']);
+    await runHarvest([claim('s1', 'solana'), claim('s2', 'solana'), claim('s3', 'solana', 'x'), claim('s4', 'solana', 'y')], null, { ...h.deps, together: () => t.batch });
+    expect(h.sent).toEqual(['s3']);
+    expect(h.states.get('s4')).toEqual({ kind: 'not-sent' });
+  });
 });
 
 describe('promptCount', () => {
@@ -208,11 +246,26 @@ describe('promptCount', () => {
     expect(promptCount(cs, null, (ch) => ch === 'solana')).toBe(1 + (2 + 1) + (1 + 1));
     expect(promptCount([claim('s1', 'solana'), claim('s2', 'solana')], null, () => true)).toBe(1);
   });
+
+  it('a claim that goes alone is its own prompt even on a chain signed together', () => {
+    const alone = (c: HarvestClaim) => c.caution !== null;
+    const sol = [claim('s1', 'solana'), claim('s2', 'solana'), claim('s3', 'solana', 'may not pay')];
+    expect(promptCount(sol, null, () => true, alone)).toBe(1 + 1);
+    // Together needs two: one sure claim beside one that goes alone is two prompts.
+    expect(promptCount([claim('s1', 'solana'), claim('s3', 'solana', 'x')], null, () => true, alone)).toBe(2);
+    expect(promptCount([claim('s3', 'solana', 'x'), claim('s4', 'solana', 'y')], null, () => true, alone)).toBe(2);
+    expect(promptCount(sol, null, () => false, alone)).toBe(3);
+  });
 });
 
 describe('runSummary', () => {
   it('names each outcome that happened, in a fixed order', () => {
     expect(runSummary([{ kind: 'claimed', tx: 'a' }, { kind: 'claimed', tx: 'b' }, { kind: 'not-sent' }, { kind: 'unconfirmed', reason: 'x' }]))
       .toBe('2 claimed · 1 not confirmed · 1 not sent');
+  });
+
+  it('a claim refused on chain is counted as refused, the word its row says', () => {
+    expect(runSummary([{ kind: 'claimed', tx: 'a' }, { kind: 'reverted', reason: 'x', tx: 'b' }, { kind: 'declined' }]))
+      .toBe('1 claimed · 1 refused · 1 cancelled');
   });
 });

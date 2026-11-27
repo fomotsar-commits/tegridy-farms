@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PublicKey } from '@solana/web3.js';
 import { pairOf, rangePrices, type Pair } from '../../../lib/solana/clmm/rangeMath';
 import type { Read, WalletPosition, WalletPositionsRead } from '../../../lib/solana/clmm/read';
@@ -247,6 +247,16 @@ function ActionInner(p: {
       { repeatable: true },
     );
   };
+  // ONE PRESS for Collect (owner, 2026-11-19, on claiming yield: "3 different clicks just to
+  // harvest"): the row's Collect test-runs it at once and the wallet opens when it passes
+  // (TxFlowView `signWhenReady`). Remove and Close keep their Review: they pick an amount.
+  const collect = kind === 'collect';
+  const firstLook = useRef(true);
+  useEffect(() => {
+    if (!firstLook.current) return;
+    firstLook.current = false;
+    if (collect && can) review();
+  });
   if (flow.state.step !== 'idle') {
     return (
       <TxFlowView
@@ -256,7 +266,8 @@ function ActionInner(p: {
         decimals={p.pair?.tokenDecimals ?? null}
         signer={signer}
         coinName={p.nameOf}
-        preparingText="Reading the position again and test-running it on the network…"
+        preparingText={collect ? 'Reading the position again and test-running it on the network. Your wallet opens next…' : 'Reading the position again and test-running it on the network…'}
+        signWhenReady={collect}
       />
     );
   }
@@ -284,7 +295,7 @@ function ActionInner(p: {
       <WalletNeeded state={p.signerState} />
       <div className="flex flex-col sm:flex-row gap-2">
         <button ref={reviewRef} type="button" className="btn-primary w-full min-h-[44px] text-[13px] disabled:opacity-60 disabled:grayscale" disabled={!can} onClick={review}>
-          {kind === 'collect' ? 'Review: collect' : kind === 'close' ? 'Review: close the position' : 'Review: take out'}
+          {kind === 'collect' ? 'Open my wallet to collect' : kind === 'close' ? 'Review: close the position' : 'Review: take out'}
         </button>
         <button type="button" className="btn-secondary min-h-[44px] px-4 text-[13px]" onClick={p.onClose}>
           Back

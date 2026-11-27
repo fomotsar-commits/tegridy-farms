@@ -96,6 +96,33 @@ export function parseAddressBech32(text: string): ParsedAddress | null {
 }
 
 /**
+ * The whole address, hex, of an output a script spends, whatever its stake part: a key, a script,
+ * a pointer or none (CIP-19 types 1, 3, 5, 7). Only for an output the contract itself knows by
+ * its payment part alone (the factory's entries: factory_validator.ak keeps them by payment
+ * credential, so anyone may put one at our factory with a stake part of their choosing). Every
+ * address the site pays or shows goes through parseAddressBech32, which refuses pointers.
+ */
+export function scriptSpentAddressHex(text: string): { hex: string; network: number; scriptHash: string } | null {
+  let bytes: Uint8Array;
+  let prefix: string;
+  try {
+    const decoded = bech32.decode(text as `${string}1${string}`, BECH32_LIMIT);
+    bytes = bech32.fromWords(decoded.words);
+    prefix = decoded.prefix;
+  } catch {
+    return null;
+  }
+  const header = bytes[0];
+  if (header === undefined) return null;
+  const type = header >> 4;
+  const network = header & 0x0f;
+  // A pointer is three variable-length numbers: at least a byte each.
+  const lengthOk = type === 1 || type === 3 ? bytes.length === 57 : type === 7 ? bytes.length === 29 : type === 5 ? bytes.length >= 32 : false;
+  if (!lengthOk || prefix !== (network === MAINNET_NETWORK_ID ? 'addr' : 'addr_test')) return null;
+  return { hex: bytesToHex(bytes), network, scriptHash: bytesToHex(bytes.subarray(1, 29)) };
+}
+
+/**
  * An address paying `payment` with `stake` as its stake part. This is how a Minswap V2 order
  * address is made: the order script's payment credential and the trader's own stake
  * credential, so the ADA in an open order keeps earning for the trader (SDK buildOrderAddress).

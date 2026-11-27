@@ -1,9 +1,9 @@
 // Our pools' deploy, in Minswap V2's order (docs/CARDANO_AUDIT_SCOPE.md section 4): the lock
 // token (both owner keys sign), then DexInitialization (the authen seed spent, the factory and
 // GlobalSetting NFTs minted), then the reference scripts, one per transaction, chained, to an
-// address no key can spend (Minswap's own: payment key hash 28 zero bytes), then the batching and
-// expired-cancel reward accounts registered with the LEGACY certificate (README "Run it": Conway's
-// needs a Publish purpose the scripts refuse). Pure: chain reads and signing are scripts/deploy.ts's.
+// address no key can spend (Minswap's own: payment key hash 28 zero bytes), then the batching
+// reward account registered with the LEGACY certificate (README "Run it": Conway's needs a
+// Publish purpose the scripts refuse). Pure: chain reads and signing are scripts/deploy.ts's.
 import CSL from '@emurgo/cardano-serialization-lib-nodejs';
 import { builderConfig, type ProtocolParams } from './build.ts';
 import { mkBytes, mkConstr, mkInt, mkList, type PlutusData } from './plutus.ts';
@@ -13,10 +13,36 @@ import { checkTreasury } from './sweep.ts';
 export const NAMES = { factory: '4d5346', pool: '4d5350', globalSetting: '4d534753', lock: '726f6c652d74696d656c6f636b' };
 /** Minswap's reference-script address: payment key hash 28 zero bytes (here without a stake part). */
 export const burnAddress = (network: number) => CSL.EnterpriseAddress.new(network, CSL.Credential.from_keyhash(CSL.Ed25519KeyHash.from_hex('00'.repeat(28)))).to_address().to_bech32(undefined);
-/** The scripts published as reference scripts, in Minswap's order, then ours. */
-export const REF_ORDER = ['order', 'expiredOrderCancel', 'factory', 'authen', 'pool', 'poolBatching', 'lock'] as const;
-export type ScriptName = (typeof REF_ORDER)[number] | 'globalSetting';
+/**
+ * The scripts published as reference scripts, in Minswap's order, then ours. Not the
+ * expired-order cancel: nothing of ours (batcher, site, tools) reads it, its hash is Minswap's
+ * (it takes no parameters), and Minswap's identical copy is on chain; publishing ours would only
+ * burn its ~13 ADA of min-ADA.
+ */
+export const REF_ORDER = ['order', 'factory', 'authen', 'pool', 'poolBatching', 'lock'] as const;
+export type ScriptName = (typeof REF_ORDER)[number] | 'globalSetting' | 'expiredOrderCancel';
 export type Scripts = Record<ScriptName, { hash: string; compiledCode: string }>;
+
+/**
+ * Mainnet's inputs, pinned: the venue's two-key treasury proven on mainnet 2026-11-07
+ * (docs/CARDANO_AUDIT_SCOPE.md; the site's CARDANO_VENUE_FEE_ADDRESS) with both of its scripts,
+ * and its stake script, which also stakes the pools (deploy/mainnet-inputs.template.json).
+ */
+export const MAINNET_INPUTS = {
+  treasury: 'addr1xy6kxswfkhnxfwllzcxkqfumhyjedvkvkvlt3p7mhwxwp3spv7vdp6er80lvtdm32cqvvetu93ams9yrggg5pm5tq3usr47kat',
+  treasuryScript: '8201828200581c47901a27b081437abaeb2e6a16762388f68f3eb40de056a529e9dc398200581c063f7b2abbf1cb581516c5b4a78929a118752cc3672c10709bb8bc21',
+  treasuryStakeScript: '8201828200581ca91f2db69b8b44ef8355a53e648d052680d009c70d07bc9017292b5a8200581cf9824d0d357d21b5b12b1b83e0d1f567d6076aa74481cb1741f0be7c',
+  poolStake: { type: 'Script', hash: '016798d0eb233bfec5b7715600c6657c2c7bb81483421140ee8b0479' },
+} as const;
+/**
+ * Minswap's, which no input of ours may name on any network: its pools' stake key
+ * (deployed/mainnet/params.json; the site's MINSWAP_STAKE_KEY) and its batcher keys (the batchers
+ * of Minswap's mainnet GlobalSetting 0dc17712…#0, unchanged since 2024-07-05, read 2026-11-25).
+ */
+export const MINSWAP = {
+  stakeKey: '52563c5410bff6a0d43ccebb7c37e1f69f5eb260552521adff33b9c2',
+  batchers: ['5b7e23228dba75595645fc357d0f97ba258cfccfff5d588d4bb9165b'],
+} as const;
 
 export interface DeployInputs {
   network: number;
@@ -61,8 +87,28 @@ export function checkInputs(i: DeployInputs): void {
   if (i.batcherKeyHash === i.ownerA || i.batcherKeyHash === i.ownerB) throw new Error("the batcher's hot key must not be an owner key");
   if (i.poolStake.type !== 'Key' && i.poolStake.type !== 'Script') throw new Error('poolStake.type must be Key or Script');
   if (i.openingFee < 0n) throw new Error('the opening fee cannot be negative');
+  if (i.poolStake.hash === MINSWAP.stakeKey) throw new Error("poolStake is Minswap's stake key: our pools' staking rewards would go to Minswap");
+  if ((MINSWAP.batchers as readonly string[]).includes(i.batcherKeyHash)) throw new Error("batcherKeyHash is Minswap's batcher key, not ours");
   // The same rules the batcher's sweep holds the treasury to: two-key scripts on both parts.
   checkTreasury({ address: i.treasury, script: i.treasuryScript, stakeScript: i.treasuryStakeScript }, i.network, i.batcherKeyHash);
+  if (i.network === 1) {
+    const m = MAINNET_INPUTS;
+    if (i.treasury !== m.treasury || i.treasuryScript !== m.treasuryScript || i.treasuryStakeScript !== m.treasuryStakeScript) throw new Error(`on mainnet the treasury is the venue's proven two-key treasury ${m.treasury}, with its two scripts as deploy/mainnet-inputs.template.json names them`);
+    if (i.poolStake.type !== m.poolStake.type || i.poolStake.hash !== m.poolStake.hash) throw new Error(`on mainnet poolStake is the treasury's own stake script, {"type": "Script", "hash": "${m.poolStake.hash}"}`);
+  }
+}
+
+/** What compile applies to the scripts: scripts.json records it, and every later step refuses inputs that differ. */
+export const compiledParams = (i: DeployInputs) => ({ network: i.network, seedTxIn: i.seedTxIn, lockSeedTxIn: i.lockSeedTxIn, ownerA: i.ownerA, ownerB: i.ownerB, treasury: i.treasury, poolStake: { type: i.poolStake.type, hash: i.poolStake.hash } });
+
+/** scripts.json's scripts, once its recorded parameters are exactly what these inputs say. */
+export function scriptsFor(json: { scripts?: Scripts; params?: Record<string, unknown> }, i: DeployInputs): Scripts {
+  if (!json.params || !json.scripts) throw new Error('scripts.json records no parameters: compile again with this code');
+  for (const [k, want] of Object.entries(compiledParams(i))) {
+    const got = json.params[k];
+    if (JSON.stringify(got) !== JSON.stringify(want)) throw new Error(`scripts.json was compiled with ${k} ${JSON.stringify(got)}, and inputs.json says ${JSON.stringify(want)}: use the inputs it was compiled with, or compile again`);
+  }
+  return json.scripts;
 }
 
 /**
@@ -278,6 +324,29 @@ export function lockTx(i: DeployInputs, s: Scripts, plan: TxPlan): Built {
   );
 }
 
+/**
+ * Before init names the lock in all five roles, the chain must hold the lock: exactly one UTxO
+ * with its token, at its own address, with nothing announced. Otherwise every admin role would go
+ * to a script that can never be spent. `holders`: every unspent UTxO holding the lock token.
+ */
+export function checkLockReady(holders: { ref: string; outputHex: string }[], s: Scripts, network: number): string {
+  const what = `the lock token ${s.lock.hash}.${NAMES.lock}`;
+  if (holders.length !== 1) throw new Error(`${holders.length} UTxOs on chain hold ${what}, not one: send the lock step, and run init only once it is on chain`);
+  const u = holders[0]!;
+  const o = CSL.TransactionOutput.from_hex(u.outputHex);
+  if (o.address().to_bech32(undefined) !== scriptAddress(network, s.lock.hash)) throw new Error(`${what} sits at ${o.address().to_bech32(undefined)}, not at the lock's own address`);
+  if (o.amount().multiasset()?.get_asset(CSL.ScriptHash.from_hex(s.lock.hash), CSL.AssetName.new(Buffer.from(NAMES.lock, 'hex'))).to_str() !== '1') throw new Error(`${u.ref} does not hold exactly one of ${what}`);
+  if (!isEmptyLockState(o.plutus_data())) throw new Error(`the lock ${u.ref} does not hold State { announced: [] }`);
+  return u.ref;
+}
+
+/** The lock's datum is State { announced: [] }, however it is encoded. */
+export function isEmptyLockState(d: CSL.PlutusData | undefined): boolean {
+  const c = d?.as_constr_plutus_data();
+  const announced = c && c.alternative().to_str() === '0' && c.data().len() === 1 ? c.data().get(0).as_list() : undefined;
+  return !!announced && announced.len() === 0;
+}
+
 /** 2. DexInitialization: the authen seed spent, the factory and GlobalSetting NFTs minted. */
 export function initTx(i: DeployInputs, s: Scripts, plan: TxPlan): Built {
   const a = addresses(i, s);
@@ -304,23 +373,57 @@ export function refTx(i: DeployInputs, name: (typeof REF_ORDER)[number], s: Scri
 /**
  * 4. The pool batching reward account, registered with the legacy certificate. The expired-order
  * script takes no parameters: its hash is Minswap's, and its account is already registered on
- * mainnet and preprod (a second registration is refused), so the deploy checks it instead.
+ * mainnet and preprod (a second registration is refused). Nothing of ours withdraws from it.
  */
 export function registerTx(s: Scripts, plan: TxPlan): Built {
   return build({ outputs: [], certs: [s.poolBatching.hash] }, plan);
 }
 
-/** What the batcher's BATCHER_SETTINGS and the site's OwnPoolsDeploymentRecord read. */
-export function records(i: DeployInputs, s: Scripts, refs: Record<string, string>, extra: { batcherFee: bigint; openPoolBudget?: { factory: { mem: number; steps: number }; authen: { mem: number; steps: number } }; refSizes: Record<string, number> }) {
+/** The batcher's floatCap: 100 ADA, the owner's call (2026-11-24). */
+export const FLOAT_CAP = '100000000';
+
+export interface OpenPoolBudget {
+  factory: { mem: number; steps: number };
+  authen: { mem: number; steps: number };
+}
+
+/** deploy.ts's state.json: what each step built and sent. */
+export interface DeployState {
+  refs: Record<string, string>;
+  txs: Record<string, string>;
+  refSizes: Record<string, number>;
+  /** A pool opening's two scripts as the node measured them on a real one, with headroom: set by hand. */
+  openPoolBudget?: OpenPoolBudget;
+}
+
+/**
+ * What the batcher's BATCHER_SETTINGS and the site's OwnPoolsDeploymentRecord read, whole, or
+ * nothing: every reference script's transaction recorded as sent (deploy.ts --submit or
+ * cosign.ts submit), and the pool-opening budget measured.
+ */
+export function records(i: DeployInputs, s: Scripts, state: DeployState, batcherFee: bigint) {
+  for (const name of REF_ORDER) {
+    const ref = state.refs[name];
+    if (!ref) throw new Error(`the ${name} reference script was never built: run refs first`);
+    const tx = ref.split('#')[0]!;
+    if (state.txs[`ref-${name}`] !== tx) throw new Error(`ref-${name}'s transaction ${tx} is not recorded as sent: send it before the records are written`);
+    const size = state.refSizes[name];
+    if (!Number.isInteger(size) || size! <= 0) throw new Error(`the ${name} reference script's size is not recorded`);
+  }
+  const b = state.openPoolBudget;
+  const whole = (n: unknown) => Number.isSafeInteger(n) && (n as number) > 0;
+  if (!b || ![b.factory?.mem, b.factory?.steps, b.authen?.mem, b.authen?.steps].every(whole)) throw new Error('state.json has no openPoolBudget {"factory": {"mem", "steps"}, "authen": {"mem", "steps"}} (a real pool opening as the node measured it, with headroom): the site record would be incomplete');
+  const { refs, refSizes } = state;
   const a = addresses(i, s);
   const batcherAddress = CSL.EnterpriseAddress.new(i.network, CSL.Credential.from_keyhash(CSL.Ed25519KeyHash.from_hex(i.batcherKeyHash))).to_address().to_bech32(undefined);
   return {
     batcherSettings: {
       network: i.network,
-      deployment: { authenPolicy: s.authen.hash, poolScriptHash: s.pool.hash, orderScriptHash: s.order.hash, poolBatchingScriptHash: s.poolBatching.hash, scriptRefs: { pool: refs.pool, order: refs.order, poolBatching: refs.poolBatching } },
+      deployment: { authenPolicy: s.authen.hash, poolScriptHash: s.pool.hash, orderScriptHash: s.order.hash, poolBatchingScriptHash: s.poolBatching.hash, scriptRefs: { pool: refs.pool!, order: refs.order!, poolBatching: refs.poolBatching! } },
       batcherKeyHash: i.batcherKeyHash,
       batcherAddress,
-      batcherFee: extra.batcherFee.toString(),
+      batcherFee: batcherFee.toString(),
+      floatCap: FLOAT_CAP,
       sweep: { treasury: i.treasury, treasuryScript: i.treasuryScript, ...(i.treasuryStakeScript ? { treasuryStakeScript: i.treasuryStakeScript } : {}), keep: '20000000' },
     },
     siteRecord: {
@@ -330,12 +433,13 @@ export function records(i: DeployInputs, s: Scripts, refs: Record<string, string
       orderScriptHash: s.order.hash,
       factoryScriptHash: s.factory.hash,
       poolAddress: a.pool,
-      factoryRef: { ref: refs.factory, scriptSize: extra.refSizes.factory },
-      authenRef: { ref: refs.authen, scriptSize: extra.refSizes.authen },
+      orderRef: { ref: refs.order!, scriptSize: refSizes.order! },
+      factoryRef: { ref: refs.factory!, scriptSize: refSizes.factory! },
+      authenRef: { ref: refs.authen!, scriptSize: refSizes.authen! },
       treasury: i.treasury,
       openingFeeLovelace: i.openingFee.toString(),
-      batcherFeeLovelace: extra.batcherFee.toString(),
-      ...(extra.openPoolBudget ? { openPoolBudget: extra.openPoolBudget } : {}),
+      batcherFeeLovelace: batcherFee.toString(),
+      openPoolBudget: { factory: { mem: b.factory.mem, steps: b.factory.steps }, authen: { mem: b.authen.mem, steps: b.authen.steps } },
     },
     addresses: a,
   };

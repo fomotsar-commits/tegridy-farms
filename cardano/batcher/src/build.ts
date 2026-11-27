@@ -67,9 +67,16 @@ export interface BatchTxRequest {
 
 /**
  * The batch is bigger than one transaction may be (bytes, or what its scripts need): take fewer
- * orders. A batch of one order that is too big means that order can never be batched.
+ * orders. A batch of one order that is too many bytes means that order can never be batched
+ * (`bytes`): its size is its own, whatever the pool, the window or the wallet.
  */
-export class BatchTooBig extends Error {}
+export class BatchTooBig extends Error {
+  readonly bytes: boolean;
+  constructor(message: string, bytes = false) {
+    super(message);
+    this.bytes = bytes;
+  }
+}
 
 /**
  * The batcher's own wallet or settings are wrong (a fee UTxO that cannot pay, a reference-script
@@ -284,7 +291,7 @@ function emurgo<T>(f: () => T): T {
   } catch (e) {
     if (e instanceof Error) throw e;
     const message = String(e);
-    if (/Maximum transaction size of \d+ exceeded/.test(message)) throw new BatchTooBig(`the batch is more bytes than one transaction may be: ${message}`);
+    if (/Maximum transaction size of \d+ exceeded/.test(message)) throw new BatchTooBig(`the batch is more bytes than one transaction may be: ${message}`, true);
     throw new Error(`EMURGO's builder refused the batch: ${message}`);
   }
 }

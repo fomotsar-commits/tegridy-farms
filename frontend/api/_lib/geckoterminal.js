@@ -47,7 +47,7 @@ export const MAX_SLOT_RANGE = 50_000;
 /** Transactions one /events call will decode; more than this in one range is a 502 that asks for a smaller chunk. */
 export const MAX_TXS_PER_CALL = 60;
 /** How far behind the tip a slot must be before its events are cached by the edge for a day. */
-const SETTLED_SLOTS = 300;
+export const SETTLED_SLOTS = 300;
 const POOLS_FRESH_MS = 60_000;
 /** Decimal places GeckoTerminal reads (it ignores the rest). */
 export const DECIMAL_PLACES = 50;
@@ -114,17 +114,43 @@ export function feeBpsOf(configData, creatorFeeOn) {
   return Number((trade + creator + 50n) / 100n);
 }
 
-/** The event lines of a transaction's logs that carry our program's events, decoded; others are skipped. */
-export function programEvents(tx, pools) {
+const INVOKE = /^Program (\S+) invoke \[\d+\]$/;
+const LEAVE = /^Program (\S+) (success|failed)/;
+
+/**
+ * The `Program data:` payloads OUR program logged, decoded: a line counts only while our
+ * program is the one running, by the runtime's own invoke/success/failed lines. Any program
+ * can log a line that looks like a SwapEvent naming one of our pools, and any transaction can
+ * name our program to be listed with its signatures; without this, a stranger's program
+ * could write fake trades into the chart sites, or a line with no vaults that stalls them.
+ */
+export function ourDataLines(tx) {
   const out = [];
+  const stack = [];
   for (const line of tx?.meta?.logMessages ?? []) {
-    if (!line.startsWith(PROGRAM_DATA)) continue;
-    let d;
+    const enter = INVOKE.exec(line);
+    if (enter) {
+      stack.push(enter[1]);
+      continue;
+    }
+    if (LEAVE.test(line)) {
+      stack.pop();
+      continue;
+    }
+    if (!line.startsWith(PROGRAM_DATA) || stack[stack.length - 1] !== VENUE_PROGRAM) continue;
     try {
-      d = Buffer.from(line.slice(PROGRAM_DATA.length), "base64");
+      out.push(Buffer.from(line.slice(PROGRAM_DATA.length), "base64"));
     } catch {
       continue;
     }
+  }
+  return out;
+}
+
+/** The event lines of a transaction's logs that carry our program's events, decoded; others are skipped. */
+export function programEvents(tx, pools) {
+  const out = [];
+  for (const d of ourDataLines(tx)) {
     if (d.length < 40) continue;
     const tag = d.subarray(0, 8).toString("hex");
     const poolId = key(d, 8);
@@ -140,9 +166,20 @@ export function programEvents(tx, pools) {
     } else if (tag === LP_EVENT_TAG && d.length >= 97) {
       out.push({
         kind: d[96] === 0 ? "join" : "exit", pool,
+        vault0Before: u64(d, 48), vault1Before: u64(d, 56),
         amount0: u64(d, 64), amount1: u64(d, 72), transferFee0: u64(d, 80), transferFee1: u64(d, 88),
       });
     }
+  }
+  return out;
+}
+
+/** The pool each swap or liquidity event our program logged names, known to us or not. */
+export function eventPoolIds(tx) {
+  const out = [];
+  for (const d of ourDataLines(tx)) {
+    const tag = d.length >= 40 ? d.subarray(0, 8).toString("hex") : "";
+    if ((tag === SWAP_EVENT_TAG && d.length >= 170) || (tag === LP_EVENT_TAG && d.length >= 97)) out.push(key(d, 8));
   }
   return out;
 }
@@ -295,19 +332,24 @@ export function makeRpc(fetchImpl = globalThis.fetch, url = process.env.SOLANA_R
   };
 }
 
-/** Per-instance memory: the pool list, decoded transactions, each block's signature order. */
-const state = { pools: null, poolsAt: 0, txs: new Map(), blocks: new Map(), pairs: new Map() };
+/**
+ * Per-instance memory: the pool list, decoded transactions, each block's signature order, and
+ * the pool ids event lines named that a fresh pool list still did not hold (another program's
+ * pools: Raydium's own cp-swap logs the same events, and the price robot trades through it).
+ */
+const state = { pools: null, poolsAt: 0, txs: new Map(), blocks: new Map(), pairs: new Map(), foreign: new Set() };
 export function __reset() {
   state.pools = null;
   state.poolsAt = 0;
   state.txs.clear();
   state.blocks.clear();
   state.pairs.clear();
+  state.foreign.clear();
 }
 
-/** Every pool on the program, with its fee, read at most once a minute per instance. */
-export async function listPools(rpc, now = Date.now()) {
-  if (state.pools && now - state.poolsAt < POOLS_FRESH_MS) return state.pools;
+/** Every pool on the program, with its fee, read at most once a minute per instance (`force` reads it now). */
+export async function listPools(rpc, now = Date.now(), { force = false } = {}) {
+  if (!force && state.pools && now - state.poolsAt < POOLS_FRESH_MS) return state.pools;
   const accounts = await rpc("getProgramAccounts", [VENUE_PROGRAM, { encoding: "base64", commitment: "finalized", filters: [{ dataSize: POOL_SIZE }] }]);
   const pools = new Map();
   for (const a of accounts) pools.set(a.pubkey, decodePool(a.pubkey, a.account.data[0]));
@@ -337,8 +379,26 @@ export async function latestBlock(rpc) {
   throw new Error("no finalized slot with a time in the last 64");
 }
 
+/**
+ * The pool list these transactions need. A list up to a minute old can miss a pool opened
+ * since, and its first trades would be left out of a range the indexer never asks for again;
+ * so when an event line names a pool the list does not hold, or `stale(pools)` says so, the
+ * list is read again, once. Ids still missing after that are another program's, remembered.
+ */
+export async function poolsFor(rpc, txs, stale = () => false) {
+  let pools = await listPools(rpc);
+  const ids = [...new Set(txs.flatMap(eventPoolIds))];
+  const unknown = () => ids.filter((id) => !pools.has(id) && !state.foreign.has(id));
+  if (unknown().length || stale(pools)) {
+    pools = await listPools(rpc, Date.now(), { force: true });
+    if (state.foreign.size > 5000) state.foreign.clear();
+    for (const id of unknown()) state.foreign.add(id);
+  }
+  return pools;
+}
+
 /** A transaction, decoded once per instance. */
-async function transaction(rpc, signature) {
+export async function transaction(rpc, signature) {
   if (state.txs.has(signature)) return state.txs.get(signature);
   const tx = await rpc("getTransaction", [signature, { encoding: "json", maxSupportedTransactionVersion: 1, commitment: "finalized" }]);
   if (!tx) throw new Error(`transaction ${signature} did not come back`);
@@ -348,7 +408,7 @@ async function transaction(rpc, signature) {
 }
 
 /** Where each transaction sits in its block: the block's signatures in order, read once per slot. */
-async function txnIndexIn(rpc, slot, signature) {
+export async function txnIndexIn(rpc, slot, signature) {
   let order = state.blocks.get(slot);
   if (!order) {
     const b = await rpc("getBlock", [slot, { encoding: "json", transactionDetails: "signatures", rewards: false, maxSupportedTransactionVersion: 1, commitment: "finalized" }]);
@@ -380,12 +440,14 @@ export async function signaturesIn(rpc, fromBlock, toBlock) {
 
 /** Every event in [fromBlock, toBlock], in block, transaction and event order. */
 export async function eventsIn(rpc, fromBlock, toBlock) {
-  const pools = await listPools(rpc);
   const sigs = await signaturesIn(rpc, fromBlock, toBlock);
   if (sigs.length > MAX_TXS_PER_CALL) throw Object.assign(new Error(`${sigs.length} transactions in slots ${fromBlock}-${toBlock}: ask for a smaller chunk (at most ${MAX_TXS_PER_CALL} transactions a call)`), { tooMany: true });
+  const txs = [];
+  for (const s of sigs) txs.push(await transaction(rpc, s.signature));
+  const pools = await poolsFor(rpc, txs);
   const events = [];
-  for (const s of sigs) {
-    const tx = await transaction(rpc, s.signature);
+  for (const [i, s] of sigs.entries()) {
+    const tx = txs[i];
     if (!programEvents(tx, pools).length) continue;
     const txnIndex = await txnIndexIn(rpc, s.slot, s.signature);
     events.push(...eventsOf(tx, pools, txnIndex));

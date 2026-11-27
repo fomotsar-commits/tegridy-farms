@@ -40,6 +40,12 @@ function deps(over: Partial<Record<keyof WalletSwapDeps, unknown>> = {}) {
   const order: string[] = [];
   const rpc = {
     getLatestBlockhashAndContext: vi.fn(async () => FRESH),
+    // The final test run before the wallet, and the SOL it reads (Phantom, ticket #467471).
+    getBalance: vi.fn(async (..._a: unknown[]) => 1_000_000_000),
+    simulateTransaction: vi.fn(async (..._a: unknown[]): Promise<{ context: { slot: number }; value: { err: unknown; logs: string[]; accounts: { lamports: number; data: string[] }[] } }> => {
+      order.push('test');
+      return { context: { slot: 1 }, value: { err: null, logs: [], accounts: [{ lamports: 950_000_000, data: ['', 'base64'] }] } };
+    }),
     getBlockHeight: vi.fn(async () => 1_000),
     isBlockhashValid: vi.fn(async () => ({ context: { slot: 600 }, value: true })),
     sendRawTransaction: vi.fn(async (_raw: Uint8Array, _opts?: object) => {
@@ -67,7 +73,8 @@ function deps(over: Partial<Record<keyof WalletSwapDeps, unknown>> = {}) {
     }),
     confirm: undefined as WalletSwapDeps['confirm'],
   };
-  const d = { ...base, ...over } as typeof base;
+  // The mocks stand in for a Connection's methods: the type is the mocks', and what the send takes.
+  const d = { ...base, ...over } as unknown as typeof base & WalletSwapDeps;
   return { d, held, order, rpc };
 }
 
@@ -80,6 +87,48 @@ function refusal(message: string, logs: string[] = []) {
   return Object.assign(new Error(`Simulation failed. \nMessage: ${message}.`), { transactionMessage: message, transactionLogs: logs });
 }
 
+// Phantom, ticket #467471 (2026-11-16): the final test run, on the bytes the wallet will
+// see, and the SOL check come before the wallet; either failing, or the run not finishing,
+// stops it there. Until 11-17 the swap's only test run was at build, on Jupiter's blockhash.
+describe('sendWalletSwap: tested and its SOL checked before the wallet is asked', () => {
+  it('test-runs the very bytes the wallet is then handed, and reads the payer’s SOL after the run', async () => {
+    const { d, rpc, order } = deps();
+    await sendWalletSwap(d, jupiterTx(), ARGS);
+    const tested = VersionedTransaction.deserialize((rpc.simulateTransaction.mock.calls[0]![0] as { serialize(): Uint8Array }).serialize());
+    const handed = d.sign.mock.calls[0]![0] as VersionedTransaction;
+    // The same message: the wallet's signature is all that differs.
+    expect(Buffer.from(tested.message.serialize()).equals(Buffer.from(handed.message.serialize()))).toBe(true);
+    expect(tested.message.recentBlockhash).toBe(FRESH_HASH);
+    expect(rpc.simulateTransaction.mock.calls[0]![1]).toMatchObject({ sigVerify: false, replaceRecentBlockhash: false, accounts: { addresses: [WALLET.publicKey.toBase58()] } });
+    expect(order[0]).toBe('test');
+  });
+
+  it.each([
+    ['its test run refuses it (the price moved past slippage)', { err: { InstructionError: [3, { Custom: 6001 }] }, logs: ['Program JUP6Lkb failed: custom program error: 0x1771'] }, 'network', /slippage\. Your wallet was not asked/],
+    ['its test run cannot finish', 'silent', 'check', /could not finish/],
+  ] as const)('%s: the wallet is never asked, nothing is sent', async (_, run, stage, said) => {
+    const { d, rpc } = deps();
+    if (run === 'silent') rpc.simulateTransaction.mockRejectedValue(new Error('429'));
+    else rpc.simulateTransaction.mockResolvedValue({ context: { slot: 1 }, value: { err: run.err, logs: [...run.logs], accounts: [] } });
+    const end = await sendWalletSwap(d, jupiterTx(), ARGS);
+    expect(end).toMatchObject({ kind: 'not-sent', stage, declined: false });
+    if (end.kind === 'not-sent') expect(end.message).toMatch(said);
+    expect(d.sign).not.toHaveBeenCalled();
+    expect(d.signAndSend).not.toHaveBeenCalled();
+    expect(rpc.sendRawTransaction).not.toHaveBeenCalled();
+  });
+
+  it('a wallet short of SOL for the swap, its fee and the rent is told so and never asked', async () => {
+    const { d, rpc } = deps();
+    rpc.getBalance.mockResolvedValue(51_000_000);
+    rpc.simulateTransaction.mockResolvedValue({ context: { slot: 1 }, value: { err: null, logs: [], accounts: [{ lamports: 500_000, data: ['', 'base64'] }] } });
+    const end = await sendWalletSwap(d, jupiterTx(), ARGS);
+    expect(end).toMatchObject({ kind: 'not-sent', stage: 'check' });
+    if (end.kind === 'not-sent') expect(end.message).toMatch(/^Not enough SOL: this needs about 0\.051496 SOL .* holds 0\.051 SOL/);
+    expect(d.sign).not.toHaveBeenCalled();
+  });
+});
+
 describe('sendWalletSwap: the wallet signs, this page sends', () => {
   it('signs on a fresh blockhash, writes the note before the first send, sends with the network check, and releases once confirmed', async () => {
     const { d, held, order, rpc } = deps();
@@ -91,7 +140,7 @@ describe('sendWalletSwap: the wallet signs, this page sends', () => {
     // It signed only: the wallet's own send was never used.
     expect(d.signAndSend).not.toHaveBeenCalled();
     // The note came before the first byte left; that send ran the network's own check.
-    expect(order.slice(0, 2)).toEqual(['hold', 'send']);
+    expect(order.slice(0, 3)).toEqual(['test', 'hold', 'send']);
     expect(rpc.sendRawTransaction.mock.calls[0]![1]).toMatchObject({ skipPreflight: false });
     // Its proof is the blockhash the signed transaction carries, with its exact last height.
     expect(d.hold.mock.calls[0]![0]).toMatchObject({ lastValidBlockHeight: 1_150, blockhash: { hash: FRESH_HASH, validAt: 500 } });
@@ -169,10 +218,20 @@ describe('a refusal at the first send: not sent, in the network’s words', () =
     return end.kind === 'not-sent' ? end.message : '';
   };
 
-  it('names Phantom’s own guard when its instruction is the one that failed', async () => {
-    const said = await refusedWith(refusal('Transaction simulation failed: Error processing Instruction 1: Computational budget exceeded'));
+  it('names Phantom’s own guard when its check failed, as a price move, never as our slippage', async () => {
+    // Lighthouse's AssertionFailed is 6001 (0x1771), the same number as Jupiter's slippage error.
+    const said = await refusedWith(refusal('Transaction simulation failed: Error processing Instruction 1: custom program error: 0x1771'));
     expect(said).toMatch(/wallet’s own safety check stopped it/);
     expect(said).toMatch(/Nothing was sent/);
+  });
+
+  it('says the guard ran out of room when it did, not that the price moved (BIG BRAIN buys, 11-15)', async () => {
+    // The words the network gave for GFzq6H's BIG BRAIN buy: the guard's derivation check ran out of compute.
+    const said = await refusedWith(refusal('Transaction simulation failed: Error processing Instruction 1: Computational budget exceeded', [
+      `Program ${LIGHTHOUSE_PROGRAM} consumed 8782 of 8782 compute units`,
+      `Program ${LIGHTHOUSE_PROGRAM} failed: Computational budget exceeded`,
+    ]));
+    expect(said).toBe('Your wallet’s own safety check ran out of room to finish. Nothing was sent. Press again.');
   });
 
   it('names it from the logs too', async () => {

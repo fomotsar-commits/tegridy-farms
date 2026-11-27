@@ -12,13 +12,20 @@
 // "we can't tell, check before you send it again" with the signature.
 //
 // Each test that names a pre-fix failure fails on the pre-fix page.
+//
+// Since 2026-11-17 (Phantom, ticket #467471) the wallet here only SIGNS, as Phantom does: the
+// page test-runs each transaction before the wallet is asked, then sends the signed bytes
+// itself through our RPC with preflight on, and watches them (lib/solana/walletWrite.ts for
+// the DCA and limit tabs, lib/solana/swap/walletSwapSend.ts for the swap). The wallet's own
+// sendTransaction is never called.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { PublicKey } from '@solana/web3.js';
+import { base58 } from '@scure/base';
 
-const { toast, connection, wallet, jup } = vi.hoisted(() => ({
+const { toast, connection, wallet, jup, built } = vi.hoisted(() => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn(), message: vi.fn() },
   connection: {
     getBalance: vi.fn(),
@@ -26,8 +33,15 @@ const { toast, connection, wallet, jup } = vi.hoisted(() => ({
     getSignatureStatuses: vi.fn(),
     // The DCA tab reads which token program owns each mint before it builds anything.
     getMultipleAccountsInfo: vi.fn(),
+    // The final test run before the wallet, a fresh blockhash for the swap, and our own send.
+    simulateTransaction: vi.fn(),
+    getLatestBlockhashAndContext: vi.fn(),
+    sendRawTransaction: vi.fn(),
   },
-  wallet: { sendTransaction: vi.fn() },
+  wallet: { sendTransaction: vi.fn(), signTransaction: vi.fn() },
+  // The transaction the page holds: web3.js cannot serialize or sign under jsdom, so the page's
+  // deserialize hands back this stand-in, the one object the wallet signs and the page reads back.
+  built: { tx: null as unknown as FakeTx },
   jup: {
     getQuote: vi.fn(),
     buildSwapTransaction: vi.fn(),
@@ -41,8 +55,18 @@ const { toast, connection, wallet, jup } = vi.hoisted(() => ({
   },
 }));
 
+interface FakeTx {
+  version: 0;
+  message: { recentBlockhash: string; staticAccountKeys: PublicKey[]; compiledInstructions: { programIdIndex: number }[]; header: { numRequiredSignatures: number } };
+  signatures: Uint8Array[];
+  serialize(): Uint8Array;
+}
+
 const OWNER = new PublicKey('11111111111111111111111111111111');
-const SIG = '5'.repeat(40) + 'Sig' + '7'.repeat(40);
+/** The wallet's signature: what the page reads back off the signed transaction. */
+const SIGNED = new Uint8Array(64).fill(5);
+const SIG = base58.encode(SIGNED);
+const FRESH_HASH = new PublicKey(new Uint8Array(32).fill(9)).toBase58();
 
 vi.mock('sonner', () => ({ toast }));
 vi.mock('framer-motion', () => ({
@@ -50,11 +74,11 @@ vi.mock('framer-motion', () => ({
 }));
 vi.mock('@solana/wallet-adapter-react', () => ({
   useConnection: () => ({ connection }),
-  useWallet: () => ({ publicKey: OWNER, sendTransaction: wallet.sendTransaction }),
+  useWallet: () => ({ publicKey: OWNER, sendTransaction: wallet.sendTransaction, signTransaction: wallet.signTransaction }),
 }));
 vi.mock('@solana/web3.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@solana/web3.js')>()),
-  VersionedTransaction: { deserialize: () => ({}) },
+  VersionedTransaction: { deserialize: () => built.tx },
 }));
 vi.mock('../components/solana/SolanaProviders', () => ({ SolanaProviders: ({ children }: { children: ReactNode }) => <>{children}</> }));
 vi.mock('../components/solana/SolanaConnectButton', () => ({ SolanaConnectButton: () => null }));
@@ -108,6 +132,23 @@ const rpcDown = () => Promise.reject(new Error('fetch failed: 503'));
 
 const toastTitles = (fn: { mock: { calls: unknown[][] } }) => fn.mock.calls.map((c) => String(c[0]));
 
+/** A transaction this wallet pays, unsigned: Jupiter's swap, or its DCA or limit order. */
+function jupiterTx(): FakeTx {
+  return {
+    version: 0,
+    message: {
+      recentBlockhash: new PublicKey(new Uint8Array(32).fill(7)).toBase58(),
+      staticAccountKeys: [OWNER, new PublicKey('JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4')],
+      compiledInstructions: [{ programIdIndex: 1 }],
+      header: { numRequiredSignatures: 1 },
+    },
+    signatures: [new Uint8Array(64)],
+    serialize: () => new Uint8Array([1, 2, 3]),
+  };
+}
+/** The final test run passes; the wallet keeps plenty of SOL after it. */
+const testRunPasses = { context: { slot: 1 }, value: { err: null, logs: [], accounts: [{ lamports: 9_000_000_000, data: ['', 'base64'] }] } };
+
 beforeEach(() => {
   clearReceipt();
   vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -120,7 +161,15 @@ beforeEach(() => {
   connection.getSignatureStatuses.mockReset();
   // SOL and USDC are both plain SPL tokens.
   connection.getMultipleAccountsInfo.mockReset().mockImplementation(async (keys: PublicKey[]) => keys.map(() => ({ owner: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA') })));
-  wallet.sendTransaction.mockReset().mockResolvedValue(SIG);
+  connection.simulateTransaction.mockReset().mockResolvedValue(testRunPasses);
+  connection.getLatestBlockhashAndContext.mockReset().mockResolvedValue({ context: { slot: 500 }, value: { blockhash: FRESH_HASH, lastValidBlockHeight: 1_150 } });
+  connection.sendRawTransaction.mockReset().mockResolvedValue('sent');
+  built.tx = jupiterTx();
+  wallet.sendTransaction.mockReset().mockRejectedValue(new Error('the wallet must not send: this page does'));
+  wallet.signTransaction.mockReset().mockImplementation(async (tx: FakeTx) => {
+    tx.signatures[0] = SIGNED;
+    return tx;
+  });
   jup.getQuote.mockReset().mockResolvedValue(quote);
   jup.buildSwapTransaction.mockReset().mockResolvedValue('AAAA');
   jup.simulateSwap.mockReset().mockResolvedValue({ ok: true });
@@ -135,6 +184,8 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   window.history.replaceState(null, '', '/');
+  // Whatever the ending, the wallet only ever signed: the page sends.
+  expect(wallet.sendTransaction).not.toHaveBeenCalled();
 });
 
 /** Long enough for any watch on the page to give up. */
@@ -144,7 +195,14 @@ async function swap() {
   render(<SolanaSwapPage />);
   const button = await screen.findByRole('button', { name: 'Buy USDC' }, { timeout: 5_000 });
   fireEvent.click(button);
-  await waitFor(() => expect(wallet.sendTransaction).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(wallet.signTransaction).toHaveBeenCalledTimes(1));
+}
+
+/** The signed bytes went out through our own RPC, the network's own check first. */
+function sentByThePage() {
+  expect(connection.sendRawTransaction).toHaveBeenCalled();
+  expect(connection.sendRawTransaction.mock.calls[0]![0]).toEqual(new Uint8Array([1, 2, 3]));
+  expect(connection.sendRawTransaction.mock.calls[0]![1]).toMatchObject({ skipPreflight: false });
 }
 
 describe('Instant swap: after the swap is sent', () => {
@@ -165,6 +223,7 @@ describe('Instant swap: after the swap is sent', () => {
     })));
     expect(toastTitles(toast.error)).not.toContain('Swap failed');
     expect(lastReceipt()).toBeNull();
+    sentByThePage();
   });
 
   it('not confirmed: the amount is cleared, so one more click does not send the same swap again', async () => {
@@ -221,10 +280,15 @@ describe('DCA and limit orders: after the transaction is sent', () => {
     await openTab('DCA');
     fireEvent.change(screen.getByLabelText('Total SOL to invest'), { target: { value: '1' } });
     fireEvent.click(await screen.findByRole('button', { name: 'Start the DCA' }));
-    await waitFor(() => expect(wallet.sendTransaction).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(wallet.signTransaction).toHaveBeenCalledTimes(1));
     await outlastTheWatch();
-    await waitFor(() => expect(toast.warning).toHaveBeenCalledWith("We couldn't confirm this transaction", expect.anything()));
+    await waitFor(() => expect(toast.warning).toHaveBeenCalledWith("We couldn't confirm this transaction", expect.objectContaining({
+      description: expect.stringContaining(SIG.slice(0, 10)),
+    })));
     expect(toastTitles(toast.error)).not.toContain('Could not start the DCA');
+    sentByThePage();
+    // It may be running: the form is cleared, so one more click does not start another.
+    expect((screen.getByLabelText('Total SOL to invest') as HTMLInputElement).value).toBe('');
   });
 
   it('DCA cancel: a status read that errors once is not "Could not cancel"', async () => {
@@ -232,7 +296,7 @@ describe('DCA and limit orders: after the transaction is sent', () => {
     connection.getSignatureStatuses.mockImplementationOnce(rpcDown).mockResolvedValue(confirmed);
     await openTab('DCA');
     fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
-    await waitFor(() => expect(wallet.sendTransaction).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(wallet.signTransaction).toHaveBeenCalledTimes(1));
     await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
     await waitFor(() => expect(toastTitles(toast.success).some((t) => /DCA cancelled/.test(t))).toBe(true));
     expect(toastTitles(toast.error)).not.toContain('Could not cancel');
@@ -244,10 +308,15 @@ describe('DCA and limit orders: after the transaction is sent', () => {
     fireEvent.change(screen.getByLabelText('Amount of SOL to sell'), { target: { value: '1' } });
     fireEvent.change(screen.getByLabelText('Target price in USDC'), { target: { value: '200' } });
     fireEvent.click(await screen.findByRole('button', { name: 'Place limit order' }));
-    await waitFor(() => expect(wallet.sendTransaction).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(wallet.signTransaction).toHaveBeenCalledTimes(1));
     await outlastTheWatch();
-    await waitFor(() => expect(toast.warning).toHaveBeenCalledWith("We couldn't confirm this transaction", expect.anything()));
+    await waitFor(() => expect(toast.warning).toHaveBeenCalledWith("We couldn't confirm this transaction", expect.objectContaining({
+      description: expect.stringContaining(SIG.slice(0, 10)),
+    })));
     expect(toastTitles(toast.error)).not.toContain('Could not place order');
+    sentByThePage();
+    // It may be open: the form is cleared, so one more click does not place another.
+    expect((screen.getByLabelText('Amount of SOL to sell') as HTMLInputElement).value).toBe('');
   });
 
   it('Limit order cancel: a status read that errors once is not "Could not cancel"', async () => {
@@ -255,7 +324,7 @@ describe('DCA and limit orders: after the transaction is sent', () => {
     connection.getSignatureStatuses.mockImplementationOnce(rpcDown).mockResolvedValue(confirmed);
     await openTab('Limit order');
     fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
-    await waitFor(() => expect(wallet.sendTransaction).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(wallet.signTransaction).toHaveBeenCalledTimes(1));
     await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
     await waitFor(() => expect(toastTitles(toast.success)).toContain('Order cancelled'));
     expect(toastTitles(toast.error)).not.toContain('Could not cancel');
@@ -263,15 +332,18 @@ describe('DCA and limit orders: after the transaction is sent', () => {
 });
 
 // The page reloads itself after a deploy (lib/staleBuild.ts), and never under a
-// transaction. These three panels send through the wallet adapter themselves, so each
+// transaction. These three panels have the wallet sign, then send it themselves, so each
 // holds the page from the wallet's turn until the transaction is answered.
 describe('no reload by itself while a transaction is at the wallet or on its way', () => {
   /** A wallet prompt left open: resolves when the test signs. */
   function walletPromptOpen() {
-    let sign: (sig: string) => void = () => undefined;
+    let sign: () => void = () => undefined;
     let decline: (e: Error) => void = () => undefined;
-    wallet.sendTransaction.mockImplementation(() => new Promise<string>((res, rej) => { sign = res; decline = rej; }));
-    return { sign: () => act(async () => { sign(SIG); }), decline: () => act(async () => { decline(new Error('User rejected the request.')); }) };
+    wallet.signTransaction.mockImplementation((tx: FakeTx) => new Promise<FakeTx>((res, rej) => {
+      sign = () => { tx.signatures[0] = SIGNED; res(tx); };
+      decline = rej;
+    }));
+    return { sign: () => act(async () => { sign(); }), decline: () => act(async () => { decline(new Error('User rejected the request.')); }) };
   }
 
   it('Instant swap: held at the wallet, held while sent, free once it confirms', async () => {
@@ -302,7 +374,7 @@ describe('no reload by itself while a transaction is at the wallet or on its way
     fireEvent.click(await screen.findByRole('button', { name: 'DCA' }));
     fireEvent.change(screen.getByLabelText('Total SOL to invest'), { target: { value: '1' } });
     fireEvent.click(await screen.findByRole('button', { name: 'Start the DCA' }));
-    await waitFor(() => expect(wallet.sendTransaction).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(wallet.signTransaction).toHaveBeenCalledTimes(1));
     expect(reloadHeld()).toBe(true);
     await prompt.sign();
     await waitFor(() => expect(toastTitles(toast.success)).toContain('DCA started'));
@@ -316,7 +388,7 @@ describe('no reload by itself while a transaction is at the wallet or on its way
     render(<SolanaSwapPage />);
     fireEvent.click(await screen.findByRole('button', { name: 'Limit order' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
-    await waitFor(() => expect(wallet.sendTransaction).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(wallet.signTransaction).toHaveBeenCalledTimes(1));
     expect(reloadHeld()).toBe(true);
     await prompt.sign();
     await waitFor(() => expect(toastTitles(toast.success)).toContain('Order cancelled'));

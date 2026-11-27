@@ -80,8 +80,8 @@ describe('outcome copy', () => {
     );
     expect(screen.getByText('The price moved past your limit.')).toBeInTheDocument();
     const text = screen.getByTestId('tx-outcome').textContent ?? '';
-    // The amount is in the review's own format (5,000 + 12,000 lamports is under 0.0001 SOL).
-    expect(text).toMatch(/Nothing moved except the fees: <0\.0001 SOL \(the network fee and the priority fee\)\./);
+    // Said after the fact and compared with nothing, so to the lamport: 5,000 + 12,000 lamports.
+    expect(text).toMatch(/Nothing moved except the fees: 0\.000017 SOL \(the network fee and the priority fee\)\./);
     expect(text).not.toMatch(/only the network fee|except the network fee\./);
     expect(text.match(/fee/g)?.length).toBe(3);
   });
@@ -1034,17 +1034,86 @@ describe('a review left open past its blockhash', () => {
 });
 
 // The same, through the button a visitor presses and the review they read.
-function Flow({ api, build }: { api: WriteApi; build: () => Promise<Prepared> }) {
-  const flow = useTxFlow(api, rpc);
+function Flow({ api, build, signWhenReady, at = rpc, who = signer }: { api: WriteApi; build: () => Promise<Prepared>; signWhenReady?: boolean; at?: WriteRpc; who?: TxSigner | null }) {
+  const flow = useTxFlow(api, at);
   return (
     <>
       <button type="button" onClick={() => void flow.prepare(build, { repeatable: true })}>
         Review
       </button>
-      <TxFlowView flow={flow} api={api} cluster="localnet" decimals={6} signer={signer} />
+      <TxFlowView flow={flow} api={api} cluster="localnet" decimals={6} signer={who} signWhenReady={signWhenReady} />
     </>
   );
 }
+
+// Owner, 2026-11-19: "claiming yield from lps is 3 different clicks just to harvest".
+describe('one press (signWhenReady): a claim goes to the wallet once its test run passes', () => {
+  const press = async () => {
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Review' }));
+    });
+  };
+
+  it('opens the wallet with no Sign press, once, and keeps the review on screen beside it', async () => {
+    let answer: (o: TxOutcome) => void = () => undefined;
+    const api = fakeApi({ submitPrepared: vi.fn(() => new Promise<TxOutcome>((r) => (answer = r))) });
+    const first = prepared(buySummary());
+    render(<Flow api={api} build={builds(first)} signWhenReady />);
+    await press();
+    await vi.waitFor(() => expect(api.submitPrepared).toHaveBeenCalledTimes(1));
+    expect(signed(api)).toEqual([first]);
+    expect(screen.queryByRole('button', { name: 'Sign in wallet' })).toBeNull();
+    expect(screen.getByRole('status')).toHaveTextContent('Waiting for your wallet. Approve it there if it matches what is below.');
+    expect(screen.getByTestId('tx-review')).toHaveTextContent('Test run passed');
+    await act(async () => {
+      answer({ status: 'confirmed', signature: SIG, slot: 1 });
+    });
+    expect(screen.getByText(/Done\. The network confirmed it\./)).toBeInTheDocument();
+    expect(api.submitPrepared).toHaveBeenCalledTimes(1);
+  });
+
+  it('after Start over, the next press goes to the wallet again by itself', async () => {
+    const api = fakeApi({ submitPrepared: vi.fn(async (): Promise<TxOutcome> => ({ status: 'not-sent', stage: 'sign', message: 'User rejected the request.' })) });
+    render(<Flow api={api} build={builds(prepared(buySummary()), again())} signWhenReady />);
+    await press();
+    await vi.waitFor(() => expect(screen.getByTestId('tx-outcome')).toHaveAttribute('data-status', 'not-sent'));
+    fireEvent.click(screen.getByRole('button', { name: 'Start over' }));
+    await press();
+    await vi.waitFor(() => expect(api.submitPrepared).toHaveBeenCalledTimes(2));
+  });
+
+  it('without it, nothing reaches the wallet until Sign in wallet is pressed', async () => {
+    const api = confirmedApi();
+    render(<Flow api={api} build={builds(prepared(buySummary()))} />);
+    await press();
+    expect(screen.getByRole('button', { name: 'Sign in wallet' })).toBeEnabled();
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+  });
+
+  it('with no wallet that can sign, it waits and says so', async () => {
+    const api = confirmedApi();
+    render(<Flow api={api} build={builds(prepared(buySummary()))} signWhenReady who={null} />);
+    await press();
+    expect(screen.getByText('Connect a wallet that can sign to continue.')).toBeInTheDocument();
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+  });
+
+  it('a review built again that reads differently is shown and waits for Sign in wallet', async () => {
+    // The network is past the first build's blockhash, so the wallet's turn builds it again.
+    const late = { getBlockHeight: async () => 1_234 } as unknown as WriteRpc;
+    const fresh = again(buyWith({ minTokensOut: 2_900_000_000n }), { lastValidBlockHeight: 1_000_000 });
+    const api = confirmedApi();
+    render(<Flow api={api} build={builds(prepared(buySummary()), fresh)} signWhenReady at={late} />);
+    await press();
+    await vi.waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('1 line reads differently now:'));
+    expect(api.submitPrepared).not.toHaveBeenCalled();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Sign in wallet' }));
+      await vi.waitFor(() => expect(api.submitPrepared).toHaveBeenCalled());
+    });
+    expect(signed(api)).toEqual([fresh]);
+  });
+});
 
 describe('the stale review on screen', () => {
   const openStale = async (api: WriteApi, build: () => Promise<Prepared>) => {
@@ -1248,6 +1317,20 @@ describe('built again at the press: what shuts the wallet and what only moved', 
     expect(signed(api)).toEqual([fresh]);
   });
 
+  // The fee lines are read at 0.0001 SOL: a priority fee that moved 100 lamports reads as it did,
+  // so they hold although the SOL the test run moved, fees aside, shifted 50 lamports.
+  it('a priority fee of 12,000 then 12,100 lamports: the fee lines read the same, and the wallet opens', async () => {
+    const first = prepared(buySummary(), CAP);
+    const fresh = again(buySummary(), {
+      ...CAP,
+      fees: { ...first.fees, priorityLamports: 12_100n },
+      simulated: { ...first.simulated, signerLamportsDelta: first.simulated.signerLamportsDelta - 150n },
+    });
+    expect(viewLines(fresh).fees).toEqual(viewLines(first).fees);
+    const { api } = await pressPastItsClock(first, fresh);
+    expect(signed(api)).toEqual([fresh]);
+  });
+
   it.each<[string, Partial<PreparedTx>, bigint]>([
     ['the SOL the test run moved shifted by more than the fees', { simulated: { signerLamportsDelta: -(SOL_1 / 10n) - 36_000n, tokenDeltas: [] } }, 1_000_000n],
     ["the priority fee is above the page's cap", { simulated: { signerLamportsDelta: -(SOL_1 / 10n) - 35_000n, tokenDeltas: [] } }, 20_000n],
@@ -1319,7 +1402,7 @@ describe('built again at the press: what shuts the wallet and what only moved', 
     expect(api.submitPrepared).not.toHaveBeenCalled();
     expect(state).toMatchObject({ step: 'review', prepared: fresh, replaced: { n: 1 } });
     const now = state.step === 'review' ? (state.replaced?.now ?? []) : [];
-    expect(now.some((l) => /5\.6% of each fee .* to the team’s shared wallet/.test(l))).toBe(true);
+    expect(now.some((l) => /5\.6% of each fee .* to the team’s vault/.test(l))).toBe(true);
   });
 
   it('a range swap whose tier’s split moved between its wallets (the same 16%): shut, never signed unread', async () => {
@@ -1481,6 +1564,11 @@ describe('the review, sorted by what can move each line', () => {
     expect(got.fees).toEqual(['Network fee: <0.0001 SOL', 'Priority fee: <0.0001 SOL (0.01% of this trade)', 'Test run: your SOL changes by: -0.1 SOL']);
     expect(got.lines.some((l) => /^(Price check|Estimated cost|Network fee|Priority fee|Test run: your SOL)/.test(l))).toBe(false);
     expect(got.lines).toContain('At most: 0.101 SOL and 10.1 tokens');
+  });
+
+  it('a network fee and a priority fee are paid: from 0.0001 SOL up they read rounded up, 250,000 lamports as 0.0003 SOL', () => {
+    const p = prepared(buySummary(), { fees: { baseLamports: 105_000n, priorityLamports: 250_000n, priorityFeeRead: true, newAccountRentLamports: 2_039_280n } });
+    expect(viewLines(p).fees.slice(0, 2)).toEqual(['Network fee: 0.0002 SOL', 'Priority fee: 0.0003 SOL (0.25% of this trade)']);
   });
 
   it('a fee that could not be read: its notice is a fee line', () => {
@@ -1672,7 +1760,7 @@ describe('liquidity reviews', () => {
     expect(value('Pool')).toBe(KEY(30).toBase58());
     expect(value('Pool kind')).toBe('Standard address for fee tier 1');
     expect(value('Token (mint)')).toBe(KEY(31).toBase58());
-    expect(value('Fee tier')).toBe('1: traders pay 0.25% a trade; LPs keep 0.220% of each trade');
+    expect(value('Fee tier')).toBe('Tier 1: traders pay 0.25% a trade; LPs keep 0.220% of each trade, the venue 0.030%');
     expect(value('You put in about')).toBe('2 SOL and 5 tokens');
     expect(value('At most')).toBe('2.020000001 SOL and 5.050001 tokens');
     expect(value('You get')).toBe('123.456789012 pool shares, exactly');
@@ -1944,7 +2032,7 @@ describe('opening a pool: the review', () => {
     expect(value('Pool')).toBe(KEY(40).toBase58());
     expect(value('Pool kind')).toBe('Standard address for fee tier 1');
     expect(value('Token (mint)')).toBe(KEY(41).toBase58());
-    expect(value('Fee tier')).toMatch(/^1: traders pay 1% a trade; LPs keep \d+\.\d{3}% of each trade$/);
+    expect(value('Fee tier')).toMatch(/^Tier 1: traders pay 1% a trade; LPs keep \d+\.\d{3}% of each trade, the venue \d+\.\d{3}%$/);
     expect(value('You put in')).toBe('1 SOL and 5 tokens, exactly');
     expect(value('Opening price')).toBe('1 token = 0.2 SOL. Market (Jupiter, read just now): 0.195 SOL, 2.6% above');
     expect(value('Opens for trading')).toBe('At once (one second after it lands)');

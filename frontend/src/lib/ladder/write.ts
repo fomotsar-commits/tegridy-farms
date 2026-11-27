@@ -22,10 +22,16 @@
 // simulation warning, and its answer on ticket #455104 names the cure: a SIMD-0385
 // version 1 message with the compute and loaded-account-data limits in its config,
 // a test run first with signature checks off, the wallet asked only to SIGN, and our
-// own send with preflight on. The pool writes do this since #1154; `submitV1` below
-// does it here (lib/solana/v1Send.ts, the same builder as the pool writes). A wallet that
-// does not advertise version 1 keeps the legacy path, unchanged.
-import { Connection, PublicKey, Transaction, type TransactionInstruction } from '@solana/web3.js';
+// own send with preflight on. The pool writes do this since #1154; `submitLadder` below
+// does it here (lib/solana/walletWrite.ts, the same builder as the pool writes).
+//
+// ── EVERY WALLET SIGNS ONLY (2026-11-17) ────────────────────────────────────
+// Phantom's next answer (ticket #467471): a final test run that fails or cannot finish,
+// or a wallet short of SOL for the fee and rent, stops a write before the wallet is
+// asked. A wallet that does not advertise version 1 now gets version 0 (legacy if it
+// lists no version 0), still signed only and sent by us: until now it signed AND sent a
+// legacy transaction nothing had tested.
+import { Connection, PublicKey, type TransactionInstruction } from '@solana/web3.js';
 import type { SignerWalletAdapter } from '@solana/wallet-adapter-base';
 import { createSolanaRpc, signature as kitSignature } from '@solana/kit';
 import {
@@ -33,12 +39,10 @@ import {
   type PoolAccounts,
 } from './ix';
 import { MAX_EARLY_EXIT_PENALTY_BPS } from './program';
-import { holdReload } from '../reloadHold';
-import { pollConfirm } from '../solana/confirm';
-import { readSendThrow, signThrowCopy } from '../solana/walletThrow';
+import { readSendThrow } from '../solana/walletThrow';
 import { lostAnswerCopy } from '../solana/swap/walletCopy';
-import { v1SignerOf } from '../solana/v1Signer';
-import { acceptSignedV1, prepareV1, type TestRun } from '../solana/v1Send';
+import type { TestRun } from '../solana/v1Send';
+import { sendOneWrite } from '../solana/walletWrite';
 
 /**
  * Sent and confirmed, or an honest reason. Never a bare boolean.
@@ -231,69 +235,18 @@ export function classifyWriteError(err: unknown, signature?: string): WriteResul
   };
 }
 
-/* ─────────────────── version 1, for a wallet that signs it ─────────────────── */
-
-/** The ladder program is on mainnet only (program.ts `MAINNET_LADDER_PROGRAM_ID`): the chain the wallet signs for. */
-const LADDER_CHAIN = 'solana:mainnet' as const;
-
-/** Why a test run refused this, before any wallet was asked: the program's sentence, a SOL shortfall, or the general one. */
-function testRunRefusal(run: TestRun): WriteResult {
-  if (run.err === 'BlockhashNotFound') {
-    return { ok: false, reason: 'The network node was behind, so the test run could not run. Nothing was sent. Try again.' };
-  }
-  const text = `${run.logs.join('\n')}\n${JSON.stringify(run.err)}`;
-  if (!knownRefusal(text) && SOL_SHORT.test(text)) return { ok: false, reason: SOL_SHORT_COPY };
-  return { ok: false, reason: refusalReason(run.logs) };
-}
+/* ─────────────────── the send (lib/solana/walletWrite.ts) ─────────────────── */
 
 /**
- * Build, test-run, have the wallet SIGN, check, and send ourselves with preflight on
- * (lib/solana/v1Send.ts). `refused`: it ended before anything left the browser,
- * provably. `signature`: it was sent, or may have been (a dropped answer), so the caller
- * watches it.
+ * Why a test run (or the first send's preflight) refused this, before anything reached the
+ * chain: the program's sentence, a SOL shortfall, or the general one.
  */
-async function submitV1(
-  conn: Connection,
-  owner: PublicKey,
-  signV1: NonNullable<ReturnType<typeof v1SignerOf>>,
-  instructions: TransactionInstruction[],
-): Promise<{ refused: WriteResult } | { signature: string }> {
-  let ours: Uint8Array;
-  try {
-    const prepared = await prepareV1(conn, owner, instructions, await conn.getLatestBlockhash('confirmed'));
-    if ('refusedRun' in prepared) return { refused: testRunRefusal(prepared.refusedRun) };
-    if ('tooLarge' in prepared) return { refused: { ok: false, reason: 'This transaction is too large for Solana. Nothing was sent.' } };
-    ours = prepared.bytes;
-  } catch (e) {
-    return { refused: { ok: false, reason: `The Solana network could not be reached just now, so nothing was sent. (${(e instanceof Error ? e.message : String(e)).slice(0, 160)})` } };
-  }
-
-  // The wallet signs; it never sends. A throw here means nothing left the page.
-  let returned: Uint8Array;
-  try {
-    returned = await signV1(ours, LADDER_CHAIN);
-  } catch (e) {
-    return { refused: { ok: false, reason: signThrowCopy(e) } };
-  }
-  const accepted = await acceptSignedV1(conn, ours, returned, owner);
-  if ('refusal' in accepted) return { refused: { ok: false, reason: accepted.refusal } };
-  const { signature, raw } = accepted;
-
-  // Our own send, preflight on: a refusal here provably never reached the network.
-  try {
-    await conn.sendRawTransaction(raw, { skipPreflight: false, preflightCommitment: 'confirmed' });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e ?? '');
-    const logs = (e as { logs?: unknown })?.logs;
-    const logText = Array.isArray(logs) ? logs.filter((x): x is string => typeof x === 'string').join('\n') : '';
-    if (/already been processed/i.test(msg)) return { signature };
-    if (/simulation failed|preflight|Blockhash not found/i.test(msg) || logText) {
-      return { refused: classifyWriteError(new Error(`Transaction simulation failed: ${msg}\n${logText}`)) };
-    }
-    // Anything else (a dropped connection, a timeout) may have come after the node took
-    // it: watch the signature, never "did not go through".
-  }
-  return { signature };
+function refusedWords(run: TestRun, where: 'test' | 'send'): string {
+  const text = `${run.logs.join('\n')}\n${JSON.stringify(run.err)}`;
+  const known = knownRefusal(text);
+  if (known) return known;
+  if (SOL_SHORT.test(text)) return SOL_SHORT_COPY;
+  return where === 'test' ? refusalReason(run.logs) : 'The network refused this transaction before sending it. Nothing moved.';
 }
 
 /**
@@ -327,12 +280,14 @@ export interface SubmitDeps {
 }
 
 /**
- * Sign, send, and find out — the single place any ladder write leaves the browser.
+ * Test, check the SOL, have the wallet SIGN, send, and find out: the single place any
+ * ladder write leaves the browser (lib/solana/walletWrite.ts, Phantom's ticket #467471).
+ * A test run that refuses it, or cannot finish, and a wallet short of SOL, stop it before
+ * the wallet is asked.
  *
- * The signature is captured the instant `sendTransaction` returns and is threaded
- * into every answer after it, failures included. That is the whole point: a person
- * told "unknown" can only act on it if they are also told WHICH transaction to go
- * and look at.
+ * The signature is threaded into every answer after the send, failures included. That is
+ * the whole point: a person told "unknown" can only act on it if they are also told WHICH
+ * transaction to go and look at.
  */
 export async function submitLadder(
   conn: Connection,
@@ -340,56 +295,34 @@ export async function submitLadder(
   instructions: TransactionInstruction[],
   deps: SubmitDeps = {},
 ): Promise<WriteResult> {
-  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
-  const now = deps.now ?? (() => Date.now());
-  const timeoutMs = deps.timeoutMs ?? 60_000;
-
   const owner = invoker.publicKey;
   if (!owner) return { ok: false, reason: 'Connect a wallet first.' };
 
-  // A wallet that signs version 1 bytes gets version 1, signed only and sent by us.
-  const signV1 = v1SignerOf(invoker, owner);
-
-  let signature: string | undefined;
-  // Until this write is answered the page does not reload itself (lib/staleBuild.ts).
-  const release = holdReload();
-  try {
-    if (signV1) {
-      const sent = await submitV1(conn, owner, signV1, instructions);
-      if ('refused' in sent) return sent.refused;
-      signature = sent.signature;
-    } else {
-      const { blockhash } = await conn.getLatestBlockhash('confirmed');
-      const tx = new Transaction();
-      tx.feePayer = owner;
-      tx.recentBlockhash = blockhash;
-      tx.add(...instructions);
-      signature = await invoker.sendTransaction(tx, conn);
-    }
-    const { outcome, slot } = await pollConfirm(conn, signature, timeoutMs, sleep, now);
-    if (outcome === 'confirmed') return { ok: true, signature, slot };
-    if (outcome === 'reverted') {
-      // It landed and reverted. ASK THE CHAIN WHY rather than guessing: the status
-      // object carries an opaque InstructionError, while the transaction's own logs
-      // carry the Anchor code the error table can name.
-      const logs = (await readLogs(conn, signature, signV1 ? 1 : 0)).join('\n');
-      if (logs && anchorCode(logs) !== null) return classifyWriteError(new Error(logs), signature);
-      return {
-        ok: false,
-        reason: 'This landed on chain and reverted. Nothing moved, apart from the network fee.',
-        signature,
-      };
-    }
+  const end = await sendOneWrite(conn, invoker, owner, instructions, {
+    refused: refusedWords,
+    timeoutMs: deps.timeoutMs ?? 60_000,
+    deps: { sleep: deps.sleep, now: deps.now },
+  });
+  if (end.kind === 'not-sent') return { ok: false, reason: end.reason };
+  const { signature, outcome, slot } = end;
+  if (outcome === 'confirmed') return { ok: true, signature, slot };
+  if (outcome === 'reverted') {
+    // It landed and reverted. ASK THE CHAIN WHY rather than guessing: the status
+    // object carries an opaque InstructionError, while the transaction's own logs
+    // carry the Anchor code the error table can name.
+    const logs = (await readLogs(conn, signature, end.version === 1 ? 1 : 0)).join('\n');
+    if (logs && anchorCode(logs) !== null) return classifyWriteError(new Error(logs), signature);
     return {
       ok: false,
-      reason: 'Sent, but not confirmed within a minute, so it may still land. Check the signature below before retrying.',
+      reason: 'This landed on chain and reverted. Nothing moved, apart from the network fee.',
       signature,
     };
-  } catch (err) {
-    return classifyWriteError(err, signature);
-  } finally {
-    release();
   }
+  return {
+    ok: false,
+    reason: 'Sent, but not confirmed within a minute, so it may still land. Check the signature below before retrying.',
+    signature,
+  };
 }
 
 /* ─────────────────────────── the five doors ─────────────────────────── */
@@ -413,7 +346,7 @@ type LadderAccounts = Pick<LadderWriteCtx, 'programId' | 'pool' | 'poolAccounts'
  * an `AccountNotInitialized` revert, for anyone whose token account was closed
  * while their position was locked.
  */
-function withAta(ctx: LadderAccounts, owner: PublicKey, ix: TransactionInstruction): TransactionInstruction[] {
+function withAta(ctx: LadderAccounts, owner: PublicKey, ...ixs: TransactionInstruction[]): TransactionInstruction[] {
   return [
     createAtaIdempotentIx({
       payer: owner,
@@ -421,7 +354,7 @@ function withAta(ctx: LadderAccounts, owner: PublicKey, ix: TransactionInstructi
       mint: new PublicKey(ctx.poolAccounts.mint),
       tokenProgram: new PublicKey(ctx.poolAccounts.tokenProgram),
     }),
-    ix,
+    ...ixs,
   ];
 }
 
@@ -453,14 +386,50 @@ export async function ladderStake(
   );
 }
 
-/**
- * A claim's instructions, unsent: what `ladderClaim` and `ladderClaimCarried` send. For
- * Harvest, which signs several claims on one wallet prompt (lib/harvest/solana.ts).
- */
+/** A claim's instructions, unsent: what `ladderClaim` and `ladderClaimCarried` send. */
 export const ladderClaimIxs = (ctx: LadderAccounts, owner: PublicKey, args: { positionNonce: number }) =>
   withAta(ctx, owner, claimIx({ ...common(ctx, owner), ...args }));
 export const ladderClaimCarriedIxs = (ctx: LadderAccounts, owner: PublicKey) =>
   withAta(ctx, owner, claimCarriedIx(common(ctx, owner)));
+
+/**
+ * The most claims one transaction carries. Every claim in a pool names the same accounts
+ * but its own position, so each one past the first adds 50 bytes and about 17,000 compute
+ * units (measured on mainnet 2026-11-24: one claim 450 bytes as legacy, two 500, six 700).
+ * Phantom adds its Lighthouse guards before it signs, 325 bytes on a claim landed
+ * 2026-11-23, so six still fit Solana's 1,232 for a wallet that cannot sign version 1
+ * (version 1 allows 4,096). lib/ladder/write.test.ts holds the size. A wallet at the
+ * 20-lock limit, with carried rewards too, signs four.
+ */
+export const LADDER_CLAIMS_PER_TX = 6;
+
+/**
+ * Several of one pool's claims in ONE transaction, so ONE wallet approval (owner,
+ * 2026-11-24: "you just have to claim once and confirm once"). The program pays one
+ * position per `claim` and never merges positions (every stake is its own), so this is
+ * those claims, and the carried one, side by side behind one ATA create. One
+ * transaction lands whole or not at all; a ladder claim cannot fail for one position
+ * alone (a short vault pays what it holds and keeps the rest owed, I-2), and the test
+ * run before the wallet stops it either way.
+ */
+export function ladderClaimAllIxs(
+  ctx: LadderAccounts, owner: PublicKey, args: { positionNonces: readonly number[]; carried: boolean },
+): TransactionInstruction[] {
+  const claims = args.positionNonces.map((positionNonce) => claimIx({ ...common(ctx, owner), positionNonce }));
+  if (args.carried) claims.push(claimCarriedIx(common(ctx, owner)));
+  if (!claims.length) throw new Error('ladderClaimAllIxs: nothing to claim');
+  if (claims.length > LADDER_CLAIMS_PER_TX) throw new Error(`ladderClaimAllIxs: ${claims.length} claims, at most ${LADDER_CLAIMS_PER_TX} fit`);
+  return withAta(ctx, owner, ...claims);
+}
+
+/** Pay several positions' rewards, and any carried, on one wallet approval. */
+export async function ladderClaimAll(
+  ctx: LadderWriteCtx, args: { positionNonces: readonly number[]; carried: boolean },
+): Promise<WriteResult> {
+  const owner = ctx.invoker.publicKey;
+  if (!owner) return { ok: false, reason: 'Connect a wallet first.' };
+  return submitLadder(ctx.connection, ctx.invoker, ladderClaimAllIxs(ctx, owner, args), ctx.deps);
+}
 
 /** Pay accrued rewards on one position. Reward vault only (invariant I-12). */
 export async function ladderClaim(

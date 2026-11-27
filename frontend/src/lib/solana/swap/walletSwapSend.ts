@@ -5,6 +5,8 @@ import { readSendThrow, signThrowCopy, isWalletDecline } from '../walletThrow';
 import { sendSigned, signatureOf, stampBlockhash, type SendRefusal } from './islandBasketSol';
 import { jupiterLastValidAtMost } from './jupiterNote';
 import { HELD_NOT_SENT, lostAnswerCopy } from './walletCopy';
+import { solShortCopy, solShortfall, testBeforeWallet } from '../walletWrite';
+import type { TestRun } from '../v1Send';
 
 /**
  * A Jupiter swap from the wallet to the chain: the swap page's Buy, step 1 of "Add with one
@@ -23,7 +25,9 @@ import { HELD_NOT_SENT, lostAnswerCopy } from './walletCopy';
  * THE BLOCKHASH. Jupiter's transaction arrives with about 116 of its 150 blocks left (read
  * 2026-11-15: ~25 s at today's block speed), and what the page checks before the wallet
  * takes some of that. A fresh one is put on right before the wallet: nothing is signed yet,
- * and a test run never checked the blockhash. Phantom swaps in its own when it adds its
+ * and the final test run (2026-11-17, below) runs on the fresh one. If the fresh read fails,
+ * the test run checks Jupiter's own, and a node that no longer knows it stops the swap as a
+ * run that could not finish: nothing reaches the wallet. Phantom swaps in its own when it adds its
  * guard (landed site swaps carry a blockhash 46 to 54 blocks old, 11-15), so the note's
  * proof is read from the SIGNED bytes, never from what was handed to the wallet: a proof
  * on a blockhash the transaction no longer carries would end the hold while it can still
@@ -45,7 +49,7 @@ export interface SwapNote {
 }
 
 export interface WalletSwapDeps {
-  rpc: Pick<Connection, 'getLatestBlockhashAndContext' | 'getBlockHeight' | 'sendRawTransaction' | 'getSignatureStatuses'> &
+  rpc: Pick<Connection, 'getLatestBlockhashAndContext' | 'getBlockHeight' | 'sendRawTransaction' | 'getSignatureStatuses' | 'getBalance' | 'simulateTransaction'> &
     Partial<Pick<Connection, 'isBlockhashValid'>>;
   /** The wallet that pays: a signed transaction from any other payer is not sent. */
   owner: PublicKey;
@@ -77,9 +81,11 @@ export interface WalletSwapArgs {
 export type WalletSwapEnd =
   /**
    * Nothing reached the network. `stage`: 'wallet' (it said no or did not sign, or a note
-   * held it before it was asked) or 'network' (signed, and refused at the first send).
+   * held it before it was asked), 'network' (its final test run refused it before the
+   * wallet was asked, or it was signed and refused at the first send) or 'check' (the test
+   * run or the SOL read did not answer, or the wallet is short of SOL: the wallet was not asked).
    */
-  | { kind: 'not-sent'; stage: 'wallet' | 'network'; declined: boolean; message: string }
+  | { kind: 'not-sent'; stage: 'wallet' | 'network' | 'check'; declined: boolean; message: string }
   /** Only when the wallet sends: it stopped without a signature after it may have sent. Held by a note with none. */
   | { kind: 'lost'; message: string }
   | { kind: 'sent'; signature: string; outcome: ConfirmOutcome['outcome'] };
@@ -100,6 +106,10 @@ export function refusedFirstCopy(reason: SendRefusal, signed: VersionedTransacti
   const program = ix ? signed.message.staticAccountKeys[ix.programIdIndex]?.toBase58() : undefined;
   const lighthouseFailed = program === LIGHTHOUSE_PROGRAM || logs.some((l) => l.startsWith(`Program ${LIGHTHOUSE_PROGRAM} failed`));
   if (lighthouseFailed) {
+    // Out of compute is not a price move: the same swap fails the same way every press (walletGuardRoom.ts).
+    if (/computational budget exceeded|exceeded CUs meter/i.test(`${message} ${logs.join(' ')}`)) {
+      return 'Your wallet’s own safety check ran out of room to finish. Nothing was sent. Press again.';
+    }
     return 'Your wallet’s own safety check stopped it: the swap no longer matches what your wallet checked, usually because the price moved. Nothing was sent. Press again for a fresh price.';
   }
   if (JUPITER_SLIPPAGE.test(message)) {
@@ -113,6 +123,16 @@ export function refusedFirstCopy(reason: SendRefusal, signed: VersionedTransacti
   return `The network refused it before sending it (${clipped || 'it gave no reason'}). Nothing was sent.`;
 }
 
+/** The final test run refused the swap, before any wallet was asked: why, in words. */
+export function testRefusedCopy(run: TestRun, slippageBps: number): string {
+  const text = `${run.logs.join('\n')}\n${JSON.stringify(run.err ?? null)}`;
+  if (JUPITER_SLIPPAGE.test(text)) return `The price moved past your ${(slippageBps / 100).toFixed(2)}% slippage. Your wallet was not asked. Nothing was sent. Press again for a fresh price.`;
+  if (/insufficient (funds|lamports)|InsufficientFundsFor/i.test(text)) return 'Not enough SOL for this swap and its network fee. Your wallet was not asked. Nothing was sent.';
+  const last = run.logs.length ? run.logs[run.logs.length - 1]! : JSON.stringify(run.err ?? 'it gave no reason');
+  const said = last.replace(/\s+/g, ' ').trim();
+  return `It did not pass its test run just now (${said.length > 160 ? `${said.slice(0, 160)}…` : said}). Your wallet was not asked. Nothing was sent.`;
+}
+
 /** The wallet signs, the page sends and watches. Never throws. */
 export async function sendWalletSwap(d: WalletSwapDeps, tx: VersionedTransaction, a: WalletSwapArgs): Promise<WalletSwapEnd> {
   const fresh = await (async () => {
@@ -123,6 +143,12 @@ export async function sendWalletSwap(d: WalletSwapDeps, tx: VersionedTransaction
     }
   })();
   if (fresh) stampBlockhash([tx], fresh.value.blockhash);
+  // The final test run, on the very bytes the wallet will see, and the SOL check (Phantom,
+  // ticket #467471): one that fails, or cannot finish, stops it before the wallet is asked.
+  const gate = await testBeforeWallet(d.rpc, d.owner, tx, (run) => testRefusedCopy(run, a.slippageBps));
+  if (!gate.ok) return { kind: 'not-sent', stage: gate.end.stage === 'test' ? 'network' : 'check', declined: false, message: gate.end.reason };
+  const short = solShortfall(gate.before, gate.run.payerLamportsAfter ?? null, gate.fee);
+  if (short) return { kind: 'not-sent', stage: 'check', declined: false, message: solShortCopy(short.need, short.have) };
   // A swap this wallet sent in another tab meanwhile holds this one. Nothing is awaited from here to the wallet.
   if (d.holdsNow()) return { kind: 'not-sent', stage: 'wallet', declined: false, message: HELD_NOT_SENT };
   if (!d.sign) return viaWalletSend(d, tx, a);

@@ -246,6 +246,32 @@ test('/nft-finance at 390x844: the section tab row is whole on screen, clear of 
   expect(read.bottom, `the row (${Math.round(read.top)} to ${Math.round(read.bottom)}px) runs under the bottom bar at ${read.bar}px`).toBeLessThanOrEqual(read.bar!);
 });
 
+// The form's column is narrowest on a phone and again on a tablet, where it is one of two.
+for (const width of [360, 390, 768, 834]) {
+  test(`/nft-finance at ${width}px: with an amount typed, the Lend form's three steps show whole inside their row, and the page does not slide`, async ({ page, walletMock }) => {
+    await walletMock.connect();
+    await settle(page, '/nft-finance?section=nftlending', { width, height: width < 768 ? 844 : 1024 });
+    const amount = page.getByRole('spinbutton', { name: 'Loan amount (WETH)' });
+    await expect(amount, 'no Lend form: the page changed shape').toBeVisible({ timeout: 15_000 });
+    await amount.fill('0.03');
+    // The three names need 368px at the sheet's widest spacing and a 390px phone gives the row
+    // 328: a step sized to its name runs past the row, and three equal steps cut the longest.
+    const steps = page.locator('[data-ui="steps"] [data-step]');
+    await expect(steps, 'the steps show once an amount is typed').toHaveCount(3);
+    const read = await steps.evaluateAll((pills) => {
+      const row = pills[0]!.closest('[data-ui="steps"]')!.getBoundingClientRect();
+      return pills.map((pill) => {
+        const name = pill.querySelector('.truncate')!;
+        return { name: (name.textContent ?? '').trim(), cut: name.scrollWidth > name.clientWidth, past: Math.round(pill.getBoundingClientRect().right - row.right) };
+      });
+    });
+    expect(read.map((s) => s.name)).toEqual(['Wrap ETH', 'Approve WETH', 'Sign Offer']);
+    expect(read.filter((s) => s.cut).map((s) => s.name), 'step names cut short').toEqual([]);
+    expect(read.filter((s) => s.past > 0).map((s) => `${s.name} ends ${s.past}px past its row`), 'steps past the end of their row').toEqual([]);
+    await expectNoSidewaysScroll(page);
+  });
+}
+
 test('/solana at 320px: the trending row wraps under its heading, and the page does not slide', async ({ page, walletMock: _w }) => {
   // "Trending on Solana" and its three choices once needed 333px in a 320px window. The list
   // hides when Jupiter answers with nothing, so the test answers it.

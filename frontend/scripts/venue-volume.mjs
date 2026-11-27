@@ -13,9 +13,10 @@
 // of the run that first sees it, and never revalued. Exit 1 when any source did not finish.
 
 import { pathToFileURL } from "node:url";
-import { VOLUME_SOURCES } from "../api/_lib/venueVolumePolicy.js";
+import { volumeSources } from "../api/_lib/venueVolumePolicy.js";
 import {
   EVM_CHAINS,
+  HYPEREVM_V3,
   ISLAND_COINS,
   ISLAND_DECIMALS,
   SOLANA_BOTS,
@@ -23,7 +24,9 @@ import {
   USDC_MINT,
   USDT_MINT,
   evmRpc,
+  hyperEvmCounted,
   readEvmChain,
+  readHyperEvm,
   readJupiter,
   readNftLoans,
   readSolanaPools,
@@ -39,6 +42,8 @@ export const READERS = {
   ethereum: (cursor, d) => readEvmChain(d.evm("ethereum"), EVM_CHAINS.ethereum, cursor, d),
   base: (cursor, d) => readEvmChain(d.evm("base"), EVM_CHAINS.base, cursor, d),
   robinhood: (cursor, d) => readEvmChain(d.evm("robinhood"), EVM_CHAINS.robinhood, cursor, d),
+  // Our Uniswap V3 pools on HyperEVM; a source only once deployed (volumeSources).
+  hyperevm: (cursor, d) => readHyperEvm(d.evm("hyperevm"), cursor, d),
   "nft-lending": (cursor, d) => readNftLoans(d.evm("ethereum"), cursor, d),
   "nft-orderbook": (cursor, d) => readOrderBookFills(d.db, cursor),
 };
@@ -103,6 +108,11 @@ const PRICE_SOURCES = {
     ["https://api.coinbase.com/v2/prices/ETH-USD/spot", (j) => j?.data?.amount],
     ["https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd", (j) => j?.ethereum?.usd],
   ],
+  // HyperEVM gas and WHYPE, both answered 2026-11-20.
+  HYPE: [
+    ["https://api.coinbase.com/v2/prices/HYPE-USD/spot", (j) => j?.data?.amount],
+    ["https://api.coingecko.com/api/v3/simple/price?ids=hyperliquid&vs_currencies=usd", (j) => j?.hyperliquid?.usd],
+  ],
 };
 
 /**
@@ -160,12 +170,15 @@ export function legUsd(leg, prices) {
   if (leg.mint === USDC_MINT || leg.mint === USDT_MINT) return Number(leg.raw) / 1e6;
   if (leg.mint === SOL_MINT) return (Number(leg.raw) / 1e9) * prices.SOL;
   if (leg.mint === "WETH") return (Number(leg.raw) / 1e18) * prices.ETH;
+  // HyperEVM: WHYPE at HYPE's price; USD₮0 and USDC (6 decimals) are dollars.
+  if (leg.mint === "HYPE") return (Number(leg.raw) / 1e18) * prices.HYPE;
+  if (leg.mint === "USD6") return Number(leg.raw) / 1e6;
   if (ISLAND_MINTS.has(leg.mint)) return prices[leg.mint] > 0 ? (Number(leg.raw) / 10 ** ISLAND_DECIMALS) * prices[leg.mint] : null;
   return null;
 }
 
 /** The price `priceOf` is asked for to value a leg: SOL, ETH or an island coin's mint. */
-const priceKey = (leg) => (leg?.mint === SOL_MINT ? "SOL" : leg?.mint === "WETH" ? "ETH" : ISLAND_MINTS.has(leg?.mint) ? leg.mint : null);
+const priceKey = (leg) => (leg?.mint === SOL_MINT ? "SOL" : leg?.mint === "WETH" ? "ETH" : leg?.mint === "HYPE" ? "HYPE" : ISLAND_MINTS.has(leg?.mint) ? leg.mint : null);
 
 /**
  * New totals for one source: its old row plus the new swaps, each valued once. `repriced`
@@ -311,7 +324,7 @@ function pricer(fetchImpl) {
 function defaultDeps(fetchImpl) {
   return {
     solana: solanaRpc({ fetchImpl }),
-    evm: (name) => evmRpc({ fetchImpl, rpcs: EVM_CHAINS[name].rpcs, pauseMs: 200 }),
+    evm: (name) => evmRpc({ fetchImpl, rpcs: name === "hyperevm" ? HYPEREVM_V3.rpcs : EVM_CHAINS[name].rpcs, pauseMs: 200 }),
     fetchImpl,
   };
 }
@@ -320,7 +333,7 @@ export async function main({
   env = process.env,
   fetchImpl = globalThis.fetch,
   deps = null,
-  sources = VOLUME_SOURCES,
+  sources = volumeSources(hyperEvmCounted()),
   readers = READERS,
   log = console.log,
   error = console.error,

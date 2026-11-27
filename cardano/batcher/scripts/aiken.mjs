@@ -4,15 +4,16 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { COMPILER, STDLIB } from '../../guards/prove-build.mjs';
+import { COMPILER, STDLIB, refuseFetch } from '../../guards/prove-build.mjs';
 
 export const AIKEN = process.env.AIKEN || 'aiken';
 
+/** Every run (check, build, blueprint apply) refuses one that fetched a package. */
 export const run = (args, cwd) => {
   const r = spawnSync(AIKEN, args, { cwd, encoding: 'utf-8' });
   const out = `${r.stdout ?? ''}${r.stderr ?? ''}`.replace(/\x1b\[[0-9;]*m/g, '');
   if (r.error || r.status !== 0) throw new Error(`aiken ${args.join(' ')} failed:\n${r.error?.message ?? ''}${out}`);
-  return out;
+  return refuseFetch(out, args, cwd);
 };
 
 export function checkCompiler(cwd) {
@@ -51,9 +52,9 @@ export function fetchStdlib(work) {
   return dir;
 }
 
-/** Builds a staged project; refuses a build that downloaded anything. */
+/** Builds a staged project; run() refuses a build that fetched anything. */
 export function build(dir) {
-  if (/Downloaded/.test(run(['build'], dir))) throw new Error('aiken downloaded a package instead of the pinned stdlib');
+  run(['build'], dir);
 }
 
 /** `blueprint apply` takes one parameter at a time: each result replaces plutus.json. */

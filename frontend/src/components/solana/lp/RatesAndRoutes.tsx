@@ -2,19 +2,22 @@ import { Link } from 'react-router-dom';
 import { METAPLEX_CREATE_FEE_LAMPORTS, PUBLIC_TIER_INDEX, type AmmConfigView } from '../../../lib/solana/cpswap/program';
 import { CREATOR_FEE_SWITCH, chargedCreatorFeeRate, feeSplit, solOf, tradeCost } from '../../../lib/solana/cpswap/venue';
 import { feeRateText, pctText, solText, tradeCostText } from '../../../lib/solana/lp/format';
-import { SOLANA_FEE_ACCOUNT, SOLANA_PLATFORM_FEE_BPS, isSolanaFeeConfigured } from '../../../lib/solana';
-import { howVenueEarns, howYouEarn, type JupiterFee } from '../../../lib/solana/lp/earnCopy';
+import { SOLANA_FEE_ACCOUNT, SOLANA_MAJOR_PAIR_FEE_BPS, SOLANA_PLATFORM_FEE_BPS, isSolanaFeeConfigured } from '../../../lib/solana';
+import { howVenueEarns, howYouEarn, jupiterFeeText, type JupiterFee } from '../../../lib/solana/lp/earnCopy';
 import type { FeeTierRead } from '../../../lib/solana/lp/poolFinder';
 import { Card, Notice, Row } from '../curve/ui';
 import { CardArt } from '../../ui/CardArt';
 import { FinePrint } from '../../ui/FinePrint';
+import { FeeManifold } from '../../dwg/FeeManifold';
 import { AddressRow } from './AddressRow';
 import { explorerOf } from './panelKit';
 import { useLpWrites } from './useLpWrites';
 
 /** The swap's own fee as jupiter.ts takes it: only with a wallet to pay and a rate above zero. */
 const BUILD_JUPITER_FEE: JupiterFee | null =
-  isSolanaFeeConfigured() && SOLANA_PLATFORM_FEE_BPS > 0 ? { bps: SOLANA_PLATFORM_FEE_BPS, wallet: SOLANA_FEE_ACCOUNT } : null;
+  isSolanaFeeConfigured() && SOLANA_PLATFORM_FEE_BPS > 0
+    ? { bps: SOLANA_PLATFORM_FEE_BPS, wallet: SOLANA_FEE_ACCOUNT, majorBps: SOLANA_MAJOR_PAIR_FEE_BPS }
+    : null;
 
 /**
  * Rates: what a trade pays in each kind of pool, what stays in the pool for the people in
@@ -46,6 +49,8 @@ export function Rates({ read, jupiterFee = BUILD_JUPITER_FEE }: { read: FeeTierR
           </div>
         ) : (
           <>
+            {/* The public tier's split as a drawing, from the same read as the table; no tier read, none. */}
+            <FeeManifold tier={publicTier} />
             <table className="w-full text-left border-collapse" data-testid="lp-rate-table">
               <thead>
                 <tr className="text-[10px] uppercase tracking-wider text-white/55 align-bottom">
@@ -88,6 +93,13 @@ export function Rates({ read, jupiterFee = BUILD_JUPITER_FEE }: { read: FeeTierR
         <FinePrint summary="Details">
           <p>Read from the chain when this page loads.</p>
           {publicTier && <p>{earnSentence(publicTier)}</p>}
+          {/* True of the pool program since its keeper-fee upgrade (states/config.rs swap_fee_rates);
+              proposal #34 names the price robot keeper of both tiers. poolProgramCopy.test.ts ties it to the pin. */}
+          <p data-testid="lp-keeper-fee">
+            A fee tier&rsquo;s named keeper, the venue&rsquo;s own price robot (wallet{' '}
+            <span className="font-mono [overflow-wrap:anywhere]">9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz</span>), pays no trade fee and no creator fee
+            on its own swaps, so those swaps pay nothing to LPs, the venue or the island. Everyone else pays as before.
+          </p>
           {howYouEarn(publicTier).map((line) => (
             <p key={line}>{line}</p>
           ))}
@@ -156,7 +168,7 @@ export function Routes({ jupiterFee = BUILD_JUPITER_FEE }: { jupiterFee?: Jupite
         <div className="flex flex-wrap items-center gap-3">
           <Link to="/solana" className="btn-secondary px-5 py-2.5 text-[13px] inline-block">Swap</Link>
           <span className="text-white/60 text-[12px]" data-testid="lp-route-fee">
-            Venue fee through Jupiter: {jupiterFee ? pctText(jupiterFee.bps / 100) : 'none'}
+            Venue fee through Jupiter: {jupiterFee ? jupiterFeeText(jupiterFee) : 'none'}
           </span>
         </div>
         <FinePrint summary="How it works">
@@ -209,7 +221,7 @@ function tierName(index: number): string {
 function openLine(config: AmmConfigView, deposits: bigint | null): string {
   if (config.disableCreatePool) return 'Opening a pool: switched off.';
   const fee = config.createPoolFee > 0n ? solText(config.createPoolFee) : 'no fee';
-  const setup = deposits === null ? 'setup (not read)' : `${solText(deposits)} setup`;
+  const setup = deposits === null ? 'setup (not read)' : `${solText(deposits, true)} setup`;
   return `Open a pool: ${fee} + ${setup} + the share's name record, not refunded.`;
 }
 
@@ -230,7 +242,7 @@ function openingCost(fee: bigint, deposits: bigint | null, named: boolean): stri
   const base =
     deposits === null
       ? `${feeText}, plus account deposits that are never refunded (their amount could not be read)`
-      : `${feeText}, plus about ${solText(deposits)} of account deposits that are never refunded`;
+      : `${feeText}, plus about ${solText(deposits, true)} of account deposits that are never refunded`;
   return named ? `${base}, and the new pool share's name record: Metaplex's ${solOf(METAPLEX_CREATE_FEE_LAMPORTS)} SOL fee and the record's own deposit` : base;
 }
 

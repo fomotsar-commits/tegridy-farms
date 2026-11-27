@@ -38,7 +38,7 @@ export function Card({
   art?: ReactNode;
 }) {
   return (
-    <section className={`${art ? `${CARD} isolate` : CARD}${className ? ` ${className}` : ''}`} style={CARD_STYLE} data-testid={testId}>
+    <section className={`${art ? `${CARD} isolate` : CARD}${className ? ` ${className}` : ''}`} style={CARD_STYLE} data-testid={testId} data-ui-card="">
       {art}
       <h2
         ref={headingRef}
@@ -90,7 +90,7 @@ export function Row({
   tone?: 'warn';
 }) {
   return (
-    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-white/75" data-review-line={line}>
+    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-white/75" data-review-line={line} data-ui-row="">
       <span className="break-words min-w-0">{label}</span>
       <span className={`text-right min-w-0 ${tone === 'warn' ? 'text-amber-300/90 ' : ''}${mono ? (words ? 'font-mono [overflow-wrap:anywhere]' : 'font-mono break-all') : '[overflow-wrap:anywhere]'}`}>{value}</span>
     </div>
@@ -135,7 +135,7 @@ export function Field({
     ...(error ? { 'aria-invalid': true as const } : {}),
   };
   return (
-    <label className="block mb-3">
+    <label className="block mb-3" data-ui-field="">
       <span id={labelId} className="text-white text-[11px] block mb-1.5" style={SHADOW}>
         {label}
       </span>

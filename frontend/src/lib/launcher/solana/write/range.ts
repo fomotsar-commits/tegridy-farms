@@ -109,9 +109,9 @@ export const RANGE_COPY = {
   notOurPair: LP_COPY.notAPairingCoin,
   poolChanged: (what: string) => `This range pool no longer matches what the page read (${what}). Read it again.`,
   tokenNot: (why: string) => `This site does not build for this token in a range pool: ${why}.`,
-  addingPaused: 'Opening positions in this pool is switched off by the venue’s vault right now.',
+  addingPaused: 'Opening positions in this pool is switched off by the team’s vault right now.',
   withdrawalsOff:
-    'Withdrawals are switched off on this pool by the venue’s vault, so money put in now could not be taken out until the vault switches them back on. Nothing was built.',
+    'Withdrawals are switched off on this pool by the team’s vault, so money put in now could not be taken out until the vault switches them back on. Nothing was built.',
   vaultFrozen: 'One of this pool’s vaults is frozen by its coin’s issuer, so nothing can move in or out of the pool, for anyone. Nothing was built.',
   cannotSize: (why: string) => `This site cannot size your account for a coin of this pool (${why}), so nothing was built.`,
   priceOff: (pct: string, side: 'above' | 'below', loss: string | null) =>
@@ -122,13 +122,13 @@ export const RANGE_COPY = {
   noMarket: 'Jupiter has no route for this pair, so this pool’s price could not be checked against an outside price. Anyone can open a range pool at any price.',
   priceUnread: (why: string) =>
     `The outside price could not be read just now (${why}), so this pool’s price was not checked against it. Anyone can open a range pool at any price.`,
-  removingPaused: 'Taking liquidity out of this pool is switched off by the venue’s vault right now.',
-  collectingPaused: 'Collecting fees from this pool is switched off by the venue’s vault right now.',
-  rewardsPaused: 'Collecting rewards from this pool is switched off by the venue’s vault right now.',
+  removingPaused: 'Taking liquidity out of this pool is switched off by the team’s vault right now.',
+  collectingPaused: 'Collecting fees from this pool is switched off by the team’s vault right now.',
+  rewardsPaused: 'Collecting rewards from this pool is switched off by the team’s vault right now.',
   earnedWaitsOnRemoval:
-    'Taking liquidity out of this pool is switched off by the venue’s vault right now, so what this position earned since it was last changed cannot be collected yet. It stays owed to it.',
+    'Taking liquidity out of this pool is switched off by the team’s vault right now, so what this position earned since it was last changed cannot be collected yet. It stays owed to it.',
   paysRecordOnly:
-    'Taking liquidity out of this pool is switched off by the venue’s vault right now, so this pays only what the position’s record held at its last change. What it earned since stays owed to it.',
+    'Taking liquidity out of this pool is switched off by the team’s vault right now, so this pays only what the position’s record held at its last change. What it earned since stays owed to it.',
   closeRewardShort:
     'A reward’s vault holds less than this position is owed, and the program closes a position only once every reward owed is paid, so it cannot be closed now. Take out 100% and keep it open instead: that pays what the vault holds, and the rest stays owed to it.',
   badRange: 'That range is not one a position may use in this pool.',
@@ -150,7 +150,7 @@ export const RANGE_COPY = {
   createPriceUnread: (why: string) =>
     `The market price could not be read just now (${why}), so your opening price could not be checked against it. Nothing was built. Try again in a moment.`,
   feeNotCharged:
-    'the test run does not show the venue’s vault receiving exactly the 0.5 SOL opening fee, so the range program on this network may not charge it yet',
+    'the test run does not show the team’s vault receiving exactly the 0.5 SOL opening fee, so the range program on this network may not charge it yet',
   createPriceOff: (pct: string, side: 'above' | 'below') =>
     `Your opening price is ${pct} ${side} the market price (Jupiter’s). The first trader could buy from your deposit at it, so nothing was built. Use the market price.`,
 } as const;
@@ -439,7 +439,7 @@ export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, pro
       const warnings: string[] = [];
       if (check.state === 'disagrees') {
         const pct = `${Number((Math.abs(check.diff) * 100).toFixed(1))}%`;
-        const loss = check.lossQuote === null ? null : `${formatTokenAmount(check.lossQuote, pair.quote.decimals, 6).text} ${pair.quote.symbol}`;
+        const loss = check.lossQuote === null ? null : `${formatTokenAmount(check.lossQuote, pair.quote.decimals, 6, { up: true }).text} ${pair.quote.symbol}`;
         warnings.push(RANGE_COPY.priceOff(pct, check.diff > 0 ? 'above' : 'below', loss));
       } else if (check.state === 'no-market') warnings.push(RANGE_COPY.noMarket);
       else if (check.state === 'unread') warnings.push(RANGE_COPY.priceUnread(check.detail));

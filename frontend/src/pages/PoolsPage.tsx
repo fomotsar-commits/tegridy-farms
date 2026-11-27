@@ -13,8 +13,11 @@ import { VenueStatusCard } from '../components/solana/VenueStatusCard';
 import { VenueProgramCard } from '../components/solana/VenueProgramCard';
 import { LpDoorFrame } from '../components/solana/lp/LpDoorFrame';
 import type { LpDoorAnchor } from '../components/solana/lp/lpDoor';
+import { PoolField } from '../components/dwg/PoolField';
+import { SheetRuler } from '../components/dwg/SheetRuler';
 import { lpWriteMode } from '../lib/launcher/solana/lpWriteFlag';
 import { poolsFrameOnScreen, poolsFrameReplaced } from '../lib/poolsFrame';
+import { bringIntoView } from '../lib/bringIntoView';
 
 // The actions, positions, rates and routes. Lazy: it brings the Solana wallet stack, which
 // only a live venue needs.
@@ -72,7 +75,7 @@ export default function PoolsPage() {
   const statusCard = useRef<HTMLElement>(null);
   const wasOpen = useRef(venueIsOpen);
   useLayoutEffect(() => {
-    if (wasOpen.current && !venueIsOpen) statusCard.current?.scrollIntoView?.({ block: 'nearest' });
+    if (wasOpen.current && !venueIsOpen) bringIntoView(statusCard.current, { block: 'nearest' });
     wasOpen.current = venueIsOpen;
   }, [venueIsOpen]);
 
@@ -80,88 +83,117 @@ export default function PoolsPage() {
     <div className="relative min-h-screen">
       <div className="fixed inset-0 z-0" style={{ background: '#060c1a' }}>
         <ArtImg pageId="swap" idx={0} alt="" loading="lazy" className="w-full h-full object-cover" />
-        <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.86)' }} />
+        {/* Each band of the sheet lays its own film over the picture, so this one is lighter. */}
+        <div className="absolute inset-0" style={{ background: 'rgba(6,12,26,0.72)' }} />
       </div>
 
-      <div className="relative z-10 max-w-[900px] mx-auto px-4 md:px-6 pt-8 pb-16">
+      <div className="relative z-10 max-w-[1120px] mx-auto px-4 md:px-6 pt-8 pb-16">
         {doorWaiting !== null && <LpDoorFrame mint={doorWaiting} waiting />}
         <div ref={setDoorAt} />
-        <m.div className="mb-6" initial={headingOnScreen ? false : { opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-          {/* No eyebrow and no Details here: the tab strip says Add / Remove and the network, the Rates card
-              says the split, and the status card says whether a pool can be opened (owner, 2026-10-13: as
-              few words as possible). */}
-          <h1 className="heading-luxury text-3xl md:text-5xl text-white tracking-tight mb-3">
-            Liquidity pools.
-          </h1>
-          {/* Only what a read returned: nothing while reading or after a failed read. The line's
-              height is held, so the page does not jump when the read lands. */}
-          <p className="text-white/85 text-[15px] max-w-xl leading-relaxed min-h-[1lh]">
-            {liveConfig
-              ? 'Add two coins. Earn from every trade.'
-              : status && status.kind !== 'unreadable'
-                ? 'Our own Solana AMM. No pool can be opened here yet.'
-                : null}
-          </p>
-        </m.div>
+        {/* Sheet P-01 (owner, 2026-11-15): the page as one drawing. Its look is styles/dwg-pools.css; the
+            static first frame (scripts/render-pools-frame.mjs) draws its frame, ruler and heading the same. */}
+        <div className="dwg dwg-sheet" data-sheet="P">
+          <SheetRuler />
+          <PoolField />
+          <m.div className="mb-6" data-dwg="hero" initial={headingOnScreen ? false : { opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+            {/* The film over the page's picture, with one opening cut in it (FIG. 01). */}
+            <span className="p01-film" aria-hidden="true" />
+            <span className="p01-ring" data-t="FIG. 01" aria-hidden="true" />
+            {/* No eyebrow and no Details here: the tab strip says Add / Remove and the network, the Rates card
+                says the split, and the status card says whether a pool can be opened (owner, 2026-10-13: as
+                few words as possible). */}
+            <h1 className="dwg-word" data-break="" data-echo="Liquidity pools." data-rise={headingOnScreen ? undefined : ''}>
+              Liquidity pools.
+            </h1>
+            {/* Only what a read returned: nothing while reading or after a failed read. The line's
+                height is held, so the page does not jump when the read lands. */}
+            <p className="text-white/85 text-[15px] max-w-xl leading-relaxed min-h-[1lh]">
+              {liveConfig
+                ? 'Add two coins. Earn from every trade.'
+                : status && status.kind !== 'unreadable'
+                  ? 'Our own Solana AMM. No pool can be opened here yet.'
+                  : null}
+            </p>
+          </m.div>
 
-        {venueIsOpen && (
-          <div className="mt-2">
-            <Suspense fallback={<p className="text-white/60 text-[13px]">Loading the pool finder…</p>}>
-              <SolanaLpSection door={door} />
-            </Suspense>
+          {venueIsOpen && (
+            <div className="mt-2" data-dwg="slot">
+              <Suspense fallback={<p className="text-white/60 text-[13px]">Loading the pool finder…</p>}>
+                <SolanaLpSection door={door} />
+              </Suspense>
+            </div>
+          )}
+
+          {/* ── Holding a share ────────────────────────────────────────────── */}
+          <section className="relative isolate rounded-2xl p-6 mt-6" style={CARD} data-dwg="band">
+            <CardArt pageId="venue-amm" idx={3} />
+            {/* One heading, in a person's words: the share is an LP token, which the small print says. */}
+            <h2 className="heading-luxury text-lg text-white mb-3">
+              {venueIsOpen ? 'Deposit a pair, hold your share' : 'How it works: deposit a pair, hold your share'}
+            </h2>
+            {/* How fees reach a share is the section's own first line, above; here only what the vault can do. */}
+            <p className="text-white/80 text-[13px] leading-relaxed">
+              No lock; the team&apos;s vault can switch off withdrawals.
+            </p>
+            <FinePrint summary="How it works" className="mt-2">
+              {!venueIsOpen && (
+                <p>
+                  Depositing from this page waits on a live read of the venue. The status card
+                  says what the latest read found.
+                </p>
+              )}
+              <ul className="space-y-2 list-disc pl-4">
+                <li>Deposit both sides of a pair and the pool mints you an <strong>LP token</strong> for your share.</li>
+                <li>Every trade adds its fee to the reserves, so your share is worth more each time the pool trades.</li>
+                <li>
+                  Burning the LP token returns your share of both sides. Pools have no lock, but the
+                  team&apos;s vault can switch off withdrawals on a pool, and then no one can take money out
+                  until they are switched back on.
+                </li>
+                <li>
+                  Impermanent loss is real: a constant-product pool rebalances against you when
+                  the price moves, and fees are what compensate for it. This page will never
+                  quote you an APY it did not read.
+                </li>
+              </ul>
+            </FinePrint>
+          </section>
+
+          {/* ONE status card, under the actions when the venue reads live; when it does not, the
+              section is not drawn and the card stands right under the hero. */}
+          <div className="mt-6" data-dwg="slot">
+            <VenueStatusCard
+              ref={statusCard}
+              status={status}
+              onRefresh={venueIsOpen ? refresh : retry}
+              lpMode={lpMode}
+              feeSheetBelow={false}
+              lpSection="above"
+            />
           </div>
-        )}
 
-        {/* ── Holding a share ────────────────────────────────────────────── */}
-        <section className="relative isolate rounded-2xl p-6 mt-6" style={CARD}>
-          <CardArt pageId="venue-amm" idx={3} />
-          {/* One heading, in a person's words: the share is an LP token, which the small print says. */}
-          <h2 className="heading-luxury text-lg text-white mb-3">
-            {venueIsOpen ? 'Deposit a pair, hold your share' : 'How it works: deposit a pair, hold your share'}
-          </h2>
-          {/* How fees reach a share is the section's own first line, above; here only what the vault can do. */}
-          <p className="text-white/80 text-[13px] leading-relaxed">
-            No lock, but the team&apos;s vault can pause removing.
-          </p>
-          <FinePrint summary="How it works" className="mt-2">
-            <p>Fees grow your share as the pool trades.</p>
-            {!venueIsOpen && (
-              <p>
-                Depositing from this page waits on a live read of the venue. The status card
-                says what the latest read found.
-              </p>
-            )}
-            <ul className="space-y-2 list-disc pl-4">
-              <li>Deposit both sides of a pair and the pool mints you an <strong>LP token</strong> for your share.</li>
-              <li>Every trade adds its fee to the reserves, so your share is worth more each time the pool trades.</li>
-              <li>
-                Burning the LP token returns your share of both sides. Pools have no lock, but the
-                team&apos;s vault can switch removing off on a pool, and then no one can take money out
-                until it is switched back on.
-              </li>
-              <li>
-                Impermanent loss is real: a constant-product pool rebalances against you when
-                the price moves, and fees are what compensate for it. This page will never
-                quote you an APY it did not read.
-              </li>
-            </ul>
-          </FinePrint>
-        </section>
+          <VenueProgramCard />
 
-        {/* ONE status card, under the actions when the venue reads live; when it does not, the
-            section is not drawn and the card stands right under the hero. */}
-        <div className="mt-6">
-          <VenueStatusCard
-            ref={statusCard}
-            status={status}
-            onRefresh={venueIsOpen ? refresh : retry}
-            lpMode={lpMode}
-            feeSheetBelow={false}
-            lpSection="above"
-          />
+          {/* The sheet's foot, as a drawing's title block: every cell drawn from data-*, no words. */}
+          <div className="dwg-title" aria-hidden="true">
+            <div>
+              <div className="dwg-tcap" data-cap="Sheet" />
+              <div className="dwg-sheetno" data-no="P-01" />
+            </div>
+            <div>
+              <div className="dwg-tcap" data-cap="Project" />
+              <div className="dwg-tval" data-val="MEMETICS.FINANCE" />
+            </div>
+            <div>
+              <div className="dwg-tcap" data-cap="Network" />
+              <div className="dwg-tval" data-val="SOLANA" />
+            </div>
+            <div>
+              <div className="dwg-tcap" data-cap="Drawing" />
+              <div className="dwg-tval" data-val="ADD / REMOVE" />
+            </div>
+          </div>
         </div>
-
-        <VenueProgramCard />
       </div>
     </div>
   );

@@ -1,28 +1,36 @@
 // @vitest-environment node
 // Harvest on Solana: what the wallet's stakes and locks come to, gated the way each pool
-// card gates its own Claim button (LighthousePoolLive, SolanaLadderPoolLive), and several
-// claims on one wallet prompt, each its own transaction.
+// card gates its own Claim button (LighthousePoolLive, SolanaLadderPoolLive), and each
+// claim sent as that card sends it, on its own wallet approval.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { Buffer } from 'buffer';
 import { Keypair, PublicKey, TransactionInstruction, TransactionMessage, VersionedTransaction } from '@solana/web3.js';
-import { base58 } from '@scure/base';
+import { WALLET_GUARD_ROOM_BYTES, WRITE_COPY } from '../solana/walletWrite';
 import { BUNGALOWS, type Bungalow } from '../bungalows';
-import { claimRefusal, type PoolView, type RewardPoolView, type StakeEntryView } from '../bungalowStaking';
+import type { PoolView, RewardPoolView, StakeEntryView } from '../bungalowStaking';
 import { aprLabel, perDayAtTodaysRate, type LadderPoolView, type LadderPositionView } from '../ladder/program';
 import type { LadderWalletView } from '../ladder/read';
-import { ladderClaimCarriedIxs, ladderClaimIxs, refusalReason } from '../ladder/write';
-import { reloadHeld } from '../reloadHold';
 import { DECLINED_IN_WALLET } from '../solana/swap/walletCopy';
-import { notSignedCopy } from '../solana/walletThrow';
-import type { ClaimResult } from './types';
-import { ladderEarning, ladderResult, planLadder, planStreamflow, sendClaimsTogether, signsAll, streamflowResult, type SolanaClaim, type SignsAll } from './solana';
-import { SystemProgram } from '@solana/web3.js';
-import { decodeV1, loadedDataLimitFromSimulation, MAX_LOADED_ACCOUNTS_DATA_SIZE, signV1WithKeypairs, assembleV1, V1_VERSION_BYTE } from '../launcher/solana/write/v1';
-import { v1ComputeLimit } from '../solana/v1Send';
+import { LADDER_CLAIMS_PER_TX } from '../ladder/write';
+import { ladderEarning, ladderResult, planLadder, planStreamflow, solanaTogether, streamflowResult, type SolanaClaim } from './solana';
 
 const LADDER_PROGRAM = new PublicKey('HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK');
-const built = vi.hoisted(() => ({ claim: vi.fn() }));
-// The SDK's prepare path is the network's; here it answers what the case says.
-vi.mock('../bungalowStaking', async (orig) => ({ ...(await orig<typeof import('../bungalowStaking')>()), claimRewardsInstructions: built.claim }));
+const built = vi.hoisted(() => ({ claim: vi.fn(), claimIxs: vi.fn(), ladderClaimAll: vi.fn(), sendOneWrite: vi.fn(), v1: vi.fn() }));
+// The cards' own sends reach the network; here they answer what the case says.
+vi.mock('../bungalowStaking', async (orig) => ({ ...(await orig<typeof import('../bungalowStaking')>()), claimRewards: built.claim, claimRewardsInstructions: built.claimIxs }));
+vi.mock('../ladder/write', async (orig) => ({ ...(await orig<typeof import('../ladder/write')>()), ladderClaimAll: built.ladderClaimAll }));
+vi.mock('../solana/walletWrite', async (orig) => ({ ...(await orig<typeof import('../solana/walletWrite')>()), sendOneWrite: built.sendOneWrite }));
+vi.mock('../solana/v1Signer', async (orig) => ({ ...(await orig<typeof import('../solana/v1Signer')>()), v1SignerOf: built.v1 }));
+// The page's endpoint is the site-relative proxy; a node test needs a whole URL to build a connection on.
+vi.mock('../solana', async (orig) => ({ ...(await orig<typeof import('../solana')>()), solanaRpcEndpoint: () => 'http://127.0.0.1:8899' }));
+beforeEach(() => {
+  built.claim.mockReset();
+  built.claimIxs.mockReset();
+  built.ladderClaimAll.mockReset();
+  built.sendOneWrite.mockReset();
+  built.v1.mockReset();
+  built.v1.mockReturnValue(null);
+});
 vi.mock('../ladder/program', async (orig) => ({ ...(await orig<typeof import('../ladder/program')>()), ladderProgramId: () => LADDER_PROGRAM }));
 
 const bayla = BUNGALOWS.find((b) => b.id === 'bayla')! as Bungalow & { address: string };
@@ -41,6 +49,20 @@ const pool = (rewardPools: RewardPoolView[], over: Partial<PoolView> = {}): Pool
 });
 const entry = (pendingRaw: Record<number, bigint | null>, over: Partial<StakeEntryView> = {}): StakeEntryView => ({
   address: 'E', nonce: 0, amountRaw: 1_000_000_000n, durationSecs: 0, createdTs: 2_000, closedTs: 0, effectiveAmountRaw: 1_000_000_000n, pendingRaw, ...over,
+});
+
+// A ladder pool whose accounts are real keys, so its claims compile into a transaction.
+const ladderPool = () => ({
+  address: 'Bq6jovnQhayMjr5RqsezGMxgmF5851mqFAhX6LrsXTXV', mint: MINT, decimals: 6, tokenProgram: 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb',
+  stakeVault: Keypair.generate().publicKey.toBase58(), rewardVault: Keypair.generate().publicKey.toBase58(),
+  minStakeRaw: 0n, totalWeighted: 100n, rewardRate: 0n, periodFinish: 0n, lastUpdateTime: 0n, rewardPerWeightStored: 0n, rpwResidueRaw: 0n,
+}) as unknown as LadderPoolView;
+const lpos = (nonce: number, owed: bigint) => ({
+  address: `P${nonce}`, nonce, amountRaw: 2_000_000n, weight: 10n, rewardPerWeightPaid: 0n, rewardsOwed: owed,
+}) as unknown as LadderPositionView;
+const ladderWallet = (open: LadderPositionView[]): LadderWalletView => ({
+  stats: { address: 'S', nextNonce: open.length, openPositions: open.length, rewardsCarriedRaw: 0n, principalRaw: 0n } as LadderWalletView['stats'],
+  slots: open.map((p) => ({ nonce: p.nonce, state: 'open' as const, position: p })), open, truncated: false, shareBasis: null,
 });
 
 describe('a claim answer, read as Harvest reads it', () => {
@@ -74,7 +96,7 @@ describe('planStreamflow', () => {
   it('more than the vault holds is held, not sent: it would revert (6012)', () => {
     const p = planStreamflow(target, pool([rp({ fundedRaw: 10n })]), [entry({ 0: 11n })]);
     expect(p.claims).toEqual([]);
-    expect(p.held[0]).toMatchObject({ amountRaw: 11n });
+    expect(p.held[0]).toMatchObject({ amountRaw: 11n, reason: 'The reward vault cannot cover this yet, so a claim would fail. Nothing is lost: it stays owed.' });
   });
 
   it('an unread vault is not a gate, as on the card', () => {
@@ -97,7 +119,8 @@ describe('planStreamflow', () => {
   it('a stake older than the pool’s rate change is still sent, with a warning (a warning is never a gate)', () => {
     const p = planStreamflow(target, pool([rp({ rateChangedAtTs: 5_000 })]), [entry({ 0: 7n }, { createdTs: 1_000 })]);
     expect(p.claims).toHaveLength(1);
-    expect(p.claims[0]!.caution).toMatch(/may not pay/);
+    // Refused in its test run it is never sent; sent and refused, its fee is spent: "nothing is claimed" holds either way.
+    expect(p.claims[0]!.caution).toBe('This stake was made before the pool changed its reward rate, so this claim may not pay. If it does not, nothing is claimed.');
   });
 
   it('a pool that does not stake this room’s coin is not this coin’s', () => {
@@ -130,10 +153,19 @@ describe('planLadder', () => {
     ...over,
   });
 
-  it('one claim per position with something earned, and one for carried rewards', () => {
-    const p = planLadder(bayla, lpool(), wallet([pos(0, 5n), pos(1, 0n)], {}, 3n), 1_000n, 0);
-    expect(p.claims.map((c) => [c.amountRaw, c.detail])).toEqual([[5n, 'on 2 BAYLA locked'], [3n, 'carried from a closed lock']]);
+  // Owner, 2026-11-24: "you just have to claim once and confirm once".
+  it('ONE claim for every position with something earned and the carried rewards', () => {
+    const p = planLadder(bayla, lpool(), wallet([pos(0, 5n), pos(1, 0n), pos(2, 4n)], {}, 3n), 1_000n, 0);
+    expect(p.claims.map((c) => [c.amountRaw, c.detail])).toEqual([[12n, 'on 4 BAYLA in 2 locks, and carried from a closed lock']]);
     expect(p.claims.every((c) => c.where === 'lock ladder' && c.caution === null)).toBe(true);
+  });
+
+  it('says what it claims on: one lock, several, carried alone', () => {
+    const detail = (open: LadderPositionView[], carried = 0n) => planLadder(bayla, lpool(), wallet(open, {}, carried), 1_000n, 0).claims.map((c) => c.detail);
+    expect(detail([pos(0, 5n)])).toEqual(['on 2 BAYLA locked']);
+    expect(detail([pos(0, 5n)], 3n)).toEqual(['on 2 BAYLA locked, and carried from a closed lock']);
+    expect(detail([pos(0, 5n), pos(1, 5n)])).toEqual(['on 4 BAYLA in 2 locks']);
+    expect(detail([pos(0, 0n)], 3n)).toEqual(['carried from a closed lock']);
   });
 
   it('an empty reward vault holds every claim: it would pay nothing', () => {
@@ -144,8 +176,16 @@ describe('planLadder', () => {
 
   it('a short vault still sends, and says what it pays', () => {
     const p = planLadder(bayla, lpool(), wallet([pos(0, 5n), pos(1, 5n)]), 6n, 0);
-    expect(p.claims).toHaveLength(2);
+    expect(p.claims).toHaveLength(1);
+    expect(p.claims[0]!.amountRaw).toBe(10n);
     expect(p.claims[0]!.caution).toMatch(/holds/);
+  });
+
+  it('the vault sentence never names more than the vault holds: 1,284.5 is 1,284, never 1,285', () => {
+    const owed = 2_000_000_000n;
+    expect(planLadder(bayla, lpool(), wallet([pos(0, owed)]), 1_284_500_000n, 0).claims[0]!.caution).toMatch(/holds 1,284 BAYLA now/);
+    expect(planLadder(bayla, lpool(), wallet([pos(0, owed)]), 999_999_999n, 0).claims[0]!.caution).toMatch(/holds 999\.99 BAYLA now/);
+    expect(planLadder(bayla, lpool(), wallet([pos(0, owed)]), 999_999n, 0).claims[0]!.caution).toMatch(/holds 0\.999 BAYLA now/);
   });
 
   it('a partial read claims what it found and names the rest as not read', () => {
@@ -165,15 +205,33 @@ describe('planLadder', () => {
     expect(p.held).toHaveLength(1);
   });
 
-  it('each claim builds the instructions its door sends, and reads a refusal as that door does', async () => {
+  // One approval per transaction (Phantom, ticket #467471), and every lock in that one.
+  it('every lock and the carried rewards go as ONE send, on one approval by the connected wallet', async () => {
     const accounts = { tokenProgram: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', stakeVault: Keypair.generate().publicKey.toBase58(), rewardVault: Keypair.generate().publicKey.toBase58() };
     const lp = lpool(accounts);
-    const p = planLadder(bayla, lp, wallet([pos(3, 5n)], {}, 2n), 1_000n, 0);
-    const owner = Keypair.generate().publicKey;
-    const at = { programId: LADDER_PROGRAM, pool: new PublicKey(LADDER), poolAccounts: lp };
-    expect(await p.claims[0]!.build(owner)).toEqual(ladderClaimIxs(at, owner, { positionNonce: 3 }));
-    expect(await p.claims[1]!.build(owner)).toEqual(ladderClaimCarriedIxs(at, owner));
-    expect(p.claims.every((c) => c.refused === refusalReason)).toBe(true);
+    const p = planLadder(bayla, lp, wallet([pos(3, 5n), pos(1, 0n), pos(6, 4n)], {}, 2n), 1_000n, 0);
+    const signer = { publicKey: Keypair.generate().publicKey } as never;
+    built.ladderClaimAll.mockResolvedValue({ ok: true, signature: 'S1', slot: 1 });
+    expect(p.claims).toHaveLength(1);
+    expect(await p.claims[0]!.send(signer)).toEqual({ kind: 'claimed', tx: 'S1' });
+    expect(built.ladderClaimAll).toHaveBeenCalledTimes(1);
+    const [ctx, args] = built.ladderClaimAll.mock.calls[0]!;
+    expect(ctx).toMatchObject({ invoker: signer, programId: LADDER_PROGRAM, pool: new PublicKey(LADDER), poolAccounts: lp });
+    expect(args).toEqual({ positionNonces: [3, 6], carried: true });
+    expect(p.claims.every((c) => !('build' in c) && !('refused' in c))).toBe(true);
+  });
+
+  it('past what one transaction carries, one more claim per that many, each its own send', async () => {
+    const open = [...Array(LADDER_CLAIMS_PER_TX + 2).keys()].map((n) => pos(n, 1n));
+    const p = planLadder(bayla, lpool(), wallet(open, {}, 1n), 1_000n, 0);
+    expect(p.claims.map((c) => c.amountRaw)).toEqual([BigInt(LADDER_CLAIMS_PER_TX), 3n]);
+    expect(new Set(p.claims.map((c) => c.key)).size).toBe(2);
+    built.ladderClaimAll.mockResolvedValue({ ok: true, signature: 'S', slot: 1 });
+    for (const c of p.claims) await c.send({ publicKey: Keypair.generate().publicKey } as never);
+    expect(built.ladderClaimAll.mock.calls.map((call) => call[1])).toEqual([
+      { positionNonces: [...Array(LADDER_CLAIMS_PER_TX).keys()], carried: false },
+      { positionNonces: [LADDER_CLAIMS_PER_TX, LADDER_CLAIMS_PER_TX + 1], carried: true },
+    ]);
   });
 
   // What the locks earn a day and that as a yearly rate: the ladder card's two figures under
@@ -237,381 +295,174 @@ describe('planLadder', () => {
   });
 });
 
-describe('planStreamflow: a claim built for the one prompt', () => {
-  beforeEach(() => built.claim.mockReset());
-
-  it('is the SDK’s own claim for that stake and reward pool, and reads a refusal as claimRewards does', async () => {
-    const ixs = [{ ix: 1 }];
-    built.claim.mockResolvedValue({ ok: true, ixs });
+// One approval per claim (Phantom, ticket #467471, 2026-11-16). Until 11-17 Claim all put
+// several claims on ONE wallet prompt (signAllTransactions); a request carrying two or more
+// transactions is one Phantom may block outright. Each claim is now the pool card's own
+// claim (claimRewards: tested before the wallet, signed only, sent by us).
+describe('planStreamflow: each claim is the pool card’s own, on its own approval', () => {
+  it('is the SDK’s claim for that stake and reward pool, sent by the connected wallet', async () => {
+    built.claim.mockResolvedValue({ ok: true, txId: 'SIG' });
     const r = rp({ nonce: 2 });
     const pl = pool([r]);
     const c = planStreamflow(target, pl, [entry({ 2: 9n }, { nonce: 4 })]).claims[0]!;
-    const owner = Keypair.generate().publicKey;
-    expect(await c.build(owner)).toBe(ixs);
-    expect(built.claim).toHaveBeenCalledWith({ claimant: owner, pool: pl, rewardPool: r, entryNonce: 4 });
-    expect(c.refused).toBe(claimRefusal);
+    const signer = { publicKey: Keypair.generate().publicKey } as never;
+    expect(await c.send(signer)).toEqual({ kind: 'claimed', tx: 'SIG' });
+    expect(built.claim).toHaveBeenCalledTimes(1);
+    expect(built.claim).toHaveBeenCalledWith({ invoker: signer, pool: pl, rewardPool: r, entryNonce: 4 });
+    expect('build' in c).toBe(false);
   });
 
-  it('a build the SDK could not make throws its reason, so the claim is not sent', async () => {
-    built.claim.mockResolvedValue({ ok: false, reason: 'The claim did not go through. Your rewards are untouched. (rpc down)' });
+  it('a claim its test run refused, or the wallet cancelled, is said as the card says it', async () => {
     const c = planStreamflow(target, pool([rp()]), [entry({ 0: 9n })]).claims[0]!;
-    await expect(c.build(Keypair.generate().publicKey)).rejects.toThrow('(rpc down)');
+    const signer = { publicKey: Keypair.generate().publicKey } as never;
+    built.claim.mockResolvedValue({ ok: false, reason: 'This position has passed a hard limit inside the reward program, so it can no longer pay out.', permanent: true });
+    expect(await c.send(signer)).toEqual({ kind: 'unconfirmed', reason: 'This position has passed a hard limit inside the reward program, so it can no longer pay out.' });
+    built.claim.mockResolvedValue({ ok: false, reason: DECLINED_IN_WALLET });
+    expect(await c.send(signer)).toEqual({ kind: 'declined' });
   });
 });
 
-describe('sendClaimsTogether: several claims, ONE wallet prompt, one transaction each', () => {
-  const owner = Keypair.generate();
-  const PROGRAM = Keypair.generate().publicKey;
-  const FRESH = Keypair.generate().publicKey.toBase58();
-
-  // A claim whose one instruction carries `n`, so each transaction is known by it.
-  const claimOf = (n: number, over: Partial<SolanaClaim> = {}): SolanaClaim => ({
-    key: `c${n}`, chain: 'solana', roomId: 'bayla', symbol: 'BAYLA', where: 'lighthouse pool', detail: null, amountRaw: 1n, decimals: 6, caution: null,
-    send: vi.fn(async (): Promise<ClaimResult> => ({ kind: 'claimed', tx: 'ALONE' })),
-    build: async (o) => [new TransactionInstruction({ programId: PROGRAM, keys: [{ pubkey: o, isSigner: true, isWritable: true }], data: Buffer.from([n]) })],
-    refused: (logs) => `refused: ${logs.join(' | ')}`,
-    ...over,
+// Owner, 2026-11-24: "you just have to claim once and confirm once". Every sure Solana claim
+// of a run goes in ONE transaction, one approval; one that may not pay goes alone after.
+describe('solanaTogether: the sure claims in one transaction', () => {
+  const OWNER = Keypair.generate().publicKey;
+  const signer = { publicKey: OWNER } as never;
+  const key32 = (a: number, b: number) => new PublicKey(Uint8Array.from({ length: 32 }, (_, i) => (i === 0 ? a : i === 1 ? b : 9)));
+  const ix = (seed: number, keys = 3) => new TransactionInstruction({
+    programId: key32(seed, 200),
+    keys: [...Array(keys).keys()].map((k) => ({ pubkey: key32(seed, k + 1), isSigner: false, isWritable: true })),
+    data: Buffer.from([seed]),
   });
-  const tagOf = (tx: VersionedTransaction) => tx.message.compiledInstructions[0]!.data[0]!;
-  const sigOf = (tx: VersionedTransaction) => base58.encode(tx.signatures[0]!);
-
-  /** Our RPC: a test run, a blockhash, a send and a status, each as the case says. */
-  function rpc(o: { refuse?: number[]; testRunDown?: boolean; noBlockhash?: boolean; ending?: Record<number, 'reverted' | 'pending'> } = {}) {
-    const ran: number[] = [];
-    const sent = new Map<string, number>();
-    const conn = {
-      simulateTransaction: vi.fn(async (tx: VersionedTransaction, _config?: object) => {
-        ran.push(tagOf(tx));
-        if (o.testRunDown) throw new Error('429 Too Many Requests');
-        const no = o.refuse?.includes(tagOf(tx));
-        return { context: { slot: 1 }, value: { err: no ? { InstructionError: [0, { Custom: 6012 }] } : null, logs: no ? [`log ${tagOf(tx)}`] : [] } };
-      }),
-      getLatestBlockhash: vi.fn(async () => {
-        if (o.noBlockhash) throw new Error('fetch failed');
-        return { blockhash: FRESH, lastValidBlockHeight: 9 };
-      }),
-      sendRawTransaction: vi.fn(async (raw: Uint8Array, _options?: object) => {
-        const tx = VersionedTransaction.deserialize(raw);
-        sent.set(sigOf(tx), tagOf(tx));
-        return sigOf(tx);
-      }),
-      getSignatureStatuses: vi.fn(async ([sig]: string[]) => {
-        const end = o.ending?.[sent.get(sig!)!];
-        if (end === 'pending') return { context: { slot: 1 }, value: [null] };
-        return { context: { slot: 1 }, value: [{ slot: 5, confirmations: 1, err: end === 'reverted' ? { InstructionError: [0, { Custom: 1 }] } : null, confirmationStatus: 'confirmed' }] };
-      }),
-    };
-    return { conn, ran, sent };
-  }
-
-  const signs = async (txs: VersionedTransaction[]) => {
-    for (const t of txs) t.sign([owner]);
-    return txs;
+  const claim = (key: string, ixs: TransactionInstruction[] | null, caution: string | null = null): SolanaClaim => ({
+    key, chain: 'solana', roomId: 'bayla', symbol: 'BAYLA', where: 'pool', detail: null, amountRaw: 1n, decimals: 6, caution,
+    send: vi.fn(),
+    instructions: async () => ixs,
+  });
+  const settled = () => {
+    const got: Record<string, unknown> = {};
+    return { got, settle: (k: string, r: unknown) => { got[k] = r; } };
   };
-  function walletOf(sign: (txs: VersionedTransaction[]) => Promise<VersionedTransaction[]> = signs) {
-    const prompts: VersionedTransaction[][] = [];
-    const held: boolean[] = [];
-    const w: SignsAll = {
-      publicKey: owner.publicKey,
-      signAllTransactions: async (txs) => {
-        prompts.push([...txs]);
-        held.push(reloadHeld());
-        return sign(txs);
-      },
-    };
-    return { w, prompts, held };
-  }
+  const sent = (signature = 'ONE') => ({ kind: 'sent', signature, outcome: 'confirmed', slot: 5, version: 1 });
 
-  async function run(claims: SolanaClaim[], w: SignsAll, conn: ReturnType<typeof rpc>['conn'], confirmMs = 5_000) {
-    const got = new Map<string, ClaimResult>();
-    await sendClaimsTogether(claims, w, (k, r) => got.set(k, r), conn as never, confirmMs);
-    return got;
-  }
+  it('one send for every sure claim, the same instructions each would send, and every one shares its answer', async () => {
+    built.sendOneWrite.mockResolvedValue(sent());
+    const { got, settle } = settled();
+    const how = await solanaTogether(signer)([claim('a', [ix(1)]), claim('b', [ix(2), ix(3)])], settle);
+    expect(how).toBe('done');
+    expect(built.sendOneWrite).toHaveBeenCalledTimes(1);
+    const [, wallet, owner, ixs] = built.sendOneWrite.mock.calls[0]!;
+    expect(wallet).toBe(signer);
+    expect(owner).toBe(OWNER);
+    expect(ixs).toEqual([ix(1), ix(2), ix(3)]);
+    expect(got).toEqual({ a: { kind: 'claimed', tx: 'ONE' }, b: { kind: 'claimed', tx: 'ONE' } });
+  });
 
-  it('three claims: one prompt, three transactions on one fresh blockhash, each test-run first, each sent and claimed on its own', async () => {
-    const r = rpc();
-    const wallet = walletOf();
-    const claims = [claimOf(1), claimOf(2), claimOf(3)];
-    const got = await run(claims, wallet.w, r.conn);
-    expect(wallet.prompts).toHaveLength(1);
-    expect(wallet.prompts[0]!.map(tagOf)).toEqual([1, 2, 3]);
-    for (const tx of wallet.prompts[0]!) {
-      expect(tx.message.recentBlockhash).toBe(FRESH);
-      expect(tx.message.staticAccountKeys[0]!.equals(owner.publicKey)).toBe(true);
+  it('a claim that may not pay, or one with nothing to pack, is handed back to go alone', async () => {
+    built.sendOneWrite.mockResolvedValue(sent());
+    const { got, settle } = settled();
+    const risky = claim('r', [ix(4)], 'may not pay');
+    const lp: SolanaClaim = { ...claim('lp', null), instructions: undefined };
+    const how = await solanaTogether(signer)([claim('a', [ix(1)]), claim('b', [ix(2)]), risky, lp], settle);
+    expect(how).toEqual({ alone: [risky, lp] });
+    expect(built.sendOneWrite.mock.calls[0]![3]).toEqual([ix(1), ix(2)]);
+    expect(Object.keys(got)).toEqual(['a', 'b']);
+  });
+
+  it('two equal token-account creates go once; any other repeat is kept', async () => {
+    built.sendOneWrite.mockResolvedValue(sent());
+    const plan = planLadder(bayla, ladderPool(), ladderWallet([lpos(0, 5n), lpos(1, 5n)]), 1_000n, 0);
+    const ladderIxs = (await plan.claims[0]!.instructions!(OWNER))!;
+    expect(ladderIxs).toHaveLength(3);
+    await solanaTogether(signer)([plan.claims[0]!, claim('again', [...ladderIxs])], settled().settle);
+    const ixs = built.sendOneWrite.mock.calls[0]![3] as TransactionInstruction[];
+    // [create, claim0, claim1] then [create, claim0, claim1]: the second create dropped, nothing else.
+    expect(ixs).toEqual([...ladderIxs, ladderIxs[1], ladderIxs[2]]);
+  });
+
+  it('fewer than two to pack, or instructions that could not be built: each goes alone, nothing sent', async () => {
+    const { got, settle } = settled();
+    expect(await solanaTogether(signer)([claim('a', [ix(1)]), claim('r', [ix(2)], 'may not pay')], settle)).toBe('one-by-one');
+    expect(await solanaTogether(signer)([claim('a', [ix(1)]), claim('b', null)], settle)).toBe('one-by-one');
+    expect(await solanaTogether({ publicKey: null } as never)([claim('a', [ix(1)]), claim('b', [ix(2)])], settle)).toBe('one-by-one');
+    expect(built.sendOneWrite).not.toHaveBeenCalled();
+    expect(got).toEqual({});
+  });
+
+  it('too large once the wallet adds its guards: each goes alone, nothing sent', async () => {
+    const many = [...Array(12).keys()].map((n) => claim(`c${n}`, [ix(n + 1, 4)]));
+    expect(await solanaTogether(signer)(many, settled().settle)).toBe('one-by-one');
+    expect(built.sendOneWrite).not.toHaveBeenCalled();
+    // A wallet that signs version 1 has room for them (4,096 bytes).
+    built.v1.mockReturnValue(() => Promise.resolve(new Uint8Array()));
+    built.sendOneWrite.mockResolvedValue(sent());
+    expect(await solanaTogether(signer)(many, settled().settle)).toBe('done');
+  });
+
+  it('a pack that fits Solana but not the wallet’s guards beside it is sent alone, claim by claim', async () => {
+    const size = (n: number) => new VersionedTransaction(new TransactionMessage({
+      payerKey: OWNER, recentBlockhash: PublicKey.default.toBase58(), instructions: [...Array(n).keys()].map((k) => ix(k + 1, 1)),
+    }).compileToV0Message()).serialize().length;
+    let n = 2;
+    while (size(n + 1) + WALLET_GUARD_ROOM_BYTES <= 1_232) n++;
+    // n claims leave the guards room; n + 1 still fit Solana's 1,232, but not with the guards.
+    expect(size(n + 1)).toBeLessThanOrEqual(1_232);
+    built.sendOneWrite.mockResolvedValue(sent());
+    const pack = (k: number) => [...Array(k).keys()].map((i) => claim(`c${i}`, [ix(i + 1, 1)]));
+    expect(await solanaTogether(signer)(pack(n), settled().settle)).toBe('done');
+    expect(await solanaTogether(signer)(pack(n + 1), settled().settle)).toBe('one-by-one');
+    expect(built.sendOneWrite).toHaveBeenCalledTimes(1);
+  });
+
+  it('what says the pack itself will not do sends each alone instead; a cancel is a cancel', async () => {
+    const two = () => [claim('a', [ix(1)]), claim('b', [ix(2)])];
+    for (const [stage, reason] of [['test', 'refused'], ['check', WRITE_COPY.tooLarge], ['sol', 'short'], ['network', 'refused']] as const) {
+      built.sendOneWrite.mockResolvedValueOnce({ kind: 'not-sent', stage, reason });
+      const { got, settle } = settled();
+      expect(await solanaTogether(signer)(two(), settle)).toBe('one-by-one');
+      expect(got).toEqual({});
     }
-    expect(r.ran).toEqual([1, 2, 3]);
-    expect(r.conn.simulateTransaction.mock.calls[0]![1]).toMatchObject({ sigVerify: false, replaceRecentBlockhash: true });
-    // The first send runs the network's own check.
-    expect(r.conn.sendRawTransaction.mock.calls[0]![1]).toMatchObject({ skipPreflight: false });
-    expect([...r.sent.values()].sort()).toEqual([1, 2, 3]);
-    for (const tx of wallet.prompts[0]!) expect(got.get(`c${tagOf(tx)}`)).toEqual({ kind: 'claimed', tx: sigOf(tx) });
-    for (const c of claims) expect(c.send).not.toHaveBeenCalled();
+    // The wallet would not sign it (Phantom's "Unexpected error"): each alone, as before.
+    built.sendOneWrite.mockResolvedValueOnce({ kind: 'not-sent', stage: 'wallet', reason: 'not signed', declined: false });
+    expect(await solanaTogether(signer)(two(), settled().settle)).toBe('one-by-one');
+    built.sendOneWrite.mockResolvedValueOnce({ kind: 'not-sent', stage: 'wallet', reason: 'cancelled', declined: true });
+    const { got, settle } = settled();
+    expect(await solanaTogether(signer)([...two(), claim('r', [ix(3)], 'x')], settle)).toEqual({ alone: [expect.objectContaining({ key: 'r' })] });
+    expect(got).toEqual({ a: { kind: 'declined' }, b: { kind: 'declined' } });
   });
 
-  it('a claim its test run refuses is said in its pool’s words and never put to the wallet; the rest go', async () => {
-    const r = rpc({ refuse: [2] });
-    const wallet = walletOf();
-    const got = await run([claimOf(1), claimOf(2), claimOf(3)], wallet.w, r.conn);
-    expect(wallet.prompts[0]!.map(tagOf)).toEqual([1, 3]);
-    expect(got.get('c2')).toEqual({ kind: 'unconfirmed', reason: 'refused: log 2' });
-    expect(got.get('c1')).toMatchObject({ kind: 'claimed' });
-    expect(got.get('c3')).toMatchObject({ kind: 'claimed' });
-    expect([...r.sent.values()].sort()).toEqual([1, 3]);
-  });
-
-  it('a claim that cannot be built is not sent, and takes no other with it', async () => {
-    const r = rpc();
-    const wallet = walletOf();
-    const broken = claimOf(2, { build: async () => { throw new Error('rpc down'); } });
-    const got = await run([claimOf(1), broken], wallet.w, r.conn);
-    expect(got.get('c2')).toMatchObject({ kind: 'unconfirmed', reason: expect.stringMatching(/could not be built just now \(rpc down\), so nothing was sent/) });
-    expect(wallet.prompts[0]!.map(tagOf)).toEqual([1]);
-    expect(got.get('c1')).toMatchObject({ kind: 'claimed' });
-  });
-
-  it('a test run that did not answer is no verdict: the claim still goes, and its first send is checked by the network', async () => {
-    const r = rpc({ testRunDown: true });
-    const wallet = walletOf();
-    const got = await run([claimOf(1), claimOf(2)], wallet.w, r.conn);
-    expect(wallet.prompts[0]!.map(tagOf)).toEqual([1, 2]);
-    expect(got.get('c1')).toMatchObject({ kind: 'claimed' });
-    expect(r.conn.sendRawTransaction.mock.calls[0]![1]).toMatchObject({ skipPreflight: false });
-  });
-
-  it('every claim refused, or no fresh blockhash: the wallet is never asked', async () => {
-    const r = rpc({ refuse: [1, 2] });
-    const wallet = walletOf();
-    await run([claimOf(1), claimOf(2)], wallet.w, r.conn);
-    expect(wallet.prompts).toHaveLength(0);
-
-    const down = rpc({ noBlockhash: true });
-    const got = await run([claimOf(1), claimOf(2)], wallet.w, down.conn);
-    expect(wallet.prompts).toHaveLength(0);
-    expect(got.get('c1')).toEqual({ kind: 'unconfirmed', reason: 'The Solana network could not be reached just now, so nothing was sent.' });
-    expect(down.conn.sendRawTransaction).not.toHaveBeenCalled();
-  });
-
-  it('a cancel in the wallet: every claim cancelled, nothing sent', async () => {
-    const r = rpc();
-    const wallet = walletOf(async () => {
-      throw Object.assign(new Error('User rejected the request.'), { code: 4001 });
-    });
-    const got = await run([claimOf(1), claimOf(2)], wallet.w, r.conn);
-    expect(got.get('c1')).toEqual({ kind: 'declined' });
-    expect(got.get('c2')).toEqual({ kind: 'declined' });
-    expect(r.conn.sendRawTransaction).not.toHaveBeenCalled();
-  });
-
-  it('a wallet that would not sign: its reason, nothing sent, never a stop or a "failed"', async () => {
-    const r = rpc();
-    const wallet = walletOf(async () => {
-      throw new Error('Wallet is locked');
-    });
-    const got = await run([claimOf(1), claimOf(2)], wallet.w, r.conn);
-    expect(got.get('c1')).toEqual({ kind: 'unconfirmed', reason: notSignedCopy('Wallet is locked') });
-    expect(r.conn.sendRawTransaction).not.toHaveBeenCalled();
-  });
-
-  it('a transaction the wallet returned unsigned, or did not return, is not sent; the signed one is', async () => {
-    const r = rpc();
-    const wallet = walletOf(async (txs) => {
-      txs[1]!.sign([owner]);
-      return [txs[0]!, txs[1]!];
-    });
-    const got = await run([claimOf(1), claimOf(2), claimOf(3)], wallet.w, r.conn);
-    expect(got.get('c1')).toEqual({ kind: 'unconfirmed', reason: 'Your wallet did not sign it, so nothing was sent for it.' });
-    expect(got.get('c3')).toEqual({ kind: 'unconfirmed', reason: 'Your wallet did not sign it, so nothing was sent for it.' });
-    expect(got.get('c2')).toMatchObject({ kind: 'claimed' });
-    expect([...r.sent.values()]).toEqual([2]);
-  });
-
-  it('a transaction the wallet signed for a different fee payer is not sent', async () => {
-    const r = rpc();
-    const other = Keypair.generate();
-    const wallet = walletOf(async (txs) =>
-      txs.map((t) => {
-        const instructions = [new TransactionInstruction({ programId: PROGRAM, keys: [], data: Buffer.from([tagOf(t)]) })];
-        const theirs = new VersionedTransaction(new TransactionMessage({ payerKey: other.publicKey, recentBlockhash: FRESH, instructions }).compileToV0Message());
-        theirs.sign([other]);
-        return theirs;
-      }),
-    );
-    const got = await run([claimOf(1), claimOf(2)], wallet.w, r.conn);
-    expect(got.get('c1')).toEqual({ kind: 'unconfirmed', reason: 'Your wallet did not sign it, so nothing was sent for it.' });
-    expect(r.conn.sendRawTransaction).not.toHaveBeenCalled();
-  });
-
-  it('reverted on chain is refused with its signature; not confirmed is unknown, carries its signature, and stops the run', async () => {
-    const r = rpc({ ending: { 1: 'reverted', 2: 'pending' } });
-    const wallet = walletOf();
-    const got = await run([claimOf(1), claimOf(2), claimOf(3)], wallet.w, r.conn, 0);
-    const [t1, t2] = wallet.prompts[0]!;
-    expect(got.get('c1')).toEqual({ kind: 'reverted', reason: 'Refused on chain: nothing was claimed, and only the network fee was spent.', tx: sigOf(t1!) });
-    expect(got.get('c2')).toMatchObject({ kind: 'unconfirmed', tx: sigOf(t2!), stop: true });
-    expect((got.get('c2') as { reason: string }).reason).toMatch(/may still land/);
-    expect(got.get('c3')).toMatchObject({ kind: 'claimed' });
-  });
-
-  it('holds the page from reloading itself from the prompt until every claim is answered, then lets go', async () => {
-    const r = rpc();
-    const wallet = walletOf();
-    await run([claimOf(1), claimOf(2)], wallet.w, r.conn);
-    expect(wallet.held).toEqual([true]);
-    expect(reloadHeld()).toBe(false);
-  });
-
-  it('only a wallet that signs several at once is offered the one prompt', () => {
-    expect(signsAll({ publicKey: owner.publicKey, signAllTransactions: async (t: unknown) => t })).not.toBeNull();
-    expect(signsAll({ publicKey: owner.publicKey, signTransaction: async (t: unknown) => t })).toBeNull();
-    expect(signsAll(null)).toBeNull();
-  });
-});
-
-describe('sendClaimsTogether for a wallet that signs version 1: version 1 claims, still ONE prompt (Phantom, ticket #455104)', () => {
-  // Each test below fails on the pre-change solana.ts, which put version 0 claims with no
-  // limits to the wallet (MUTATION-CHECKED), except the last, which guards the old way.
-  const owner = Keypair.generate();
-  const PROGRAM = Keypair.generate().publicKey;
-  const FRESH = Keypair.generate().publicKey.toBase58();
-  const claimOf = (n: number, over: Partial<SolanaClaim> = {}): SolanaClaim => ({
-    key: `c${n}`, chain: 'solana', roomId: 'bayla', symbol: 'BAYLA', where: 'lighthouse pool', detail: null, amountRaw: 1n, decimals: 6, caution: null,
-    send: vi.fn(async (): Promise<ClaimResult> => ({ kind: 'claimed', tx: 'ALONE' })),
-    build: async (o) => [new TransactionInstruction({ programId: PROGRAM, keys: [{ pubkey: o, isSigner: true, isWritable: true }], data: Buffer.from([n]) })],
-    refused: (logs) => `refused: ${logs.join(' | ')}`,
-    ...over,
-  });
-  const tagOf = (bytes: Uint8Array) => decodeV1(bytes).instructions.find((ix) => ix.programId.equals(PROGRAM))!.data[0]!;
-  const sigOf = (bytes: Uint8Array) => base58.encode(decodeV1(bytes).signatures.get(owner.publicKey.toBase58())!);
-
-  function rpc(o: { refuse?: number[]; testRunDown?: boolean } = {}) {
-    const ran: number[] = [];
-    const sent = new Map<string, number>();
-    const conn = {
-      simulateTransaction: vi.fn(async (tx: { serialize(): Uint8Array }, _config?: object) => {
-        const t = tagOf(tx.serialize());
-        ran.push(t);
-        if (o.testRunDown) throw new Error('429 Too Many Requests');
-        const no = o.refuse?.includes(t);
-        return { context: { slot: 1 }, value: { err: no ? { InstructionError: [0, { Custom: 6012 }] } : null, logs: no ? [`log ${t}`] : [], unitsConsumed: 20_000, loadedAccountsDataSize: 50_000 } };
-      }),
-      getLatestBlockhash: vi.fn(async () => ({ blockhash: FRESH, lastValidBlockHeight: 9 })),
-      sendRawTransaction: vi.fn(async (raw: Uint8Array, _options?: object) => {
-        sent.set(sigOf(raw), tagOf(raw));
-        return sigOf(raw);
-      }),
-      getSignatureStatuses: vi.fn(async () => ({ context: { slot: 1 }, value: [{ slot: 5, confirmations: 1, err: null, confirmationStatus: 'confirmed' }] })),
-    };
-    return { conn, ran, sent };
-  }
-
-  /** A Wallet Standard wallet behind wallet-adapter's StandardWalletAdapter, as Phantom's extension is. */
-  function walletOf(o: { sign?: (bytes: Uint8Array) => Uint8Array; answer?: (outs: { signedTransaction: Uint8Array }[]) => unknown; versions?: ReadonlyArray<'legacy' | 0 | 1> } = {}) {
-    const prompts: Uint8Array[][] = [];
-    const sign = o.sign ?? ((bytes: Uint8Array) => signV1WithKeypairs(bytes, [owner]));
-    const signTransaction = vi.fn(async (...inputs: { transaction: Uint8Array; chain: string }[]) => {
-      prompts.push(inputs.map((i) => i.transaction));
-      expect(inputs.every((i) => i.chain === 'solana:mainnet')).toBe(true);
-      const outs = inputs.map((i) => ({ signedTransaction: sign(i.transaction) }));
-      return o.answer ? o.answer(outs) : outs;
-    });
-    const account = { address: owner.publicKey.toBase58(), publicKey: owner.publicKey.toBytes(), chains: ['solana:mainnet'], features: ['solana:signTransaction'] };
-    const signAllTransactions = vi.fn(async (txs: VersionedTransaction[]) => {
-      for (const t of txs) t.sign([owner]);
-      return txs;
-    });
-    const w = {
-      publicKey: owner.publicKey, standard: true, signAllTransactions,
-      wallet: { accounts: [account], features: { 'solana:signTransaction': { version: '1.0.0', supportedTransactionVersions: o.versions ?? ['legacy', 0, 1], signTransaction } } },
-    } as unknown as SignsAll;
-    return { w, prompts, signTransaction, signAllTransactions };
-  }
-
-  async function run(claims: SolanaClaim[], w: SignsAll, conn: ReturnType<typeof rpc>['conn']) {
-    const got = new Map<string, ClaimResult>();
-    await sendClaimsTogether(claims, w, (k, r) => got.set(k, r), conn as never, 5_000);
-    return got;
-  }
-
-  it('three claims: one prompt of three version 1 messages, each with its measured limits, each test-run twice first, each sent and claimed', async () => {
-    const r = rpc();
-    const wallet = walletOf();
-    const got = await run([claimOf(1), claimOf(2), claimOf(3)], wallet.w, r.conn);
-    expect(wallet.signAllTransactions).not.toHaveBeenCalled();
-    expect(wallet.prompts).toHaveLength(1);
-    expect(wallet.prompts[0]!.map(tagOf)).toEqual([1, 2, 3]);
-    for (const bytes of wallet.prompts[0]!) {
-      expect(bytes[0]).toBe(V1_VERSION_BYTE);
-      const w = decodeV1(bytes);
-      expect(w.blockhash).toBe(FRESH);
-      expect(w.payer.equals(owner.publicKey)).toBe(true);
-      expect(w.config).toEqual({ computeUnitLimit: v1ComputeLimit(20_000), loadedAccountsDataSizeLimit: loadedDataLimitFromSimulation(50_000), priorityFeeLamports: 0n });
+  // A passing blip must not turn into one approval per claim: it says so, and Check again packs again.
+  it('a network that could not be reached, or a test run that could not finish: nothing sent, said for them all', async () => {
+    for (const reason of [WRITE_COPY.unreachable, WRITE_COPY.noAnswer, WRITE_COPY.balanceUnread]) {
+      built.sendOneWrite.mockResolvedValueOnce({ kind: 'not-sent', stage: 'check', reason });
+      const { got, settle } = settled();
+      expect(await solanaTogether(signer)([claim('a', [ix(1)]), claim('b', [ix(2)]), claim('r', [ix(3)], 'x')], settle)).toEqual({ alone: [expect.objectContaining({ key: 'r' })] });
+      expect(got).toEqual({ a: { kind: 'unconfirmed', reason }, b: { kind: 'unconfirmed', reason } });
     }
-    expect(r.ran).toEqual([1, 1, 2, 2, 3, 3]);
-    expect(Math.max(...r.conn.simulateTransaction.mock.invocationCallOrder)).toBeLessThan(wallet.signTransaction.mock.invocationCallOrder[0]!);
-    expect(r.conn.sendRawTransaction.mock.calls[0]![1]).toMatchObject({ skipPreflight: false });
-    expect([...r.sent.values()].sort()).toEqual([1, 2, 3]);
-    for (const bytes of wallet.prompts[0]!) expect(got.get(`c${tagOf(bytes)}`)).toEqual({ kind: 'claimed', tx: sigOf(signV1WithKeypairs(bytes, [owner])) });
   });
 
-  it('a claim its test run refuses is said in its pool’s words and never put to the wallet; the rest go', async () => {
-    const r = rpc({ refuse: [2] });
-    const wallet = walletOf();
-    const got = await run([claimOf(1), claimOf(2), claimOf(3)], wallet.w, r.conn);
-    expect(wallet.prompts[0]!.map(tagOf)).toEqual([1, 3]);
-    expect(got.get('c2')).toEqual({ kind: 'unconfirmed', reason: 'refused: log 2' });
-    expect([...r.sent.values()].sort()).toEqual([1, 3]);
+  it('sent: one that reverted, or one whose outcome is unknown, says so with its signature', async () => {
+    built.sendOneWrite.mockResolvedValueOnce({ ...sent('R'), outcome: 'reverted' });
+    let s = settled();
+    await solanaTogether(signer)([claim('a', [ix(1)]), claim('b', [ix(2)])], s.settle);
+    expect(s.got.a).toMatchObject({ kind: 'reverted', tx: 'R' });
+    built.sendOneWrite.mockResolvedValueOnce({ ...sent('U'), outcome: 'timeout' });
+    s = settled();
+    await solanaTogether(signer)([claim('a', [ix(1)]), claim('b', [ix(2)])], s.settle);
+    expect(s.got.b).toMatchObject({ kind: 'unconfirmed', tx: 'U' });
   });
 
-  it('a test run that did not answer is no verdict: the claim goes at the ceiling, and its first send is checked by the network', async () => {
-    const r = rpc({ testRunDown: true });
-    const wallet = walletOf();
-    const got = await run([claimOf(1)], wallet.w, r.conn);
-    expect(decodeV1(wallet.prompts[0]![0]!).config).toEqual({ computeUnitLimit: 1_400_000, loadedAccountsDataSizeLimit: MAX_LOADED_ACCOUNTS_DATA_SIZE, priorityFeeLamports: 0n });
-    expect(got.get('c1')).toMatchObject({ kind: 'claimed' });
-    expect(r.conn.sendRawTransaction.mock.calls[0]![1]).toMatchObject({ skipPreflight: false });
-  });
-
-  it('a cancel in the wallet: every claim cancelled, nothing sent', async () => {
-    const r = rpc();
-    const wallet = walletOf({ sign: () => { throw Object.assign(new Error('User rejected the request.'), { code: 4001 }); } });
-    const got = await run([claimOf(1), claimOf(2)], wallet.w, r.conn);
-    expect(got.get('c1')).toEqual({ kind: 'declined' });
-    expect(got.get('c2')).toEqual({ kind: 'declined' });
-    expect(r.conn.sendRawTransaction).not.toHaveBeenCalled();
-  });
-
-  it('a wallet that answers with fewer signed claims than it was given: nothing is sent, none is matched to another', async () => {
-    const r = rpc();
-    const wallet = walletOf({ answer: (outs) => outs.slice(0, 1) });
-    const got = await run([claimOf(1), claimOf(2)], wallet.w, r.conn);
-    expect(got.get('c1')).toMatchObject({ kind: 'unconfirmed', reason: expect.stringMatching(/did not sign/i) });
-    expect(r.conn.sendRawTransaction).not.toHaveBeenCalled();
-  });
-
-  it('a claim the wallet changed past the rules is not sent; the others are', async () => {
-    const r = rpc();
-    const wallet = walletOf({
-      sign: (bytes) => {
-        const w = decodeV1(bytes);
-        if (tagOf(bytes) !== 2) return signV1WithKeypairs(bytes, [owner]);
-        const extra = SystemProgram.transfer({ fromPubkey: owner.publicKey, toPubkey: Keypair.generate().publicKey, lamports: 1 });
-        return signV1WithKeypairs(assembleV1(w.payer, w.blockhash, 9, w.config, [...w.instructions, extra]), [owner]);
-      },
-    });
-    const got = await run([claimOf(1), claimOf(2)], wallet.w, r.conn);
-    expect(got.get('c2')).toEqual({ kind: 'unconfirmed', reason: 'Your wallet added something to this transaction that this page cannot check, so nothing was sent.' });
-    expect(got.get('c1')).toMatchObject({ kind: 'claimed' });
-    expect([...r.sent.values()]).toEqual([1]);
-  });
-
-  it('a wallet that does not list version 1 keeps the version 0 way: its signAllTransactions, as before', async () => {
-    const r = rpc();
-    const wallet = walletOf({ versions: ['legacy', 0] });
-    // The version 0 test run hands web3.js transactions, not version 1 bytes: only count the prompt.
-    r.conn.simulateTransaction.mockImplementation(async () => ({ context: { slot: 1 }, value: { err: null, logs: [], unitsConsumed: 1, loadedAccountsDataSize: 1 } }));
-    r.conn.sendRawTransaction.mockImplementation(async (raw: Uint8Array) => base58.encode(VersionedTransaction.deserialize(raw).signatures[0]!));
-    await run([claimOf(1), claimOf(2)], wallet.w, r.conn);
-    expect(wallet.signAllTransactions).toHaveBeenCalledTimes(1);
-    expect(wallet.signTransaction).not.toHaveBeenCalled();
+  it('the plans pack only what carries no caution', async () => {
+    built.claimIxs.mockResolvedValue({ ok: true, ixs: [ix(9)] });
+    const sf = planStreamflow(target, pool([rp({ rateChangedAtTs: 5_000 })]), [entry({ 0: 7n }, { createdTs: 1_000 }), entry({ 0: 7n }, { nonce: 1, createdTs: 9_000 })]);
+    const sure = sf.claims.find((c) => c.caution === null)!;
+    const risky = sf.claims.find((c) => c.caution !== null)!;
+    expect(risky.instructions).toBeUndefined();
+    expect(await sure.instructions!(OWNER)).toEqual([ix(9)]);
+    expect(built.claimIxs).toHaveBeenCalledWith(expect.objectContaining({ claimant: OWNER, entryNonce: 1 }));
+    built.claimIxs.mockResolvedValue({ ok: false, reason: 'no' });
+    expect(await sure.instructions!(OWNER)).toBeNull();
+    // A short ladder vault is a caution too: that claim goes alone.
+    expect(planLadder(bayla, ladderPool(), ladderWallet([lpos(0, 5n), lpos(1, 5n)]), 6n, 0).claims[0]!.instructions).toBeUndefined();
+    expect(planLadder(bayla, ladderPool(), ladderWallet([lpos(0, 5n), lpos(1, 5n)]), 1_000n, 0).claims[0]!.instructions).toBeDefined();
   });
 });

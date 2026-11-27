@@ -29,9 +29,11 @@ vi.mock('../../hooks/useEvmHarvest', () => ({
 // The Solana half's reads and claims; loaded by the card only once a Solana address is there.
 vi.mock('../../lib/harvest/solana', () => ({
   readSolanaHarvest: sol.read,
-  sendClaimsTogether: sol.together,
-  signsAll: (s: { signAllTransactions?: unknown }) => (typeof s?.signAllTransactions === 'function' ? s : null),
+  solanaTogether: sol.together,
 }));
+// The pool shares' fees, read after the staking pools (components/solana/lp/harvestFees.ts).
+const fees = vi.hoisted(() => ({ read: vi.fn() }));
+vi.mock('../solana/lp/harvestFees', () => ({ readFeeHarvest: fees.read }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), info: vi.fn() } }));
 // The pool reads Harvest shares with the dashboard's board (lib/wallet/heldReads.ts).
 const held = vi.hoisted(() => ({ forget: vi.fn() }));
@@ -51,17 +53,19 @@ const ONE_BY_ONE = { ethereum: false, base: false };
 
 const solClaim = (key: string, send: SolanaClaim['send']): SolanaClaim => ({
   key, chain: 'solana', roomId: 'bayla', symbol: 'BAYLA', where: 'lighthouse pool', detail: 'on 1,000 BAYLA staked',
-  amountRaw: 12_500_000n, decimals: 6, caution: null, send, build: vi.fn(), refused: vi.fn(),
+  amountRaw: 12_500_000n, decimals: 6, caution: null, send,
 });
 
 beforeEach(() => {
+  // lib/harvest/solana.ts's own answer for claims with nothing to pack: each goes alone.
+  sol.together.mockReset().mockReturnValue(async () => 'one-by-one');
   evm.state = { address: null, chain: null, plan: null, batchable: ONE_BY_ONE };
   evm.send.mockReset();
   evm.together.mockReset().mockReturnValue(null);
-  sol.together.mockReset();
   evm.switchTo.mockReset();
   evm.refetch.mockReset();
   sol.read.mockReset();
+  fees.read.mockReset().mockResolvedValue({ claims: [], held: [], unread: [] });
   resetSolanaSurfaceForTests();
 });
 
@@ -122,7 +126,7 @@ describe('Harvest card', () => {
     const claimed = screen.getByRole('link', { name: /Claimed: view the transaction/ }) as HTMLAnchorElement;
     expect(claimed.href).toContain('basescan.org/tx/0xfeed');
     expect(screen.getByText(/only the network fee was spent/)).toBeTruthy();
-    expect(screen.getByRole('status').textContent).toBe('Done: 1 claimed · 1 reverted.');
+    expect(screen.getByRole('status').textContent).toBe('Done: 1 claimed · 1 refused.');
     expect(evm.refetch).toHaveBeenCalled();
   });
 
@@ -151,6 +155,27 @@ describe('Harvest card', () => {
     show();
     expect(screen.getByText('Nothing to claim right now.')).toBeTruthy();
     expect(screen.getByTestId('harvest-stack').querySelectorAll('[data-plate]')).toHaveLength(0);
+  });
+
+  it('nothing to claim and a pool not read: never "Nothing to claim", a zero it did not read; Check again reads the pools afresh', () => {
+    const jbm = { key: 'evm:jbm', chain: 'base' as const, roomId: 'jbm', what: 'your JBM rewards', detail: 'The JBM pool did not answer.' };
+    evm.state = { address: '0xabc', chain: 'base', plan: { claims: [], held: [], unread: [jbm] }, batchable: ONE_BY_ONE };
+    const unreadOnly = show();
+    expect(screen.queryByRole('button', { name: 'Nothing to claim' })).toBeNull();
+    expect(screen.queryByText('Nothing to claim right now.')).toBeNull();
+    const again = screen.getByRole('button', { name: 'Check again' }) as HTMLButtonElement;
+    expect(again.disabled).toBe(false);
+    held.forget.mockClear();
+    evm.refetch.mockClear();
+    fireEvent.click(again);
+    expect(held.forget).toHaveBeenCalledTimes(1);
+    expect(evm.refetch).toHaveBeenCalledTimes(1);
+    expect(evm.send).not.toHaveBeenCalled();
+    unreadOnly.unmount();
+    // With every pool read and nothing to claim, it says so, and cannot be pressed.
+    evm.state = { address: '0xabc', chain: 'base', plan: { claims: [], held: [], unread: [] }, batchable: ONE_BY_ONE };
+    show();
+    expect((screen.getByRole('button', { name: 'Nothing to claim' }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   // The bar (owner, 2026-11-14: "the bar that adds them all together plus shows % and daily
@@ -271,6 +296,56 @@ describe('Harvest card', () => {
     }
   });
 
+  describe('pool fees (owner, 2026-11-20)', () => {
+    const feeClaim = (send: SolanaClaim['send']): SolanaClaim => ({
+      key: 'lp:share', chain: 'solana', roomId: 'bayla', symbol: 'BAYLA', where: 'BAYLA/SOL pool', detail: 'fees your share earned',
+      amountRaw: 2_500_000n, decimals: 6, caution: null, about: true, also: { symbol: 'SOL', amountRaw: 25_000_000n, decimals: 9 }, send,
+    });
+    const withWallet = async (signer: object, body: () => Promise<void>) => {
+      const owner = {};
+      act(() => setSolanaSurface(owner, { open: () => {}, address: 'SoLAddr', connecting: false, signer }, true));
+      try {
+        await body();
+      } finally {
+        act(() => setSolanaSurface(owner, null));
+      }
+    };
+
+    it('are read only once the staking pools answered, then claimed after them, each with the connected wallet', async () => {
+      const signer = { name: 'the top bar’s wallet' };
+      let answer!: (p: HarvestPlan<SolanaClaim>) => void;
+      const stake = vi.fn(async (): Promise<ClaimResult> => ({ kind: 'claimed', tx: 'S1' }));
+      const fee = vi.fn(async (): Promise<ClaimResult> => ({ kind: 'claimed', tx: 'S2' }));
+      sol.read.mockReturnValue(new Promise((r) => (answer = r)));
+      fees.read.mockResolvedValue({ claims: [feeClaim(fee)], held: [], unread: [] });
+      await withWallet(signer, async () => {
+        show();
+        await waitFor(() => expect(sol.read).toHaveBeenCalledWith('SoLAddr'));
+        // Two bursts at once are what the RPC turns away: the fees wait for the staking read.
+        expect(fees.read).not.toHaveBeenCalled();
+        await act(async () => answer({ claims: [solClaim('sf:1', stake)], held: [], unread: [] }));
+        await waitFor(() => expect(fees.read).toHaveBeenCalledWith('SoLAddr'));
+        fireEvent.click(await screen.findByRole('button', { name: 'Harvest all · 2 claims' }));
+        await screen.findByRole('button', { name: 'Check again' });
+        expect(stake).toHaveBeenCalledWith(signer);
+        expect(fee).toHaveBeenCalledWith(signer);
+        expect(stake.mock.invocationCallOrder[0]!).toBeLessThan(fee.mock.invocationCallOrder[0]!);
+        expect(within(screen.getByRole('list', { name: 'This harvest' })).getAllByRole('listitem')[1]!.querySelector('.hv-amt')!.textContent)
+          .toBe('about 2.5 BAYLA and 0.025 SOL');
+      });
+    });
+
+    it('a fee read that fails is named as not read, and the staking claims stay', async () => {
+      sol.read.mockResolvedValue({ claims: [solClaim('sf:1', vi.fn())], held: [], unread: [] });
+      fees.read.mockRejectedValue(new Error('the pool code could not load'));
+      await withWallet({}, async () => {
+        show();
+        expect(await screen.findByRole('button', { name: 'Harvest all · 1 claim' })).toBeTruthy();
+        expect(screen.getByRole('list', { name: 'Not read' }).textContent).toContain('Could not read your pool shares (the pool code could not load). Not a zero.');
+      });
+    });
+  });
+
   describe('a Solana read that came back partly unread (owner’s board, 2026-10-30: hidden until a reload)', () => {
     const unreadPlan = { claims: [], held: [], unread: [{ key: 'sol', chain: 'solana' as const, roomId: '', what: 'your Solana pools', detail: 'the Solana code could not load' }] };
     const withWallet = async (body: () => Promise<void>) => {
@@ -387,31 +462,74 @@ describe('Harvest card', () => {
     expect((screen.getByRole('button', { name: 'Nothing to claim' }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('a Solana wallet that signs several at once: one prompt for every Solana claim, and the claims’ own sends are never used', async () => {
-    const signer = { name: 'the top bar’s wallet', publicKey: 'PK', signAllTransactions: vi.fn() };
+  // Owner, 2026-11-24: "you just have to claim once and confirm once". The sure claims go
+  // INSIDE one transaction (lib/harvest/solana.ts solanaTogether): still one transaction per
+  // approval, as Phantom asks; one that may not pay is asked for alone, after.
+  it('sure Solana claims are asked for once, packed by the Solana half; one that may not pay is asked alone', async () => {
+    const signer = { name: 'the top bar’s wallet', publicKey: 'PK' };
     const send = vi.fn(async (): Promise<ClaimResult> => ({ kind: 'claimed', tx: 'ALONE' }));
-    sol.read.mockResolvedValue({ claims: [solClaim('sf:1', send), solClaim('sf:2', send), solClaim('ladder:1', send)], held: [], unread: [] });
-    sol.together.mockImplementation(async (cs: SolanaClaim[], _w: unknown, settle: (k: string, r: ClaimResult) => void) => {
-      for (const c of cs) settle(c.key, { kind: 'claimed', tx: `SIG-${c.key}` });
-      return 'done';
+    const packs = (c: SolanaClaim): SolanaClaim => ({ ...c, instructions: async () => [] });
+    const risky: SolanaClaim = { ...solClaim('sf:old', send), caution: 'may not pay' };
+    sol.read.mockResolvedValue({ claims: [packs(solClaim('ladder:1', send)), packs(solClaim('sf:1', send)), risky], held: [], unread: [] });
+    const batch = vi.fn(async (cs: readonly SolanaClaim[], settle: (k: string, r: ClaimResult) => void) => {
+      for (const c of cs) if (c.instructions) settle(c.key, { kind: 'claimed', tx: 'ONE' });
+      return { alone: cs.filter((c) => !c.instructions) };
     });
+    sol.together.mockReturnValue(batch);
     const owner = {};
     act(() => setSolanaSurface(owner, { open: () => {}, address: 'SoLAddr', connecting: false, signer }, true));
     try {
       show();
+      expect(await screen.findByText('Your wallet asks 2 times.')).toBeTruthy();
       fireEvent.click(await screen.findByRole('button', { name: 'Harvest all · 3 claims' }));
       await waitFor(() => expect(screen.getByRole('button', { name: 'Check again' })).toBeTruthy());
-      expect(sol.together).toHaveBeenCalledTimes(1);
-      expect((sol.together.mock.calls[0]![0] as SolanaClaim[]).map((c) => c.key)).toEqual(['sf:1', 'sf:2', 'ladder:1']);
-      expect(sol.together.mock.calls[0]![1]).toBe(signer);
-      expect(send).not.toHaveBeenCalled();
+      expect(sol.together).toHaveBeenCalledWith(signer);
+      expect(batch).toHaveBeenCalledTimes(1);
+      expect(send.mock.calls).toEqual([[signer]]);
       expect(screen.getByRole('status').textContent).toBe('Done: 3 claimed.');
     } finally {
       act(() => setSolanaSurface(owner, null));
     }
   });
 
-  it('says how many times the wallet will ask before the press: once when it signs them together', async () => {
+  it('two sure Solana claims: the wallet asks once', async () => {
+    const send = vi.fn(async (): Promise<ClaimResult> => ({ kind: 'claimed', tx: 'ALONE' }));
+    const packs = (c: SolanaClaim): SolanaClaim => ({ ...c, instructions: async () => [] });
+    sol.read.mockResolvedValue({ claims: [packs(solClaim('ladder:1', send)), packs(solClaim('sf:1', send))], held: [], unread: [] });
+    const owner = {};
+    act(() => setSolanaSurface(owner, { open: () => {}, address: 'SoLAddr', connecting: false, signer: { publicKey: 'PK' } }, true));
+    try {
+      show();
+      expect(await screen.findByText('Your wallet asks once.')).toBeTruthy();
+    } finally {
+      act(() => setSolanaSurface(owner, null));
+    }
+  });
+
+  // Phantom, ticket #467471 (2026-11-16): one approval per transaction. Until 11-17 a
+  // Solana wallet that signs several at once got every Solana claim on ONE prompt, and
+  // Phantom may block a request carrying two or more transactions outright.
+  it('a Solana wallet that could sign several at once is still asked once per claim with nothing to pack, each claim its own send', async () => {
+    const signer = { name: 'the top bar’s wallet', publicKey: 'PK', signAllTransactions: vi.fn() };
+    const send = vi.fn(async (): Promise<ClaimResult> => ({ kind: 'claimed', tx: 'ALONE' }));
+    sol.read.mockResolvedValue({ claims: [solClaim('sf:1', send), solClaim('sf:2', send), solClaim('ladder:1', send)], held: [], unread: [] });
+    const owner = {};
+    act(() => setSolanaSurface(owner, { open: () => {}, address: 'SoLAddr', connecting: false, signer }, true));
+    try {
+      show();
+      expect(await screen.findByText('Your wallet asks 3 times.')).toBeTruthy();
+      fireEvent.click(await screen.findByRole('button', { name: 'Harvest all · 3 claims' }));
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Check again' })).toBeTruthy());
+      expect(send).toHaveBeenCalledTimes(3);
+      for (const call of send.mock.calls as unknown[][]) expect(call[0]).toBe(signer);
+      expect(signer.signAllTransactions).not.toHaveBeenCalled();
+      expect(screen.getByRole('status').textContent).toBe('Done: 3 claimed.');
+    } finally {
+      act(() => setSolanaSurface(owner, null));
+    }
+  });
+
+  it('says how many times the wallet will ask before the press: once per Solana claim with nothing to pack, whatever the wallet can do', async () => {
     const send = vi.fn(async (): Promise<ClaimResult> => ({ kind: 'claimed', tx: 'ALONE' }));
     sol.read.mockResolvedValue({ claims: [solClaim('sf:1', send), solClaim('sf:2', send)], held: [], unread: [] });
     const owner = {};
@@ -419,8 +537,7 @@ describe('Harvest card', () => {
     try {
       show();
       await screen.findByRole('button', { name: 'Harvest all · 2 claims' });
-      expect(screen.getByText('Your wallet asks once.')).toBeTruthy();
-      // The same claims, with a wallet that signs one at a time.
+      expect(screen.getByText('Your wallet asks 2 times.')).toBeTruthy();
       act(() => setSolanaSurface(owner, { open: () => {}, address: 'SoLAddr', connecting: false, signer: { signTransaction: vi.fn() } }, true));
       expect(screen.getByText('Your wallet asks 2 times.')).toBeTruthy();
     } finally {

@@ -470,6 +470,28 @@ export const ROUTES: readonly RouteSpec[] = [
     knownViolations: [],
   },
   {
+    path: '/hyperevm',
+    voice: 'venue',
+    owner: 'pages/HyperEvmSwapPage.tsx',
+    gate: null,
+    why:
+      'The swap on our own Uniswap V3 pools on HyperEVM, routed since the venue was deployed (2026-11-25). ' +
+      'It reads our factory live from the HyperEVM RPC, so it audits whichever answer comes: a quote, or ' +
+      '"No pools are open on HyperEVM yet".',
+    knownViolations: [],
+  },
+  {
+    path: '/hyperevm-pools',
+    voice: 'venue',
+    owner: 'pages/HyperEvmPoolsPage.tsx',
+    tabOf: 'PoolsHostPage · hyperevm-pools',
+    gate: null,
+    why:
+      'Our HyperEVM pools and your positions, routed since the venue was deployed (2026-11-25). With no ' +
+      'wallet it audits the pool list read live (or "No pools are open yet") and the connect prompt.',
+    knownViolations: [],
+  },
+  {
     path: '/range-pools',
     voice: 'venue',
     owner: 'pages/RangePoolsPage.tsx',
@@ -621,6 +643,16 @@ export const ROUTES: readonly RouteSpec[] = [
     // Nothing here can violate: static links, one h1, one h2-less grid. Left as
     // [] rather than guessed — a11y-routes.spec.ts asserts this by EQUALITY, so
     // a real violation fails loudly instead of hiding behind a pre-declared pin.
+    knownViolations: [],
+  },
+  {
+    path: '/city',
+    voice: 'venue',
+    owner: 'pages/CityPage.tsx',
+    gate: null,
+    why:
+      'The island drawn as a city on one canvas (2026-11-18). Read-only: no form and nothing to sign. ' +
+      'The canvas is aria-hidden; every plot it shows is a button in the list under it.',
     knownViolations: [],
   },
   { path: '/gallery', voice: 'venue', owner: 'pages/GalleryPage.tsx', gate: null, knownViolations: [] },

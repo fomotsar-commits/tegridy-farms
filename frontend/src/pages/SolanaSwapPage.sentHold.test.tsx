@@ -25,6 +25,8 @@ const { toast, connection, wallet, jup, recheckOutcome, built } = vi.hoisted(() 
     getMultipleAccountsInfo: vi.fn(),
     getBlockHeight: vi.fn(),
     isBlockhashValid: vi.fn(),
+    // The final test run before the wallet (Phantom, ticket #467471: lib/solana/walletWrite.ts testBeforeWallet).
+    simulateTransaction: vi.fn(),
   },
   wallet: { sendTransaction: vi.fn(), publicKey: null as unknown },
   jup: {
@@ -33,7 +35,8 @@ const { toast, connection, wallet, jup, recheckOutcome, built } = vi.hoisted(() 
     simulateSwap: vi.fn(),
   },
   recheckOutcome: vi.fn(),
-  // What Jupiter's transaction deserializes to: none of its fields by default.
+  // What Jupiter's transaction deserializes to: web3.js cannot serialize under jsdom, so a
+  // stand-in this wallet pays, with what the final test run reads off it (fakeTx below).
   built: { tx: {} as unknown },
 }));
 
@@ -107,6 +110,7 @@ import {
 import { NOT_TEST_RUN_COPY } from '../lib/solana/swap/jupiterFeeRetry';
 import { JUPITER_WINDOW_BLOCKS } from '../lib/solana/swap/jupiterNote';
 import { notSignedCopy } from '../lib/solana/walletThrow';
+import { WRITE_COPY } from '../lib/solana/walletWrite';
 import { clearReceipt, lastReceipt } from '../lib/receipt';
 
 vi.setConfig({ testTimeout: 30_000 });
@@ -120,6 +124,14 @@ const quote = {
 const notYet = { context: { slot: 9 }, value: [null] };
 const HEIGHT = 1_000;
 const mine = () => swapPendingScope(OWNER.toBase58());
+
+/** Jupiter's swap, unsigned, paid by this wallet; `recentBlockhash`, the one handed to the wallet. */
+const fakeTx = (recentBlockhash?: string) => ({
+  version: 0,
+  message: { recentBlockhash, staticAccountKeys: [OWNER], compiledInstructions: [], header: { numRequiredSignatures: 1 } },
+  signatures: [new Uint8Array(64)],
+  serialize: () => new Uint8Array([1, 2, 3]),
+});
 
 beforeEach(() => {
   clearReceipt();
@@ -136,7 +148,9 @@ beforeEach(() => {
   connection.getMultipleAccountsInfo.mockReset().mockResolvedValue([]);
   connection.getBlockHeight.mockReset().mockResolvedValue(HEIGHT);
   connection.isBlockhashValid.mockReset().mockRejectedValue(new Error('not asked here'));
-  built.tx = {};
+  built.tx = fakeTx();
+  // The final test run passes, and the wallet keeps plenty of SOL after it.
+  connection.simulateTransaction.mockReset().mockResolvedValue({ context: { slot: 1 }, value: { err: null, logs: [], accounts: [{ lamports: 9_400_000_000, data: ['', 'base64'] }] } });
   wallet.sendTransaction.mockReset().mockResolvedValue(SIG);
   jup.getQuote.mockReset().mockResolvedValue(quote);
   jup.buildSwapTransaction.mockReset().mockResolvedValue('AAAA');
@@ -325,6 +339,28 @@ describe('a press that ends before a signature says what happened', () => {
     expect(amountBox().value).toBe('0.5');
   });
 
+  // Phantom, ticket #467471: a final test run that fails, or cannot finish, stops it before the wallet.
+  it('the final test run before the wallet refuses it: "Not sent" in its words, the wallet never asked, nothing held', async () => {
+    connection.simulateTransaction.mockResolvedValue({ context: { slot: 1 }, value: { err: { InstructionError: [3, { Custom: 6001 }] }, logs: ['Program log: custom program error: 0x1771'], accounts: [{ lamports: 9_400_000_000, data: ['', 'base64'] }] } });
+    fireEvent.click(await readyToBuy());
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Not sent', {
+      description: expect.stringMatching(/^The price moved past your \d+\.\d{2}% slippage\. Your wallet was not asked\. Nothing was sent\. Press again for a fresh price\.$/),
+    }));
+    expect(wallet.sendTransaction).not.toHaveBeenCalled();
+    expect(toast.warning).not.toHaveBeenCalled();
+    expect(readPendingTrades(mine())).toEqual([]);
+    expect(amountBox().value).toBe('0.5');
+  });
+
+  it('a final test run that cannot finish stops it there too: the wallet is never asked', async () => {
+    connection.simulateTransaction.mockRejectedValue(new Error('fetch failed: 503'));
+    fireEvent.click(await readyToBuy());
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Not sent', { description: WRITE_COPY.noAnswer }));
+    expect(wallet.sendTransaction).not.toHaveBeenCalled();
+    expect(readPendingTrades(mine())).toEqual([]);
+    expect(amountBox().value).toBe('0.5');
+  });
+
   // Island answer twenty-five, build 6: the toast is for errors only; a sent swap says nothing until its card.
   it('a sent swap raises no success toast, and no toast carries an em dash', async () => {
     fireEvent.click(await readyToBuy());
@@ -344,7 +380,7 @@ describe('a wallet answer lost before a signature came back', () => {
   const lost = () => new WalletSendTransactionError('failed to send transaction: fetch failed', new TypeError('fetch failed'));
   /** Seen valid at slot 100 by the probe; a later check (minContextSlot) answers `later`. */
   const blockhashAnswers = (later: { context: { slot: number }; value: boolean }) => {
-    built.tx = { message: { recentBlockhash: BH } };
+    built.tx = fakeTx(BH);
     connection.isBlockhashValid.mockImplementation(async (_h: string, o?: { minContextSlot?: number }) =>
       o?.minContextSlot ? later : { context: { slot: 100 }, value: true });
   };

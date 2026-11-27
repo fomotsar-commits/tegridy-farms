@@ -442,6 +442,16 @@ jobs:
           done
           node vendor/gondi-v3.2/build.mjs
 
+      # contracts/hyperevm is its own Foundry project (solc 0.8.29, Uniswap's compiler settings for
+      # V3OpenFeeAdapter), so the root build and the test matrix never see it. Its tests use Uniswap's
+      # exact V3 factory initcode; the byte check holds our adapter against Uniswap's live one.
+      - name: HyperEVM kit (Uniswap V3 + fee switch) tests and adapter bytes
+        working-directory: contracts/hyperevm
+        run: |
+          set -e
+          forge test
+          node scripts/check-adapter-bytes.mjs --offline
+
   # ─────────────────────────────────────────────────────────────────────
   # Test-slice manifest + coverage guard.
   #

@@ -5,7 +5,7 @@ import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import { flushSync } from 'react-dom';
 import { m } from 'framer-motion';
 import { toast } from 'sonner';
-import { PublicKey, VersionedTransaction, type Connection } from '@solana/web3.js';
+import { PublicKey, VersionedTransaction, type Connection, type Transaction } from '@solana/web3.js';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { usePageTitle } from '../hooks/usePageTitle';
 import { trackPageView } from '../lib/analytics';
@@ -35,7 +35,7 @@ import type { TxSummary } from '../components/solana/curve/ports';
 import { useVenueSwap } from '../components/swap/useVenueSwap';
 import { useReturnFocus, type OnSettled } from '../components/solana/curve/useTxFlow';
 import { holdReload } from '../lib/reloadHold';
-import { isSolanaFeeConfigured, isSolanaSwapLive, SOLANA_FEE_ACCOUNT, SOLANA_PLATFORM_FEE_BPS, SOL_MINT, USDC_MINT } from '../lib/solana';
+import { isSolanaFeeConfigured, isSolanaSwapLive, SOLANA_FEE_ACCOUNT, SOLANA_MAJOR_PAIR_FEE_BPS, SOLANA_PLATFORM_FEE_BPS, SOL_MINT, USDC_MINT } from '../lib/solana';
 import { clockFor, holdersFor, raiseReceipt } from '../lib/receipt';
 import { lastReading } from '../lib/heat/heatStore';
 import { amountText, settleSwapReceipt, type FeeRoute } from '../lib/solana/receiptRead';
@@ -81,6 +81,7 @@ import {
   NoRouteError,
   buildSwapTransaction,
   pickFeeMint,
+  platformFeeBpsFor,
   getUsdPrices,
   routeLabels,
   getShield,
@@ -118,23 +119,25 @@ import { perMillionPercent } from '../lib/solana/clmm/feeText';
 import { isFeeOnInput } from '../lib/solana/clmm/program';
 import { quietEnding } from '../components/swap/quietSwap';
 import { checkDcaPair, dcaToken2022Copy, DCA_MIN_PER_BUY_USD, DCA_UNREAD_COPY, DCA_UNREAD_NOTE, type DcaPairCheck } from '../lib/solana/swap/dcaPair';
-import { CHECK_KEEPS_FAILING, HELD_NOT_SENT, LOST_ANSWER_TITLE, OWN_POOL_REVIEW_OFFER, lostAnswerCopy, nothingSentCopy } from '../lib/solana/swap/walletCopy';
+import { CHECK_KEEPS_FAILING, HELD_NOT_SENT, LOST_ANSWER_TITLE, OWN_POOL_REVIEW_OFFER, nothingSentCopy } from '../lib/solana/swap/walletCopy';
 import { sendWalletSwap } from '../lib/solana/swap/walletSwapSend';
 import type { AggregatorSeen } from '../lib/launcher/solana/write/types';
-import { readSendThrow } from '../lib/solana/walletThrow';
+import { sendBuiltTx } from '../lib/solana/walletWrite';
+import type { TestRun } from '../lib/solana/v1Send';
 import { noteKey, readPendingTrades, swapPendingScope } from '../components/solana/curve/pendingTrade';
 import { fractionToBps, impactWarning } from '../components/solana/curve/uiFormat';
 import { SiteFeeRow } from '../components/swap/SiteFeeRow';
 import { TokenDetail } from '../components/solana/TokenDetail';
 import { PairChart } from '../components/solana/PairChart';
 import { PairAverageLine, type PairAverageTrade } from '../components/solana/PairAverageLine';
+import { VwapOrderTab } from '../components/solana/vwap/VwapOrderTab';
+import { useVwapRunner } from '../components/solana/vwap/useVwapRunner';
 import { ClockLine } from '../components/ClockLine';
 import { bungalowByAddress, getActiveBungalow } from '../lib/bungalows';
 import { markLanded } from '../lib/landed';
 import { openingBuyMint } from '../lib/solanaOpeningPair';
 import { setLastBuy } from '../lib/heat/lastBuy';
 import { recordActivity, getActivity, timeAgo } from '../lib/solanaActivity';
-import { pollConfirm } from '../lib/solana/confirm';
 import { surfaceUnconfirmedTx } from '../lib/txErrors';
 
 // The review of a swap in our own pool, and the note of one not confirmed yet: its own
@@ -209,27 +212,50 @@ const CANCEL_REPEAT_COST = 'the order is already closed, so a second cancel will
 /** How long a sent swap is watched before the page says it cannot tell (SPEC_S3). */
 const SWAP_CONFIRM_TIMEOUT_MS = 90_000;
 
+/** Nothing was sent, in the shared send's own words (lib/solana/walletWrite.ts). */
+class NotSent extends Error {
+  readonly declined: boolean;
+  constructor(message: string, declined: boolean) {
+    super(message);
+    this.name = 'NotSent';
+    this.declined = declined;
+  }
+}
+
+/** The wallet's lone signer, as wallet-adapter's useWallet gives it. */
+type SignTx = <T extends Transaction | VersionedTransaction>(tx: T) => Promise<T>;
+
+/** A Jupiter order transaction refused before any send, in words. */
+function jupiterRefused(run: TestRun, where: 'test' | 'send'): string {
+  const last = run.logs.length ? run.logs[run.logs.length - 1]! : JSON.stringify(run.err ?? 'no reason was given');
+  const clip = thrownWords(new Error(last));
+  return where === 'test'
+    ? `It did not pass its test run (${clip}), so your wallet was not asked. Nothing was sent.`
+    : `The network refused it before sending it (${clip}). Nothing was sent.`;
+}
+
 /**
- * Watch a sent transaction (polled, never subscribed: see lib/solana/confirm.ts).
+ * A transaction Jupiter built for this wallet (a DCA or limit order, placed or cancelled):
+ * test-run as built, the SOL checked, the wallet asked only to SIGN, and our own send with
+ * preflight on, watched (polled, never subscribed). Until 2026-11-17 the wallet signed AND
+ * sent it, untested (Phantom, ticket #467471).
  *
- * True once it confirmed. A revert the network reported throws, and each caller's
- * "failed" toast is right for that one. Anything short of either (a watch that ran out,
- * a status read that kept erroring) is NOT a failure: the transaction may still land,
- * and "failed" invites a second one that pays twice. That says "we can't tell, check
- * before you send it again" with the signature, and returns false.
- *
- * `repeatCost` completes "if it landed, ___" in the caller's own terms.
- *
- * The DCA and limit senders use this. The instant swap reads the same poller itself
- * (handleSwap), because it has more to say on each ending: the same warning here, plus
- * a row in recent activity and, for a revert, the signature and a link.
+ * The signature once it confirmed. A revert the network reported throws, and each caller's
+ * "failed" toast is right for that one. Nothing sent throws NotSent, with why. Anything
+ * else (a watch that ran out) is NOT a failure: it may still land, and "failed" invites a
+ * second one that pays twice. That says "we can't tell, check before you send it again"
+ * with the signature, and returns null. `repeatCost` completes "if it landed, ___".
  */
-async function confirmSent(connection: Connection, sig: string, repeatCost: string): Promise<boolean> {
-  const { outcome } = await pollConfirm(connection, sig);
-  if (outcome === 'confirmed') return true;
-  if (outcome === 'reverted') throw new Error('Transaction failed on-chain');
-  surfaceUnconfirmedTx(toast, { hash: sig, explorerUrl: `https://solscan.io/tx/${sig}`, repeatCost });
-  return false;
+async function signSendBuilt(connection: Connection, owner: PublicKey | null, sign: SignTx | undefined, b64: string, repeatCost: string): Promise<string | null> {
+  if (!owner) throw new NotSent('Connect a wallet first. Nothing was sent.', false);
+  if (!sign) throw new NotSent('This wallet cannot sign a transaction for this page to send, so nothing was sent.', false);
+  const tx = VersionedTransaction.deserialize(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)));
+  const end = await sendBuiltTx(connection, (t) => sign(t), owner, tx, { refused: jupiterRefused });
+  if (end.kind === 'not-sent') throw new NotSent(end.reason, end.declined === true);
+  if (end.outcome === 'confirmed') return end.signature;
+  if (end.outcome === 'reverted') throw new Error('Transaction failed on-chain');
+  surfaceUnconfirmedTx(toast, { hash: end.signature, explorerUrl: `https://solscan.io/tx/${end.signature}`, repeatCost });
+  return null;
 }
 
 interface TokenPickerProps {
@@ -239,37 +265,12 @@ interface TokenPickerProps {
   onClose: () => void;
 }
 
-/** A throw from the wallet's sendTransaction, kept apart from every other throw of a press. */
-class WalletThrew extends Error {
-  readonly thrown: unknown;
-  constructor(thrown: unknown) {
-    super('The wallet did not hand back a signature');
-    this.thrown = thrown;
-  }
-}
-
-/** The wallet signs and sends; a throw from it is marked as the wallet's. */
-async function viaWallet(send: () => Promise<string>): Promise<string> {
-  try {
-    return await send();
-  } catch (e) {
-    throw new WalletThrew(e);
-  }
-}
-
-/**
- * Says a press's throw when it was the wallet's, as every Solana write says it
- * (lib/solana/walletThrow.ts): a cancel, a wallet that never signed, or an answer that
- * did not come back, which may have been sent. `did` completes "whether ___".
- * 'other': not the wallet's, the caller says it.
- */
-function sayWalletThrew(err: unknown, did: string): 'other' | 'not-sent' | 'unsure' {
-  if (!(err instanceof WalletThrew)) return 'other';
-  const t = readSendThrow(err.thrown);
-  if (t.kind === 'declined') toast.info('Not sent', { description: t.message });
-  else if (t.kind === 'not-signed') toast.error('Not sent', { description: t.message });
-  else toast.warning(LOST_ANSWER_TITLE, { description: lostAnswerCopy(t.reason, did) });
-  return t.kind === 'unsure' ? 'unsure' : 'not-sent';
+/** Says a press's throw when nothing was sent (NotSent): true. False: the caller says it. */
+function sayNotSent(err: unknown): boolean {
+  if (!(err instanceof NotSent)) return false;
+  if (err.declined) toast.info('Not sent', { description: err.message });
+  else toast.error('Not sent', { description: err.message });
+  return true;
 }
 
 /** A throw's own words on one line, for inside "(...)". */
@@ -841,7 +842,7 @@ function EarnRail({ onPick }: { onPick: (t: SolToken) => void }) {
       {/* One line: how the holder earns, and what the venue takes. The rest is small print. */}
       <p className="text-white/55 text-[11px] mt-1.5">
         Its SOL value is built to rise with staking rewards.{' '}
-        {isSolanaFeeConfigured() ? `Platform fee: ${SOLANA_PLATFORM_FEE_BPS / 100}% via Jupiter.` : 'No platform fee.'}
+        {isSolanaFeeConfigured() ? `Platform fee: ${SOLANA_MAJOR_PAIR_FEE_BPS / 100}% via Jupiter.` : 'No platform fee.'}
       </p>
       <FinePrint summary="Details">
         <p>
@@ -849,7 +850,7 @@ function EarnRail({ onPick }: { onPick: (t: SolToken) => void }) {
           are added. There is no lockup, and you can sell back to SOL at any time. This page reads no staking rate,
           so it shows none: each provider publishes its own.{' '}
           {isSolanaFeeConfigured()
-            ? `A ${SOLANA_PLATFORM_FEE_BPS / 100}% fee applies when the buy goes through Jupiter. A buy in one of our pools pays that pool's own fee inside the quote, and no platform fee on top.`
+            ? `A ${SOLANA_MAJOR_PAIR_FEE_BPS / 100}% fee applies when the buy goes through Jupiter. A buy in one of our pools pays that pool's own fee inside the quote, and no platform fee on top.`
             : 'No platform fee is charged on the buy.'}
         </p>
       </FinePrint>
@@ -928,7 +929,7 @@ function DcaTab({ payToken, buyToken, payUsd, shieldWarnings, needsAck, ack, set
   onPickPay: () => void; onPickBuy: () => void;
 }) {
   const { connection } = useConnection();
-  const { publicKey, sendTransaction } = useWallet();
+  const { publicKey, signTransaction } = useWallet();
 
   const [totalAmount, setTotalAmount] = useState('');
   const [numBuys, setNumBuys] = useState(4);
@@ -982,18 +983,7 @@ function DcaTab({ payToken, buyToken, payUsd, shieldWarnings, needsAck, ack, set
   useEffect(() => { loadOrders(); }, [loadOrders]);
 
   /** The signature once it confirmed; null when it was sent and we cannot tell (already said). */
-  async function signSend(b64: string, repeatCost: string): Promise<string | null> {
-    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-    const tx = VersionedTransaction.deserialize(bytes);
-    // From the wallet's turn to the answer the page does not reload itself (lib/staleBuild.ts).
-    const release = holdReload();
-    try {
-      const sig = await viaWallet(() => sendTransaction(tx, connection));
-      return (await confirmSent(connection, sig, repeatCost)) ? sig : null;
-    } finally {
-      release();
-    }
-  }
+  const signSend = (b64: string, repeatCost: string) => signSendBuilt(connection, publicKey, signTransaction, b64, repeatCost);
 
   async function handlePlace() {
     if (!publicKey || !totalBase || sameToken) return;
@@ -1034,13 +1024,7 @@ function DcaTab({ payToken, buyToken, payUsd, shieldWarnings, needsAck, ack, set
       setTotalAmount('');
       loadOrders();
     } catch (err) {
-      const said = sayWalletThrew(err, 'the DCA was started');
-      if (said === 'other') toast.error('Could not start the DCA', { description: (err as Error).message });
-      if (said === 'unsure') {
-        // It may be running: clear the form so one more click does not start another.
-        setTotalAmount('');
-        loadOrders();
-      }
+      if (!sayNotSent(err)) toast.error('Could not start the DCA', { description: (err as Error).message });
     } finally {
       setPlacing(false);
     }
@@ -1057,9 +1041,7 @@ function DcaTab({ payToken, buyToken, payUsd, shieldWarnings, needsAck, ack, set
       recordActivity(publicKey.toBase58(), { sig, ts: Date.now(), kind: 'dca-cancel', summary: 'Cancelled a DCA' });
       loadOrders();
     } catch (err) {
-      const said = sayWalletThrew(err, 'the DCA was cancelled');
-      if (said === 'other') toast.error('Could not cancel', { description: (err as Error).message });
-      if (said === 'unsure') loadOrders();
+      if (!sayNotSent(err)) toast.error('Could not cancel', { description: (err as Error).message });
     } finally {
       setCancelling(null);
     }
@@ -1216,7 +1198,7 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
   onPickPay: () => void; onPickBuy: () => void;
 }) {
   const { connection } = useConnection();
-  const { publicKey, sendTransaction } = useWallet();
+  const { publicKey, signTransaction } = useWallet();
 
   const [sellAmount, setSellAmount] = useState('');
   const [price, setPrice] = useState('');
@@ -1252,18 +1234,7 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
   useEffect(() => { loadOrders(); }, [loadOrders]);
 
   /** The signature once it confirmed; null when it was sent and we cannot tell (already said). */
-  async function signSend(b64: string, repeatCost: string): Promise<string | null> {
-    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-    const tx = VersionedTransaction.deserialize(bytes);
-    // From the wallet's turn to the answer the page does not reload itself (lib/staleBuild.ts).
-    const release = holdReload();
-    try {
-      const sig = await viaWallet(() => sendTransaction(tx, connection));
-      return (await confirmSent(connection, sig, repeatCost)) ? sig : null;
-    } finally {
-      release();
-    }
-  }
+  const signSend = (b64: string, repeatCost: string) => signSendBuilt(connection, publicKey, signTransaction, b64, repeatCost);
 
   async function handlePlace() {
     if (!publicKey || !makingAmount || !takingAmount || sameToken) return;
@@ -1298,13 +1269,7 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
       setSellAmount(''); setPrice('');
       loadOrders();
     } catch (err) {
-      const said = sayWalletThrew(err, 'the order was placed');
-      if (said === 'other') toast.error('Could not place order', { description: (err as Error).message });
-      if (said === 'unsure') {
-        // It may be open: clear the form so one more click does not place another.
-        setSellAmount(''); setPrice('');
-        loadOrders();
-      }
+      if (!sayNotSent(err)) toast.error('Could not place order', { description: (err as Error).message });
     } finally {
       setPlacing(false);
     }
@@ -1326,9 +1291,7 @@ function LimitTab({ payToken, buyToken, shieldWarnings, needsAck, ack, setAck, o
       });
       loadOrders();
     } catch (err) {
-      const said = sayWalletThrew(err, 'the order was cancelled');
-      if (said === 'other') toast.error('Could not cancel', { description: (err as Error).message });
-      if (said === 'unsure') loadOrders();
+      if (!sayNotSent(err)) toast.error('Could not cancel', { description: (err as Error).message });
     } finally {
       setCancelling(null);
     }
@@ -1579,7 +1542,7 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
   const quoteSeenAt = useRef(new WeakMap<JupiterQuote, number>());
   const [swapping, setSwapping] = useState(false);
   const [picker, setPicker] = useState<'pay' | 'buy' | null>(null);
-  const [mode, setMode] = useState<'swap' | 'limit' | 'dca'>('swap');
+  const [mode, setMode] = useState<'swap' | 'limit' | 'dca' | 'vwap'>('swap');
   const [ack, setAck] = useState(false);
   const [prices, setPrices] = useState<Record<string, number>>({});
   const [shield, setShield] = useState<Record<string, ShieldWarning[]>>({});
@@ -1856,6 +1819,25 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
   // not confirmed yet holds Buy for that wallet until the chain answers (useVenueSwap).
   const pendingNote = venueSwap.pending.notes.length > 0;
   const { hold: holdNote, release: releaseNote, holdsNow } = venueSwap.pending;
+  // A VWAP order of this wallet runs from here, whichever tab of the form is open (not on
+  // the home card). Its slices are Jupiter swaps under this wallet's swap notes, so a slice
+  // and the Instant swap hold each other (components/solana/vwap/useVwapRunner.ts).
+  const vwapScope = publicKey ? swapPendingScope(publicKey.toBase58()) : null;
+  const vwapWhere = useVwapRunner({
+    enabled: !home,
+    priority: speed,
+    notes: {
+      holdsNow: () => vwapScope === null || holdsNow(vwapScope),
+      hold: (n) => { if (vwapScope) holdNote({ kind: 'jupiter-swap', ...n }, vwapScope); },
+      stillHeld: (n) => vwapScope !== null && readPendingTrades(vwapScope).some((x) => noteKey(x) === noteKey(n)),
+      release: (s) => { if (vwapScope) releaseNote(s, vwapScope); },
+    },
+    onLanded: (sig, o, paid) => {
+      const done = CASH_MINTS.has(o.buy.mint) && !CASH_MINTS.has(o.pay.mint) ? 'Sold' : 'Bought';
+      raiseSwapReceipt(connection, sig, { wallet: o.wallet, done, pay: o.pay, buy: o.buy, sent: paid, route: { kind: 'site', feeOwner: SOLANA_FEE_ACCOUNT || null } });
+      recordActivity(o.wallet, { sig, ts: Date.now(), kind: 'swap', summary: `VWAP slice: ${amountText(paid, o.pay.decimals)} ${o.pay.symbol} → ${o.buy.symbol}` });
+    },
+  });
   // A note that stands up while a review is open (another tab sent from this wallet) closes
   // it: the hold card takes its place. Not under a Sign already pressed: the send path
   // reads the notes again before the wallet (useVenueSwap).
@@ -1922,7 +1904,8 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
       }}
     />
   ) : null;
-  const feePct = (SOLANA_PLATFORM_FEE_BPS / 100).toFixed(2);
+  // The pair's own rate: 0.05% when both sides are majors, else the standard rate.
+  const feePct = (platformFeeBpsFor(payToken.mint, buyToken.mint) / 100).toFixed(2);
   // The fee can only be collected on a pair touching SOL, USDC or USDT (pre-created
   // fee ATAs). Drive the UI off the SAME decision the quote/swap use.
   const feeMintForPair = isSolanaFeeConfigured() ? pickFeeMint(payToken.mint, buyToken.mint) : null;
@@ -2440,7 +2423,7 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
       }
       if (outcome === 'unknown') {
         // The same "we can't tell, check before you send it again" the DCA and
-        // limit tabs raise (confirmSent above). A swap that may have landed with
+        // limit tabs raise (signSendBuilt above). A swap that may have landed with
         // no site fee says that too: the waiver is never silent in a result.
         surfaceUnconfirmedTx(toast, {
           hash: sig,
@@ -2991,7 +2974,7 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
           {/* Mode tabs: not on the home's card, which is an instant swap only. */}
           {!home && (
           <div className="flex gap-1 mb-4">
-            {(['swap', 'limit', 'dca'] as const).map((mTab) => (
+            {(['swap', 'limit', 'dca', 'vwap'] as const).map((mTab) => (
               <button
                 key={mTab}
                 type="button"
@@ -3004,7 +2987,7 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
                   border: mode === mTab ? '1px solid var(--color-stan)' : '1px solid rgba(255,255,255,0.12)',
                 }}
               >
-                {mTab === 'swap' ? 'Instant swap' : mTab === 'limit' ? 'Limit order' : 'DCA'}
+                {mTab === 'swap' ? 'Instant swap' : mTab === 'limit' ? 'Limit order' : mTab === 'dca' ? 'DCA' : 'VWAP'}
               </button>
             ))}
           </div>
@@ -3331,12 +3314,31 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
               ? 'No platform fee is charged here today.'
               : feeWaived
                 ? 'No platform fee on this route.'
-                : `A ${feePct}% platform fee applies on pairs that include SOL, USDC or USDT.`}
+                : `A ${SOLANA_PLATFORM_FEE_BPS / 100}% platform fee applies on pairs that include SOL, USDC or USDT, and ${SOLANA_MAJOR_PAIR_FEE_BPS / 100}% between SOL, USDC, USDT and staked SOL.`}
               </>
             )}
           </p>
             </fieldset>
             </>
+          ) : mode === 'vwap' ? (
+            <VwapOrderTab
+              payToken={payToken}
+              buyToken={buyToken}
+              payBalance={payBalance.raw}
+              feePct={feePct}
+              feeMintSymbol={feeMintSymbol}
+              warnings={shieldWarnings.map((w, i) => (
+                <p key={`vsh-${i}`} className={`flex items-start gap-1 ${shieldIsAlarming(w, w.mint) ? 'text-red-300' : 'text-white/50'}`}>
+                  <span aria-hidden="true">⚠</span><span>{w.message}</span>
+                </p>
+              ))}
+              needsAck={needsAck}
+              ack={ack}
+              setAck={onAck}
+              onPickPay={() => setPicker('pay')}
+              onPickBuy={() => setPicker('buy')}
+              where={vwapWhere}
+            />
           ) : mode === 'limit' ? (
             <LimitTab payToken={payToken} buyToken={buyToken} shieldWarnings={shieldWarnings} needsAck={needsAck} ack={ack} setAck={onAck} onPickPay={() => setPicker('pay')} onPickBuy={() => setPicker('buy')} />
           ) : (
