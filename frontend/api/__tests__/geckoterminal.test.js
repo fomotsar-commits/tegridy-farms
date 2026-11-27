@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import {
-  DEX_KEY, MAX_TXS_PER_CALL, VENUE_PROGRAM, __reset, decimal, decodePool, eventsIn, eventsOf, feeBpsOf,
+  DEX_KEY, MAX_SIGNATURE_PAGES, MAX_TXS_PER_CALL, TX_READS_AT_ONCE, VENUE_PROGRAM, __reset, decimal, decodePool, eventsIn, eventsOf, feeBpsOf,
   handleGeckoTerminal, latestBlock, metaplexMetadata, metaplexPda, programEvents, ratio, signaturesIn, token2022Metadata,
 } from "../_lib/geckoterminal.js";
 
@@ -116,8 +116,12 @@ describe("token names", () => {
   });
 });
 
-/** A chain that answers from the fixtures: one pool, its config, the three transactions in their slots. */
-function chain({ tip = 466_420_000, txs = [swapTx, depositTx, withdrawTx], skipSlots = [] } = {}) {
+/**
+ * A chain that answers from the fixtures: one pool, its config, the three transactions in their slots.
+ * `index` plays a node that lists each transaction's place in its block (`transactionIndex`); without it the
+ * place comes from getBlock, where every transaction here is third.
+ */
+function chain({ tip = 466_420_000, txs = [swapTx, depositTx, withdrawTx], skipSlots = [], index = null } = {}) {
   const bySig = new Map(txs.map((t) => [t.transaction.signatures[0], t]));
   const calls = [];
   const rpc = vi.fn(async (method, params) => {
@@ -128,7 +132,7 @@ function chain({ tip = 466_420_000, txs = [swapTx, depositTx, withdrawTx], skipS
     if (method === "getBlockTime") return skipSlots.includes(params[0]) ? null : 1_794_000_000 + (params[0] % 1000);
     if (method === "getSignaturesForAddress") {
       // Newest first, as the RPC lists them.
-      const list = [...bySig.values()].sort((a, b) => b.slot - a.slot).map((t) => ({ signature: t.transaction.signatures[0], slot: t.slot, blockTime: t.blockTime, err: null }));
+      const list = [...bySig.values()].sort((a, b) => b.slot - a.slot).map((t) => ({ signature: t.transaction.signatures[0], slot: t.slot, blockTime: t.blockTime, err: null, ...(index ? { transactionIndex: index(t) } : {}) }));
       const before = params[1]?.before;
       const from = before ? list.findIndex((s) => s.signature === before) + 1 : 0;
       return list.slice(from, from + (params[1]?.limit ?? 1000));
@@ -220,6 +224,68 @@ describe("the four endpoints", () => {
     expect(await eventsIn(c.rpc, 466405275, 466411766)).toEqual([]);
   });
 
+  it("/events: a history deeper than the walk can go is an error, never a shorter list", async () => {
+    // Every page is full and still above the slots asked for: the range itself was never reached.
+    let page = 0;
+    const rpc = vi.fn(async () => {
+      const p = page++;
+      return Array.from({ length: 1000 }, (_, i) => ({ signature: `p${p}s${i}`, slot: 900_000_000 - p * 1000 - i, err: null }));
+    });
+    await expect(signaturesIn(rpc, 1, 100)).rejects.toThrow(/deeper than/);
+    expect(rpc).toHaveBeenCalledTimes(MAX_SIGNATURE_PAGES);
+    const r = res();
+    await handleGeckoTerminal(req("events", { fromBlock: "1", toBlock: "100" }), r, { rpc, checkRateLimit: allow });
+    expect(r.statusCode).toBe(502);
+  });
+
+  it("/events: takes a transaction's place in its block from the signature list when the node gives one, and reads no block", async () => {
+    const listed = chain({ index: (t) => t.slot % 1000 });
+    expect((await eventsIn(listed.rpc, 466405061, 466405274)).map((e) => e.txnIndex)).toEqual([61, 274]);
+    expect(listed.calls).not.toContain("getBlock");
+    // A place that is not a whole number from 0 up is not believed: the block is read.
+    for (const bad of [-1, 2.5, "7", null]) {
+      __reset();
+      const c = chain({ index: () => bad });
+      expect((await eventsIn(c.rpc, 466405061, 466405274)).map((e) => e.txnIndex)).toEqual([2, 2]);
+      expect(c.calls.filter((m) => m === "getBlock")).toHaveLength(2);
+    }
+  });
+
+  it("/events: the busiest 50,000 slots so far (125 transactions) come back whole, read a few at a time, each with its own place", async () => {
+    const n = 125;
+    const txs = Array.from({ length: n }, (_, i) => ({ ...swapTx, slot: 466405061 + i, transaction: { ...swapTx.transaction, signatures: [`sig${i}`] } }));
+    const c = chain({ txs, index: (t) => t.slot % 1000 });
+    let open = 0;
+    let most = 0;
+    const rpc = async (method, params) => {
+      if (method !== "getTransaction") return c.rpc(method, params);
+      most = Math.max(most, ++open);
+      // Later transactions answer sooner: an answer filed in the order it arrived would sit under another's signature.
+      await new Promise((done) => setTimeout(done, (n - Number(params[0].slice(3))) % 7));
+      open--;
+      return c.rpc(method, params);
+    };
+    const events = await eventsIn(rpc, 466405061, 466405061 + n - 1);
+    expect(events.map((e) => [e.txnId, e.block.blockNumber, e.txnIndex])).toEqual(txs.map((t, i) => [`sig${i}`, t.slot, t.slot % 1000]));
+    expect(most).toBe(TX_READS_AT_ONCE);
+  });
+
+  it("/events: one transaction that does not come back fails the call and stops the reads behind it", async () => {
+    const txs = Array.from({ length: 40 }, (_, i) => ({ ...swapTx, slot: 466405061 + i, transaction: { ...swapTx.transaction, signatures: [`sig${i}`] } }));
+    const c = chain({ txs });
+    let asked = 0;
+    const rpc = async (method, params) => {
+      if (method !== "getTransaction") return c.rpc(method, params);
+      asked++;
+      if (params[0] === "sig2") throw new Error("getTransaction: no answer");
+      await new Promise((done) => setTimeout(done, 2));
+      return c.rpc(method, params);
+    };
+    await expect(eventsIn(rpc, 466405061, 466405200)).rejects.toThrow(/no answer/);
+    await new Promise((done) => setTimeout(done, 30));
+    expect(asked).toBeLessThan(2 * TX_READS_AT_ONCE + 1);
+  });
+
   it("/events: refuses bad slots and a range too wide, and says when a chunk holds too many transactions", async () => {
     const c = chain();
     for (const q of [{ fromBlock: "x", toBlock: "5" }, { fromBlock: "10", toBlock: "5" }, { fromBlock: "1", toBlock: "60000" }, {}]) {
@@ -229,7 +295,7 @@ describe("the four endpoints", () => {
     }
     const many = chain({ txs: Array.from({ length: MAX_TXS_PER_CALL + 1 }, (_, i) => ({ ...swapTx, slot: 466405061 + i, transaction: { ...swapTx.transaction, signatures: [`sig${i}`] } })) });
     const r = res();
-    await handleGeckoTerminal(req("events", { fromBlock: "466405061", toBlock: "466405200" }), r, { rpc: many.rpc, checkRateLimit: allow });
+    await handleGeckoTerminal(req("events", { fromBlock: "466405061", toBlock: String(466405061 + MAX_TXS_PER_CALL) }), r, { rpc: many.rpc, checkRateLimit: allow });
     expect(r.statusCode).toBe(502);
     expect(r.body.error).toMatch(/smaller chunk/);
   });
