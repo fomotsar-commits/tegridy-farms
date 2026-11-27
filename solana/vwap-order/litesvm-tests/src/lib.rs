@@ -1136,7 +1136,7 @@ impl World {
 }
 
 #[test]
-#[ignore = "needs VWAP_MAINNET_ACCOUNTS: node fetch-mainnet.mjs <file>"]
+#[ignore = "needs VWAP_MAINNET_ACCOUNTS: node fetch-mainnet.mjs > <file>"]
 fn rehearsal_on_the_venues_real_bayla_sol_pool() {
     let path = std::env::var("VWAP_MAINNET_ACCOUNTS").expect("VWAP_MAINNET_ACCOUNTS");
     let (mut w, last_trade) = mainnet_world(&path);

@@ -338,7 +338,7 @@ cargo build-sbf -- --locked
 cd ../../../tegridy-amm/programs/cp-swap && cargo build-sbf -- --locked
 cd ../../tests/cpi-caller && cargo build-sbf -- --locked
 cd ../../../vwap-order/litesvm-tests && cargo test
-node fetch-mainnet.mjs /tmp/mainnet.json && VWAP_MAINNET_ACCOUNTS=/tmp/mainnet.json cargo test -- --ignored
+node fetch-mainnet.mjs > /tmp/mainnet.json && VWAP_MAINNET_ACCOUNTS=/tmp/mainnet.json cargo test -- --ignored
 ```
 
 **The rehearsal** (`rehearsal_on_the_venues_real_bayla_sol_pool`, run 2026-11-21 on accounts read
