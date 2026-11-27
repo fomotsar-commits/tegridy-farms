@@ -65,7 +65,9 @@ every follow-up inside that post's thread. Their stated criteria are "a signific
 liquidity and daily volume", "open-sourced and audited smart contracts", and "an active
 community", with no numbers, and a warning that low-liquidity DEXes "may not be listed at
 all". The forum's pinned rules (read 2026-11-25) put DEXes with $500k liquidity and $50k a
-day of volume first. Staff never DM; a reply linking another Discord invite is a scam.
+day of volume first. Listing a DEX there is free and staff never DM: a reply linking another
+Discord invite, or a member who moves to DMs and asks for SOL, is a scam
+(both seen on our thread, 2026-11-25 and 11-26; the second had only the Member role).
 
 DexScreener also publishes an adapter a DEX can host for its indexer, "Adapter Specs" v1.1
 (https://docs.dexscreener.com/contact-us/adapter-specs): `/latest-block`, `/asset?id=`,
@@ -137,7 +139,9 @@ Requests are GitHub issues on `dextools-io/community-requests`; ours is #163.
   DexScreener's `#dex-listing` forum (one post per DEX; follow up inside the thread),
   DexTools issue #163.
 - 2026-11-26: the live DexTools feed URLs, as a comment on #163.
-- Read 2026-11-26: no reply yet on #163; GeckoTerminal still 404; DexScreener still no pair.
+- 2026-11-26: the adapter follow-up above, as a reply in the DexScreener thread.
+- Read 2026-11-26: no reply yet on #163; GeckoTerminal still 404; DexScreener still no pair,
+  and no staff reply in the thread.
 
 ## What each listing does for the money
 
