@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-20
 
+- Sharing your heat on X: the link in the post now carries the number it states, and so does the card's picture, so X draws a fresh card under every new number instead of the card it kept from an earlier share of the same link.
 - The city: tap a building and its close-up is now an architect's model in a gallery: pale wood, white card, cork and brass, the room's art laid as glazed tile, its pool poured in the community's colour, small white figures for scale, under a warm spotlight against a blue-hour wall. All twenty buildings.
 
 ### 2026-11-19
