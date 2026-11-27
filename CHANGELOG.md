@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-27
+
+- Jungle Bay: the collection once listed as Jungle Bay Ape Club is now called Jungle Bay across the site (the marketplace, NFT lending, the Gold Card, the FAQ and Towelie), and its marketplace page opens with a wide banner picture chosen by the Jungle Bay curator. Nine new Jungle Bay pieces now hang behind the Pools page, on the menu's Swap, Earn and Records pictures, behind NFT Finance in the Bayla room, and in every Bayla room spot that showed the picture of the apes around the bed, the onboarding screens included.
+
 ### 2026-11-26
 
 - Solana pools: a pool everyone has taken their money out of (only the 100 locked shares and a few units of each coin left, worth under a cent) can now be restarted at Jupiter's price. Where its Add was switched off, its row says Restart and its card offers Restart at market price. One transaction tops the pool up to Jupiter's price with a few more units, which stay in it for good, adds your deposit at that price, then takes a sliver of your new shares straight back out as a check: if anyone changed the pool before it runs, the whole transaction fails and only the network fee is spent. A restart pays no pool fee; the venue earns its usual share of every trade the pool carries afterwards. A pool with no market price still takes no deposit.
@@ -112,9 +116,9 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-14
 
+- Home, total value: BAYLA, BOBO, SOY, BRAINLET and RIZZ in our pools are counted at Jupiter's market price, and only while Jupiter reports at least $5,000 of trading depth for the coin, never at a price in our own pools, so no pool can set the price it is counted at. The "$200 pool here" mark on the swap list follows the same prices.
 - Pools: a link to a pairing coin (/pools?priced= with the whole address of USDC, BAYLA, BOBO, SOY, BRAINLET or RIZZ) opens on a list of every pool here priced in that coin, the oldest first, under the coin's whole address. "Every pool" goes back to the full list. Picking a token in the search never changes the list.
 - Pools: a new pool can no longer be opened for a token that takes a fee on every transfer, since its issuer would take that fee from every withdrawal and from the venue's cut. Pools that exist keep Add, Remove, Collect and Swap. The Rates details now say the venue's cut is paid in the coin the trader pays.
-- Home, total value: BAYLA, BOBO, SOY, BRAINLET and RIZZ in our pools are counted at Jupiter's market price, and only while Jupiter reports at least $5,000 of trading depth for the coin, never at a price in our own pools, so no pool can set the price it is counted at. The "$200 pool here" mark on the swap list follows the same prices.
 - Top bar, phone bar and menu: Yield is now Earn, the same name as the page it opens. It still opens your room's pool, or the list of every pool with no room. The Yield Routing page keeps its name.
 - Marketplace: a new look, on the same contracts. It opens straight on the collections with no splash, and the collage background, the scrolling strip, the glitch between tabs and the click sounds are gone. Pages are dark and plain with one accent colour (the theme button switches between lime, ice blue and amber), a collection opens on its name, its numbers and five of its pieces, gallery pictures are square, and the phone's bottom bar has drawn icons. Buying, listing, offers and the flat 0.5% fee are unchanged. The art studio no longer has marketplace slots, so a bungalow's skin does not dress the marketplace. Elsewhere on the site, loading placeholders shimmer in the site's own purple tint.
 - Home page, with no bungalow entered: under the heat reader, the six buttons a bungalow's hero has, named for what they do: Trade, Add, Stake, Scan, Marketplace and NFT loans. Each opens what the top bar or the menu opens (Trade opens the Buy sheet over the home). Read Heat stays the one filled button. Marketplace is on the home page again, as a button, for the first time since 2026-10-24.

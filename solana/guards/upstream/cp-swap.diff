@@ -1113,7 +1113,14 @@
 >         ),
 >         ErrorCode::SwapNotDirect
 >     );
-108,109c117,124
+103a113,118
+>     // memetics.finance, 2026-11-24: the price booked for the time since the last swap is the
+>     // one that swap left, not one read from the vaults now (states/pool.rs recorded_price_x32):
+>     // coins sent straight into a vault since then are in no average.
+>     let (token_0_price_x64, token_1_price_x64) = pool_state
+>         .recorded_price_x32()
+>         .unwrap_or((token_0_price_x64, token_1_price_x64));
+108,109c123,130
 <     let creator_fee_rate =
 <         pool_state.adjust_creator_fee_rate(ctx.accounts.amm_config.creator_fee_rate);
 ---
@@ -1125,14 +1132,23 @@
 >             pool_state.adjust_creator_fee_rate(ctx.accounts.amm_config.creator_fee_rate),
 >             is_creator_fee_on_input,
 >         );
-114c129
+114c135
 <         ctx.accounts.amm_config.trade_fee_rate,
 ---
 >         trade_fee_rate,
-118c133
+118c139
 <         is_creator_fee_on_input,
 ---
 >         creator_fee_taken_on_input,
+200a222,229
+>     )?;
+> 
+>     // memetics.finance, 2026-11-24: what this swap left in the two vaults, for the next one's
+>     // price record. The vault gets the amount less the coin's own transfer fee.
+>     pool_state.record_balances_after_swap(
+>         trade_direction,
+>         ctx.accounts.input_vault.amount.checked_add(actual_amount_in).ok_or(ErrorCode::MathOverflow)?,
+>         ctx.accounts.output_vault.amount.checked_sub(output_transfer_amount).ok_or(ErrorCode::MathOverflow)?,
 === src/instructions/swap_base_output.rs ===
 13a14,21
 >     // memetics.finance: the swap guard, as in swap_base_input (states/config.rs refuses_swap).
@@ -1143,7 +1159,14 @@
 >         ),
 >         ErrorCode::SwapNotDirect
 >     );
-46,47c54,61
+41a50,55
+>     // memetics.finance, 2026-11-24: the price booked for the time since the last swap is the
+>     // one that swap left, not one read from the vaults now (states/pool.rs recorded_price_x32):
+>     // coins sent straight into a vault since then are in no average.
+>     let (token_0_price_x64, token_1_price_x64) = pool_state
+>         .recorded_price_x32()
+>         .unwrap_or((token_0_price_x64, token_1_price_x64));
+46,47c60,67
 <     let creator_fee_rate =
 <         pool_state.adjust_creator_fee_rate(ctx.accounts.amm_config.creator_fee_rate);
 ---
@@ -1155,14 +1178,23 @@
 >             pool_state.adjust_creator_fee_rate(ctx.accounts.amm_config.creator_fee_rate),
 >             is_creator_fee_on_input,
 >         );
-52c66
+52c72
 <         ctx.accounts.amm_config.trade_fee_rate,
 ---
 >         trade_fee_rate,
-56c70
+56c76
 <         is_creator_fee_on_input,
 ---
 >         creator_fee_taken_on_input,
+142a163,170
+>     )?;
+> 
+>     // memetics.finance, 2026-11-24: what this swap left in the two vaults, for the next one's
+>     // price record. The vault gets the amount less the coin's own transfer fee.
+>     pool_state.record_balances_after_swap(
+>         trade_direction,
+>         ctx.accounts.input_vault.amount.checked_add(input_transfer_amount - input_transfer_fee).ok_or(ErrorCode::MathOverflow)?,
+>         ctx.accounts.output_vault.amount.checked_sub(output_transfer_amount).ok_or(ErrorCode::MathOverflow)?,
 === src/states/config.rs ===
 1a2
 > use anchor_lang::solana_program::instruction::TRANSACTION_LEVEL_STACK_HEIGHT;
@@ -1518,6 +1550,83 @@
 >         // 99 units in on the 1% tier: a 1-unit fee (rounded up), and neither share reaches a unit.
 >         assert_eq!(split(99, 10_000, 0, 104_000, 56_000), (1, 0, 0, 0));
 >     }
+=== src/states/pool.rs ===
+127a128,132
+>     ///
+>     /// memetics.finance, 2026-11-24: `padding[0]` and `padding[1]` hold the pool's two
+>     /// balances (token 0, token 1, less the fees owed) as its last swap left them: see
+>     /// `recorded_price_x32`. The field keeps its name and size, so no account layout and no
+>     /// IDL line moves; an account written before this reads 0, 0 there.
+230a236,277
+>     /// memetics.finance, 2026-11-24: the price the pool's last swap left, for the price record.
+>     ///
+>     /// Upstream writes "the price before this swap, times the seconds since the last one" to
+>     /// the price record, and reads that price from the vaults' balances. Coins sent straight
+>     /// into a vault (a plain transfer, no swap) change the balances without the record being
+>     /// written, so the next swap booked the gifted price for the whole quiet stretch before
+>     /// it: an average anyone could set in one transaction. The price for that stretch is the
+>     /// one the last swap left (Uniswap V2's rule: its record is fed from the reserves it
+>     /// stored, never from balances). None for a pool that has not swapped since this build:
+>     /// the caller then uses the balances, as upstream.
+>     pub fn recorded_price_x32(&self) -> Option<(u128, u128)> {
+>         let padding = self.padding;
+>         let (token_0_amount, token_1_amount) = (padding[0], padding[1]);
+>         if token_0_amount == 0 || token_1_amount == 0 {
+>             return None;
+>         }
+>         Some((
+>             token_1_amount as u128 * Q32 / token_0_amount as u128,
+>             token_0_amount as u128 * Q32 / token_1_amount as u128,
+>         ))
+>     }
+> 
+>     /// Keeps the two vault balances a swap left (less the fees owed, which this swap's own
+>     /// `update_fees` has already counted) for the next swap's price record.
+>     pub fn record_balances_after_swap(
+>         &mut self,
+>         direction: TradeDirection,
+>         input_vault_after: u64,
+>         output_vault_after: u64,
+>     ) -> Result<()> {
+>         let (vault_0, vault_1) = match direction {
+>             TradeDirection::ZeroForOne => (input_vault_after, output_vault_after),
+>             TradeDirection::OneForZero => (output_vault_after, input_vault_after),
+>         };
+>         let (token_0_amount, token_1_amount) = self.vault_amount_without_fee(vault_0, vault_1)?;
+>         let mut padding = self.padding;
+>         padding[0] = token_0_amount;
+>         padding[1] = token_1_amount;
+>         self.padding = padding;
+>         Ok(())
+>     }
+> 
+378a426,451
+>     }
+> 
+>     /// memetics.finance, 2026-11-24: the price record is fed from what the last swap left.
+>     #[test]
+>     fn the_recorded_price_is_what_the_last_swap_left_less_the_fees_owed() {
+>         let mut pool = PoolState::default();
+>         assert_eq!(pool.recorded_price_x32(), None, "a pool that has not swapped since this build");
+>         pool.protocol_fees_token_0 = 10;
+>         pool.fund_fees_token_1 = 20;
+>         pool.creator_fees_token_1 = 30;
+>         // Token 0 came in, token 1 went out: 1,010 and 2,050 in the vaults, 1,000 and 2,000 net.
+>         pool.record_balances_after_swap(TradeDirection::ZeroForOne, 1_010, 2_050).unwrap();
+>         assert_eq!(pool.recorded_price_x32(), Some((2 * Q32, Q32 / 2)));
+>         assert_eq!(pool.recorded_price_x32(), Some(pool.token_price_x32(1_010, 2_050).unwrap()));
+>         // The other way round, the same two vaults are named in the other order.
+>         pool.record_balances_after_swap(TradeDirection::OneForZero, 4_050, 1_010).unwrap();
+>         assert_eq!(pool.recorded_price_x32(), Some((4 * Q32, Q32 / 4)));
+>         // Coins sent to a vault since then are in no recorded price.
+>         assert_ne!(pool.recorded_price_x32(), Some(pool.token_price_x32(9_010, 4_050).unwrap()));
+>         // Only the first two words are used.
+>         let padding = pool.padding;
+>         assert_eq!(padding[..2], [1_000, 4_000]);
+>         assert!(padding[2..].iter().all(|w| *w == 0));
+>         // A vault emptied to its fees is no price.
+>         pool.record_balances_after_swap(TradeDirection::ZeroForOne, 10, 2_050).unwrap();
+>         assert_eq!(pool.recorded_price_x32(), None);
 === src/utils/token.rs ===
 16,23d15
 < use std::collections::HashSet;

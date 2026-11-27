@@ -534,7 +534,7 @@ export default function PremiumPage() {
             <div className="flex-1 text-center md:text-left">
               <h3 className="text-white text-[15px] font-semibold mb-1">JBAC NFT Holders</h3>
               <p className="text-white text-[13px] leading-relaxed">
-                Own a Jungle Bay Ape Club NFT? You get lifetime Gold Card access for free.
+                Own a Jungle Bay NFT? You get lifetime Gold Card access for free.
                 No subscription needed — just claim your access.
               </p>
             </div>

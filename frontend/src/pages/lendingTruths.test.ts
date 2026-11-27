@@ -28,7 +28,7 @@ describe('the FAQ on NFT lending', () => {
     // The window is the loan contract's setting (getMinLockPeriod), which the Safe can change at once.
     // ...with the date it was read, as every chain figure on the site (1500 bps on 2026-11-24).
     expect(a).toMatch(/Between 15% and 85% of a loan's term \(read on chain 2026‑11‑24; the venue's Safe can change that window at once\), another lender/);
-    expect(a).toMatch(/an NFT from Jungle Bay Ape Club, Nakamigos or GNSS Art\./);
+    expect(a).toMatch(/an NFT from Jungle Bay, Nakamigos or GNSS Art\./);
   });
 
   // AuctionLoanLiquidator.liquidateLoan reverts while a currency's min bid is 0
@@ -70,7 +70,7 @@ describe('Towelie on NFT lending', () => {
   it('says how the lender earns, not only what the venue keeps', () => {
     const entry = KNOWLEDGE_BASE.find((e) => e.keywords.includes('lending') && e.keywords.includes('borrow'));
     expect(entry?.answer).toMatch(/The lender keeps 95% of the interest and the venue 5%\./);
-    expect(entry?.answer).toMatch(/Lock a Jungle Bay Ape Club, Nakamigos or GNSS Art NFT/);
+    expect(entry?.answer).toMatch(/Lock a Jungle Bay, Nakamigos or GNSS Art NFT/);
   });
 
   it('says another lender can take a loan over, inside a window the Safe can change', () => {

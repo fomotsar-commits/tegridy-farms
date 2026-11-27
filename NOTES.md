@@ -15,6 +15,39 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-26: a deposit's maxima do not hold a topped-up cp-swap pool to its price, and a top-up is any holder's to take
+
+**Believed:** to restart a near-empty cp-swap pool at the market price, send its short side up to
+the target ratio and deposit with tight maxima in the same transaction: anyone who moves the pool
+first makes a maximum fail. And a pool with only a few shares besides the locked 100 is close
+enough to empty that the top-up goes to nobody.
+
+**Measured** (PR #1338, "restart a pool everyone has left, at Jupiter's price"; read-only mainnet
+simulations of the site's own builder on the dead BIG BRAIN / BAYLA pool, nothing signed, 2026-11-26):
+
+- A trade or a gift into a vault makes a share cost more, and a maximum refuses it. But someone
+  who first deposits their own shares at the old dust price adds shares, so the top-up is spread
+  over more of them and a share costs less: every maximum still passes and the deposit lands
+  between the old price and the market's. Only a floor catches that, and the pool program's only
+  floor is a withdrawal's minimum. With 1,000 shares added at the dust price first, the restart
+  failed at its check-back with `ExceededSlippage` (6005); the same attack with the check-back's
+  minima set to 1 went through.
+- A top-up into a pool that anyone still holds shares in is theirs to withdraw, and a holder can
+  inflate it first by sending coins into the vaults. The program counts every share not withdrawn
+  in `lp_supply`, ones destroyed with a plain SPL burn included, so a count above 100 cannot tell
+  a held share from a burned one: exactly 100 (`LOCKED_LP`) is the only count that proves nobody
+  holds any. The first version (never pushed) offered a restart for any pool under 100,000 shares;
+  in an independent review's run a 0.05 SOL restart handed another LP about 1 SOL.
+- Putting an attacker's instruction into a transaction the site built made a later instruction die
+  of "exceeded CUs meter", because the builder sets a tight compute-unit limit. That failure says
+  nothing about the guard.
+
+**Do:** after topping a pool up, take a sliver of the new shares straight back out in the same
+transaction (a check-back), its minima set from your own plan, so the deposit is held from below as
+well as above. Restart only a pool whose `lp_supply` is exactly 100. To test a guard by simulating
+an attack on a built transaction, raise the compute-unit limit in the simulated copy (to 1,400,000,
+say) so the guard itself is what passes or fails. Code: `frontend/src/lib/solana/lp/restart.ts`.
+
 ## 2026-11-25: a test that lifts a fault after a reload can lose to the page's own check of it
 
 **Believed:** once a reloaded page shows its "may still be landing" card, a test can stop failing
