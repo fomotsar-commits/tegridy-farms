@@ -6,13 +6,15 @@
 // written.
 //   node scripts/lock.ts show <inputs.json> <out>
 //   node scripts/lock.ts announce <inputs.json> <out> --pool <A>,<B> [--fee-share <n>|off] [--base-fee <a>/<b>] [--dynamic-fee on|off] [--stake key:<hash>|script:<hash>|none]
-//   node scripts/lock.ts announce <inputs.json> <out> --setting [--opening-fee <lovelace>] [--batchers <hash>,<hash>]
+//   node scripts/lock.ts announce <inputs.json> <out> --setting [--opening-fee <lovelace>] [--batchers <hash>,<hash>] [--other-batcher]
 //   node scripts/lock.ts execute <inputs.json> <out> --index <n> [the change's flags, checked against the announced one] [--simulate]
 //   node scripts/lock.ts cancel <inputs.json> <out> --index <n>
 //   node scripts/lock.ts withdraw <inputs.json> <out> --pool <A>,<B>
 // Assets: "ada", or "<policy hex>.<name hex>". --valid-for <minutes> (default 120, at most 720):
 // how long the owners have to sign and send it. An Announce is ready 48 hours after that. A
 // withdrawal waits for nothing: it takes the pool's whole earned share to the inputs' treasury.
+// A setting announced with any batcher but inputs.batcherKeyHash is refused unless --other-batcher
+// says it is meant (the fields not asked for are copied from the chain's read).
 // --simulate (execute only): the Execute dated just after ready_at, judged offline by Aiken
 // (AIKEN=<aiken 1.0.24>) with the network's slot times, written as a .draft (never signable).
 // <out> is deploy.ts's: scripts.json and state.json (the reference scripts) name the lock, the pool
@@ -22,7 +24,7 @@ import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import CSL from '@emurgo/cardano-serialization-lib-nodejs';
 import { checkMagic } from '../cosign/review.ts';
-import { checkInputs, checkNothingPending, NAMES, plainFunds, type DeployInputs, type Scripts } from '../src/deploy.ts';
+import { checkInputs, checkNothingPending, NAMES, plainFunds, scriptsFor, type DeployInputs } from '../src/deploy.ts';
 import { Koios } from '../src/koios.ts';
 import {
   GRACE_MS,
@@ -30,6 +32,7 @@ import {
   announceSpec,
   announceWindow,
   cancelSpec,
+  checkBatchers,
   decodeState,
   executeSpec,
   executeWindow,
@@ -74,9 +77,9 @@ checkNothingPending(raw);
 const inputs: DeployInputs = { ...raw, openingFee: BigInt(raw.openingFee) };
 checkInputs(inputs);
 const network = inputs.network as 0 | 1;
-const scripts: Scripts = JSON.parse(readFileSync(join(out, 'scripts.json'), 'utf8')).scripts;
+const scripts = scriptsFor(JSON.parse(readFileSync(join(out, 'scripts.json'), 'utf8')), inputs);
 const state = JSON.parse(readFileSync(join(out, 'state.json'), 'utf8')) as { refs: Record<string, string>; txs: Record<string, string> };
-const d: LockDeployment = { network, lock: scripts.lock.hash, authen: scripts.authen.hash, pool: scripts.pool.hash, ownerA: inputs.ownerA, ownerB: inputs.ownerB, treasury: inputs.treasury };
+const d: LockDeployment = { network, lock: scripts.lock.hash, authen: scripts.authen.hash, pool: scripts.pool.hash, ownerA: inputs.ownerA, ownerB: inputs.ownerB, treasury: inputs.treasury, batcher: inputs.batcherKeyHash };
 
 const koiosUrl = process.env.KOIOS_URL ?? '';
 const ogmios: Endpoint = { url: process.env.OGMIOS_URL ?? '', timeoutMs: 60_000 };
@@ -197,6 +200,7 @@ if (cmd === 'announce') {
   if (has('--setting')) {
     if (asksPool) throw new LockRefused('a pool flag with --setting: announce them apart');
     change = { kind: 'SetGlobalSetting', setting: settingChange(settingNow(setting.outputHex), settingAsk(), d) };
+    if (!has('--other-batcher')) checkBatchers(change.setting, inputs.batcherKeyHash);
   } else {
     const p = (flag('--pool') ?? '').split(',');
     if (p.length !== 2) throw new LockRefused('--pool <A>,<B> (or --setting)');

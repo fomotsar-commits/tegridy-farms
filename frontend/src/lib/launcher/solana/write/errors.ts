@@ -115,6 +115,19 @@ export const LP_FAILURE_COPY: Record<Exclude<LpKind, 'lp-create'>, LpFailureCopy
     accountFrozen: LP_FROZEN,
     ataInvalidOwner: LP_ATA_OWNER,
   },
+  // A restart's deposit refuses above its maxima and its check-back below its minima, both
+  // as 6005: either way the pool was not where it was read, and the whole restart undid itself.
+  'lp-restart': {
+    notApproved:
+      "Deposits or withdrawals were switched off on this pool by the pool program's admin (the team's vault) before this ran. Nothing was added.",
+    exceededSlippage:
+      'The pool changed before this ran (someone traded or added to it first), so it was no longer where it was read. The restart stopped and nothing went in; only the network fee was spent. Start over to see the new amounts.',
+    zeroTradingTokens: 'Too small to restart this pool: one side would round to zero. Put in more.',
+    booksOff: "The pool's books did not add up when this ran (error {n}). Do not add to this pool; tell us.",
+    heldTooFew: null,
+    accountFrozen: LP_FROZEN,
+    ataInvalidOwner: LP_ATA_OWNER,
+  },
 };
 
 /**
@@ -321,7 +334,7 @@ export function explainFailure(
     }
     // Both token programs number "insufficient funds" 1.
     if (program === 'other' && TOKEN_PROGRAMS.has(id) && code === 1) {
-      return { program, code, message: kind === 'lp-deposit' || kind === 'lp-create' ? LP_SHORT_OF_EITHER : 'You do not hold that many tokens.' };
+      return { program, code, message: kind === 'lp-deposit' || kind === 'lp-create' || kind === 'lp-restart' ? LP_SHORT_OF_EITHER : 'You do not hold that many tokens.' };
     }
     if (/insufficient lamports/i.test(joined)) return { program, code, message: NOT_ENOUGH_SOL };
     if (/exceeded CUs meter|Computational budget exceeded/i.test(rest)) {

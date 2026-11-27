@@ -110,6 +110,12 @@ pub fn swap_base_input(ctx: Context<Swap>, amount_in: u64, minimum_amount_out: u
         ctx.accounts.input_vault.amount,
         ctx.accounts.output_vault.amount,
     )?;
+    // memetics.finance, 2026-11-24: the price booked for the time since the last swap is the
+    // one that swap left, not one read from the vaults now (states/pool.rs recorded_price_x32):
+    // coins sent straight into a vault since then are in no average.
+    let (token_0_price_x64, token_1_price_x64) = pool_state
+        .recorded_price_x32()
+        .unwrap_or((token_0_price_x64, token_1_price_x64));
     let constant_before = u128::from(total_input_token_amount)
         .checked_mul(u128::from(total_output_token_amount))
         .unwrap();
@@ -213,6 +219,14 @@ pub fn swap_base_input(ctx: Context<Swap>, amount_in: u64, minimum_amount_out: u
         output_transfer_amount,
         ctx.accounts.output_token_mint.decimals,
         &[&[crate::AUTH_SEED.as_bytes(), &[pool_state.auth_bump]]],
+    )?;
+
+    // memetics.finance, 2026-11-24: what this swap left in the two vaults, for the next one's
+    // price record. The vault gets the amount less the coin's own transfer fee.
+    pool_state.record_balances_after_swap(
+        trade_direction,
+        ctx.accounts.input_vault.amount.checked_add(actual_amount_in).ok_or(ErrorCode::MathOverflow)?,
+        ctx.accounts.output_vault.amount.checked_sub(output_transfer_amount).ok_or(ErrorCode::MathOverflow)?,
     )?;
 
     // update the previous price to the observation

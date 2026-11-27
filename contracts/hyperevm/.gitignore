@@ -1,0 +1,6 @@
+out/
+cache/
+# Rehearsals (local fork, testnet) write broadcasts here. After the REAL mainnet deploy,
+# commit that run on purpose: git add -f broadcast/<Script>/999/run-<timestamp>.json
+broadcast/
+deployments/*.fee-job-state.json

@@ -27,6 +27,10 @@ uint = "0.10.0"
 solana-security-txt = "1.1.1"
 bytemuck = { version = "1.4.0", features = ["derive", "min_const_generics"] }
 arrayref = { version = "0.3.6" }
+# memetics.finance, 2026-11-14: tells a wallet's key from a program's address (states/config.rs
+# `may_name_keeper`). Already built into this program through anchor-spl's token code, so it
+# adds no crate; on chain it asks the runtime's own curve syscall.
+solana-curve25519 = "=2.3.13"
 
 [dev-dependencies]
 spl-math = { version = "0.3", features = ["no-entrypoint"] }

@@ -170,6 +170,16 @@ export function trackPageView(pageName: string): void {
   track('page_view', { pageName });
 }
 
+/**
+ * A Jupiter swap handed to the wallet with NO site fee: the one retry after Jupiter's 6014
+ * (lib/solana/swap/jupiterFeeRetry.ts), counted so the owner can see whether it still fires.
+ * The name only: no coin, amount, route or wallet. Consent-gated like every event here.
+ */
+export const SITE_FEE_WAIVED_EVENT = 'solana_site_fee_waived';
+export function trackSiteFeeWaived(): void {
+  track(SITE_FEE_WAIVED_EVENT, {});
+}
+
 export function trackWalletConnect(walletName: string): void {
   track('wallet_connect', { walletName });
 }

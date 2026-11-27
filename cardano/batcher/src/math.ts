@@ -11,9 +11,12 @@
 /** utils.ak `default_fee_denominator`. */
 export const FEE_DENOMINATOR = 10_000n;
 
-/** Aiken `/` (Plutus divideInteger): floor division. Division by zero fails, as on chain. */
+/**
+ * Aiken `/` (Plutus divideInteger): floor division. Division by zero fails, as on chain: the
+ * batch with this order in it would fail (a ContractFailure, so the order is left alone, never the round).
+ */
 export function div(a: bigint, b: bigint): bigint {
-  if (b === 0n) throw new Error('division by zero');
+  if (b === 0n) throw new ContractFailure('division by zero');
   const q = a / b;
   return a % b !== 0n && a < 0n !== b < 0n ? q - 1n : q;
 }

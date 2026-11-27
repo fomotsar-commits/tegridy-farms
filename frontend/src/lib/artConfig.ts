@@ -231,6 +231,20 @@ export const ART = {
   // Lending intro card (nft-finance:2). Like the drop above, it is NOT in
   // ART_POOL_ALL, so no unpinned surface's rotation moves.
   stairwellCrew: { id: 'stairwell-crew', src: '/art/drop/stairwell-crew.webp', title: 'Stairwell Crew', description: 'Four on the railing, looking down' },
+  // 2026-11-26: the Jungle Bay curator's replacement set. Like the stairwell
+  // photo, NOT in ART_POOL_ALL: each one shows only where it is pinned (the
+  // Pools background, three menu pictures, and in Bayla the NFT Finance
+  // background plus every spot the ape-in-bed piece used to fill), so no
+  // unpinned surface's rotation moves.
+  jbSkullReader: { id: 'jb-skull-reader', src: '/art/drop/jb-skull-reader.webp', title: 'The Reader', description: 'A green fire under the skull ruin' },
+  jbIslandGrave: { id: 'jb-island-grave', src: '/art/drop/jb-island-grave.webp', title: 'Jungle Bay Island', description: 'The old stone, still smoking' },
+  jbIslandGraveWide: { id: 'jb-island-grave-wide', src: '/art/drop/jb-island-grave-wide.webp', title: 'Jungle Bay Island (wide)', description: 'The old stone, still smoking' },
+  jbJmDesk: { id: 'jb-jm-desk', src: '/art/drop/jb-jm-desk.webp', title: 'JM at the Desk', description: 'A desk in the ferns' },
+  jbPond: { id: 'jb-pond', src: '/art/drop/jb-pond.webp', title: 'The Pond', description: 'A soak under the falls' },
+  jbPalmPeak: { id: 'jb-palm-peak', src: '/art/drop/jb-palm-peak.webp', title: 'Palm Peak', description: 'One palm on the summit' },
+  jbRainDoor: { id: 'jb-rain-door', src: '/art/drop/jb-rain-door.webp', title: 'Rain at the Door', description: 'Company outside' },
+  jbGoldScreen: { id: 'jb-gold-screen', src: '/art/drop/jb-gold-screen.webp', title: 'Gold Screen', description: 'The island and its spirit' },
+  jbStage: { id: 'jb-stage', src: '/art/drop/jb-stage.webp', title: 'On Stage', description: 'JB across the chest' },
 };
 
 /**

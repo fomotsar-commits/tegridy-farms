@@ -15,6 +15,7 @@ import { usePendingTrades, type CheckSignature, type PendingTradesState } from '
 import { useLpGate } from '../curve/useWriteGate';
 import type { CreateFacts, CurveWriteConfig, GateRpc, LpGate, LpWriteApi, WriteRpc } from '../curve/ports';
 import { loadLpWriteApi } from './lpWriteApi';
+import { holdPress } from '../../../lib/bringIntoView';
 import type { LpReaders } from './readers';
 
 /**
@@ -193,6 +194,9 @@ export function LpWritesProvider({
   );
   const close = useCallback(() => {
     if (busyRef.current) return;
+    // Focus goes back to the opener and the page jumps to it: a double tap's second tap on Close
+    // landed on the opener and opened the form again (Fable read, 2026-11-24).
+    holdPress();
     setActive(null);
     setFocusOpener((n) => n + 1);
   }, []);

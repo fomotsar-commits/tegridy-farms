@@ -1,0 +1,61 @@
+name: Venue Sweep
+
+# Once a day, moves every own pool's set-aside fee shares to their owners with the pool
+# program's `sweep_fees` (solana/tegridy-amm lib.rs, 2026-11-15): the venue's share to the
+# Squads vault's own token accounts, the island's to the Workshop's. The PROGRAM derives and
+# enforces every destination, so this job cannot send a coin anywhere else; its key holds only
+# gas money (the network fee, and once per new coin an owner's token-account rent).
+#
+# Owner ruling 2026-11-15: every venue fee lands in the treasury by itself.
+#
+# It sends only when the repository variable VENUE_SWEEP_LIVE is "true" (set it after the
+# upgrade that adds sweep_fees has executed), or on a manual run with "live" ticked. Otherwise
+# it reads and simulates, and says what it would sweep. Before the upgrade, the simulation's
+# "no such instruction" is reported and the run is green. No npm install: no third-party code
+# runs next to the key (the same rule as venue-volume.yml).
+
+on:
+  schedule:
+    - cron: "41 7 * * *"
+  workflow_dispatch:
+    inputs:
+      live:
+        description: "Send the sweeps (otherwise simulate only)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: venue-sweep
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Sweep the pools' fee shares to their owners
+        shell: bash
+        env:
+          VENUE_SWEEPER_KEYPAIR: ${{ secrets.VENUE_SWEEPER_KEYPAIR }}
+          LIVE: ${{ (github.event_name == 'schedule' && vars.VENUE_SWEEP_LIVE == 'true') || (github.event_name == 'workflow_dispatch' && inputs.live) }}
+        run: |
+          set -euo pipefail
+          if [ -z "${VENUE_SWEEPER_KEYPAIR:-}" ]; then
+            echo "::warning::VENUE_SWEEPER_KEYPAIR is not set: nothing can be simulated or sent"
+            exit 0
+          fi
+          if [ "$LIVE" = "true" ]; then
+            node frontend/scripts/venue-sweep.mjs --live
+          else
+            node frontend/scripts/venue-sweep.mjs
+          fi

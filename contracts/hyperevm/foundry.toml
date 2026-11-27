@@ -1,0 +1,35 @@
+# HyperEVM kit (chain 999 / testnet 998): our own copy of Uniswap V3, deployed with
+# Uniswap's own tools. See README.md.
+#
+# This is its own Foundry project, separate from contracts/foundry.toml (solc 0.8.26), because
+# Uniswap's V3OpenFeeAdapter is `pragma ^0.8.29`. The compiler settings below are the ones
+# Uniswap/protocol-fees builds it with (its foundry.toml at the pinned commit), so our adapter's
+# runtime code can be held byte for byte against Uniswap's live one on Ethereum
+# (`0xf2371551Fe3937Db7c750f4DfABe5c2fFFdcBf5A`, solc 0.8.29 per its metadata).
+#
+# Every Uniswap file this builds is a hash-pinned copy under ../provenance/upstream/
+# (checked in CI by scripts/check-v2-provenance.mjs). Never edit those copies.
+[profile.default]
+src = "src"
+test = "test"
+script = "script"
+out = "out"
+cache_path = "cache"
+libs = []
+allow_paths = ["../provenance/upstream", "../lib/forge-std"]
+solc_version = "0.8.29"
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 10_000_000
+via_ir = false
+remappings = [
+  "solmate/=../provenance/upstream/solmate/",
+  "v3-core/=../provenance/upstream/v3-core/",
+  "protocol-fees/=../provenance/upstream/uniswap-protocol-fees/src/",
+  "briefcase/=../provenance/upstream/uniswap-contracts/src/briefcase/",
+  "forge-std/=../lib/forge-std/src/",
+]
+
+[rpc_endpoints]
+hyperevm = "${HYPEREVM_RPC_URL}"
+hyperevm_testnet = "${HYPEREVM_TESTNET_RPC_URL}"

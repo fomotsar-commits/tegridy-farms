@@ -73,6 +73,9 @@ vi.mock('../lib/solanaTokenList', async (orig) => ({
 vi.mock('../lib/solana', async (orig) => ({
   ...(await orig<typeof import('../lib/solana')>()),
   isSolanaFeeConfigured: () => true,
+  // Production's rates: an unset env reads 0 (lib/solanaFeeEnv.ts) and the build guard pins 50.
+  SOLANA_PLATFORM_FEE_BPS: 50,
+  SOLANA_MAJOR_PAIR_FEE_BPS: 5,
 }));
 vi.mock('../lib/jupiter', async (orig) => ({
   ...(await orig<typeof import('../lib/jupiter')>()),
@@ -364,7 +367,7 @@ describe('SolanaSwapPage: while the waiver is on screen nothing else on the card
     h.simulateSwap.mockResolvedValue(OK);
     await typeAmountAndBuy();
     await waitFor(() => expect(h.sendTransaction).toHaveBeenCalledTimes(1));
-    expect(atSign!.footer).toMatch(/% platform fee applies on pairs that include SOL, USDC or USDT\./);
+    expect(atSign!.footer).toMatch(/^A 0\.5% platform fee applies on pairs that include SOL, USDC or USDT, and 0\.05% between SOL, USDC, USDT and staked SOL\.$/);
   });
 });
 

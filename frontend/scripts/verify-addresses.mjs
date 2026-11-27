@@ -20,8 +20,9 @@
  *                   unchecked whatever `expect` they carry. That was true of every
  *                   `base` and `robinhood` row until 2026-09-17.
  *   1. STRUCTURE  — every address decodes. EVM to 20 bytes with a valid EIP-55
- *                   checksum; Solana base58 to exactly 32 bytes. This is the check that
- *                   would have caught the fabrication.
+ *                   checksum; Solana base58 to exactly 32 bytes; Cardano bech32 to a valid
+ *                   checksum, a mainnet `addr` with the payload size its header names.
+ *                   This is the check that would have caught the fabrication.
  *   2. NO TRUNCATION — any '…' or '...' in an address field is a hard failure.
  *                   Truncation is what started the whole incident.
  *   3. NO DUPLICATES — the same address under two ids ON THE SAME CHAIN means two people
@@ -36,7 +37,9 @@
  *                   cannot enter the codebase without someone writing down what it is and
  *                   who controls it. The scan is a LIST of files, and the list is the
  *                   whole of its reach: a file carrying live mainnet addresses that is not
- *                   named in it is not "clean", it is unlooked-at.
+ *                   named in it is not "clean", it is unlooked-at. 5b does the same for the
+ *                   Solana ids in curve/program.ts, 5c for the Cardano addresses in
+ *                   src/lib/cardano/venueFee.ts (the venue's Cardano fee address).
  *   6. DRIFT (chain → registry)
  *                 — every contract this repo has actually CREATED on mainnet, Base or
  *                   Robinhood, read out of the Foundry broadcast receipts (including
@@ -105,7 +108,7 @@
  * Run:  node scripts/verify-addresses.mjs             (offline; fast; CI-safe)
  *       node scripts/verify-addresses.mjs --onchain   (also reads live chain state)
  *       node scripts/verify-addresses.mjs --markdown  (emit the registry as a table)
- *       node scripts/verify-addresses.mjs --self-test (prove 0-3c, 5, 5b, 6 and 7 can still fail)
+ *       node scripts/verify-addresses.mjs --self-test (prove 0-3c, 5, 5b, 5c, 6 and 7 can still fail)
  *
  * Exits non-zero on any failure so CI fails loudly.
  *
@@ -125,13 +128,17 @@ const REGISTRY = join(HERE, 'addresses.json');
 const CONSTANTS = join(HERE, '..', 'src', 'lib', 'constants.ts');
 const YIELD_PROTOCOLS = join(HERE, '..', 'src', 'lib', 'yield', 'protocols.ts');
 const CURVE_PROGRAM = join(HERE, '..', 'src', 'lib', 'launcher', 'solana', 'curve', 'program.ts');
+const CARDANO_VENUE_FEE = join(HERE, '..', 'src', 'lib', 'cardano', 'venueFee.ts');
 const BROADCAST = join(HERE, '..', '..', 'contracts', 'broadcast');
 /**
  * The EVM chains this file can check, by chain id. Foundry files broadcasts under
  * broadcast/<script>/<chainId>/, and a registry row names its chain through the section
  * it sits in (ROW_SECTIONS) or, in `ethereum`, through its own `chainId`.
  */
-const EVM_CHAINS = { 1: 'mainnet', 8453: 'Base', 4663: 'Robinhood' };
+// HyperEVM since 2026-11-25 (our Uniswap V3 venue). Its deploy receipts live in the kit's own
+// contracts/hyperevm/broadcast and Uniswap's clone, not contracts/broadcast, so check 6 warns
+// that it read no HyperEVM CREATE; its rows are still read on chain.
+const EVM_CHAINS = { 1: 'mainnet', 8453: 'Base', 4663: 'Robinhood', 999: 'HyperEVM' };
 const MAINNET = 1;
 
 /**
@@ -139,15 +146,18 @@ const MAINNET = 1;
  * missing from here is a section no check reads, so check 0 fails on any top-level key
  * that is neither a row section nor one of NON_ROW_KEYS.
  *
- * In `base` and `robinhood` the section IS the chain. In `ethereum` the row says: a
- * `chainId` (number or array, default 1) is how the CREATE2-twin L2 Safes name both
- * chains from one row.
+ * In `base`, `robinhood` and `hyperevm` the section IS the chain. In `ethereum` the row
+ * says: a `chainId` (number or array, default 1) is how the CREATE2-twin L2 Safes name
+ * every chain they live on from one row.
  */
 const ROW_SECTIONS = {
   solana: { kind: 'solana' },
   ethereum: { kind: 'evm' },
   base: { kind: 'evm', chainId: 8453 },
   robinhood: { kind: 'evm', chainId: 4663 },
+  hyperevm: { kind: 'evm', chainId: 999 },
+  // Cardano mainnet. No chain read here: its rows are checked offline (1-3, 5c) only.
+  cardano: { kind: 'cardano' },
 };
 /** Top-level keys that hold no rows. Each is checked (or deliberately not) further down. */
 const NON_ROW_KEYS = new Set(['$comment', 'denylist', 'retiredDeploys', 'heatRegistry', 'solanaFields']);
@@ -247,6 +257,77 @@ function checkSolana(address, label) {
   return true;
 }
 
+// ── bech32 (BIP-173), as Cardano writes a Shelley address: no 90-character cap, checksum
+// constant 1. No dependency, for the same reason as base58Decode.
+const BECH32 = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+function bech32Polymod(values) {
+  const GEN = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
+  let chk = 1;
+  for (const v of values) {
+    const top = chk >>> 25;
+    chk = ((chk & 0x1ffffff) << 5) ^ v;
+    for (let i = 0; i < 5; i++) if ((top >>> i) & 1) chk ^= GEN[i];
+  }
+  return chk >>> 0;
+}
+/** `{ hrp, bytes }`, or null when `s` is not bech32 with a valid checksum. */
+function bech32Decode(s) {
+  if (s !== s.toLowerCase()) return null;
+  const sep = s.lastIndexOf('1');
+  if (sep < 1 || s.length - sep - 1 < 6) return null;
+  const hrp = s.slice(0, sep);
+  const data = [];
+  for (const ch of s.slice(sep + 1)) {
+    const v = BECH32.indexOf(ch);
+    if (v < 0) return null;
+    data.push(v);
+  }
+  const expanded = [...[...hrp].map((c) => c.charCodeAt(0) >> 5), 0, ...[...hrp].map((c) => c.charCodeAt(0) & 31)];
+  if (bech32Polymod([...expanded, ...data]) !== 1) return null;
+  let acc = 0;
+  let bits = 0;
+  const bytes = [];
+  for (const v of data.slice(0, -6)) {
+    acc = (acc << 5) | v;
+    bits += 5;
+    if (bits >= 8) { bits -= 8; bytes.push((acc >> bits) & 0xff); }
+  }
+  if (bits >= 5 || ((acc << (8 - bits)) & 0xff) !== 0) return null; // leftover bits must be zero padding
+  return { hrp, bytes: Uint8Array.from(bytes) };
+}
+/** The inverse of bech32Decode. Only --self-test uses it, to build addresses that must fail. */
+function bech32Encode(hrp, bytes) {
+  const data = [];
+  let acc = 0;
+  let bits = 0;
+  for (const b of bytes) {
+    acc = (acc << 8) | b;
+    bits += 8;
+    while (bits >= 5) { bits -= 5; data.push((acc >> bits) & 31); }
+  }
+  if (bits > 0) data.push((acc << (5 - bits)) & 31);
+  const expanded = [...[...hrp].map((c) => c.charCodeAt(0) >> 5), 0, ...[...hrp].map((c) => c.charCodeAt(0) & 31)];
+  const mod = bech32Polymod([...expanded, ...data, 0, 0, 0, 0, 0, 0]) ^ 1;
+  for (let i = 0; i < 6; i++) data.push((mod >>> (5 * (5 - i))) & 31);
+  return `${hrp}1${data.map((v) => BECH32[v]).join('')}`;
+}
+/** Payload bytes after the header, by address type (CIP-19): base 56, enterprise 28, pointer 28+. */
+const CARDANO_PAYLOAD = { 0: 56, 1: 56, 2: 56, 3: 56, 6: 28, 7: 28 };
+function checkCardano(address, label) {
+  if (TRUNCATION.test(address)) { fail(`${label}: TRUNCATED address "${address}" — store it in full`); return false; }
+  const d = typeof address === 'string' ? bech32Decode(address) : null;
+  if (d === null) { fail(`${label}: "${address}" is not bech32 with a valid checksum — THIS IS NOT A CARDANO ADDRESS`); return false; }
+  if (d.hrp !== 'addr') { fail(`${label}: "${address}" is a "${d.hrp}" address; this section holds mainnet payment addresses ("addr") only`); return false; }
+  const type = d.bytes[0] >> 4;
+  const network = d.bytes[0] & 0x0f;
+  if (network !== 1) { fail(`${label}: "${address}" names network ${network}, not mainnet (1)`); return false; }
+  const want = CARDANO_PAYLOAD[type];
+  const got = d.bytes.length - 1;
+  const ok = want === undefined ? (type === 4 || type === 5) && got > 28 : got === want;
+  if (!ok) { fail(`${label}: "${address}" is address type ${type} with ${got} payload bytes, which no Cardano address has`); return false; }
+  return true;
+}
+
 function checkEvm(address, label) {
   if (TRUNCATION.test(address)) { fail(`${label}: TRUNCATED address "${address}" — store it in full`); return false; }
   if (!isAddress(address)) { fail(`${label}: "${address}" is not a valid EVM address`); return false; }
@@ -289,7 +370,7 @@ function checkTopLevelKeys(registry) {
 // through: anything with an `address` is validated no matter what else it holds.
 const isNote = (e) => e && e.$comment !== undefined && e.address === undefined;
 
-const chainName = (c) => (c === 'solana' ? 'Solana' : `${EVM_CHAINS[c]} (${c})`);
+const chainName = (c) => (c === 'solana' ? 'Solana' : c === 'cardano' ? 'Cardano' : `${EVM_CHAINS[c]} (${c})`);
 
 /**
  * The chain(s) a row's address lives on, or null (after failing) when the row names a
@@ -299,6 +380,7 @@ const chainName = (c) => (c === 'solana' ? 'Solana' : `${EVM_CHAINS[c]} (${c})`)
 function rowChains(section, e, label) {
   const spec = ROW_SECTIONS[section];
   if (spec.kind === 'solana') return ['solana'];
+  if (spec.kind === 'cardano') return ['cardano'];
   if (spec.chainId !== undefined) {
     if (e.chainId !== undefined && e.chainId !== spec.chainId) {
       fail(`${label}: chainId ${JSON.stringify(e.chainId)} contradicts its section, which is chain ${spec.chainId}`);
@@ -341,9 +423,11 @@ function checkRows(registry) {
       const label = `${section}/${e.id}`;
       const chains = rowChains(section, e, label);
       entries.push({ ...e, section, kind: spec.kind, chains: chains ?? [] });
-      const ok = spec.kind === 'solana' ? checkSolana(e.address, label) : checkEvm(e.address, label);
+      const ok = spec.kind === 'solana' ? checkSolana(e.address, label)
+        : spec.kind === 'cardano' ? checkCardano(e.address, label)
+          : checkEvm(e.address, label);
       if (!ok || !chains) continue;
-      const addr = spec.kind === 'solana' ? e.address : e.address.toLowerCase();
+      const addr = spec.kind === 'evm' ? e.address.toLowerCase() : e.address;
       for (const c of chains) {
         const k = `${c}:${addr}`;
         if (seen.has(k)) fail(`duplicate address ${e.address} on ${chainName(c)}: "${label}" and "${seen.get(k)}"`);
@@ -384,6 +468,8 @@ function checkRoles(entries) {
 const EXPECT_TYPES = {
   solana: new Set(['wallet', 'program-owned', 'token-account', 'executable', 'absent', 'squads-multisig']),
   evm: new Set(['contract', 'eoa']),
+  // Nothing reads Cardano on chain, so any expect.type there would assert nothing.
+  cardano: new Set(),
 };
 function checkExpectTypes(entries) {
   for (const e of entries) {
@@ -447,6 +533,7 @@ const MULTISIG_COPY_NOTE =
 const EXPECT_KEYS = {
   solana: new Set(['type', 'funded', 'holdsProgram', 'stagedProgram', ...MULTISIG_SETTINGS]),
   evm: new Set(['type']),
+  cardano: new Set(),
 };
 function checkExpectKeys(entries) {
   for (const e of entries) {
@@ -877,6 +964,34 @@ try {
   }
 } catch (e) {
   fail(`could not read curve/program.ts for the Solana drift check: ${e.message}`);
+}
+
+// ── 5c. Cardano code → registry ─────────────────────────────────────────────────
+//
+// The venue's Cardano swap fee is paid to an address set in code (venueFee.ts), never
+// from a build setting. Until 2026-11-16 no registry row named it, so a changed address
+// had nothing to be checked against (leak audit 2026-11-15, LC-7). Every mainnet address
+// literal in the file must be a `cardano` row, and the export must stay a literal.
+/** Every Cardano mainnet address literal in `src`, comments stripped. */
+const cardanoLiterals = (src) => [...stripComments(src).matchAll(/['"](addr1[02-9ac-hj-np-z]{50,})['"]/g)].map((m) => m[1]);
+let cardanoLiteralsChecked = 0;
+try {
+  const src = readFileSync(CARDANO_VENUE_FEE, 'utf-8');
+  const registeredAda = new Set((reg.cardano ?? []).filter((e) => !isNote(e)).map((e) => e.address));
+  if (!/export const CARDANO_VENUE_FEE_ADDRESS\b[^=]*=\s*['"]addr1/.test(stripComments(src))) {
+    fail(
+      'cardano/venueFee.ts no longer sets CARDANO_VENUE_FEE_ADDRESS to an address literal, so check 5c ' +
+        'cannot see where the Cardano fee goes. Keep it a literal, or change this check in the same PR.',
+    );
+  }
+  for (const addr of cardanoLiterals(src)) {
+    cardanoLiteralsChecked++;
+    if (!registeredAda.has(addr)) {
+      fail(`cardano/venueFee.ts names ${addr}, which is NOT a cardano row in the registry. Add it with a role and custody.`);
+    }
+  }
+} catch (e) {
+  fail(`could not read cardano/venueFee.ts for the Cardano drift check: ${e.message}`);
 }
 
 // ── 6. chain → registry ─────────────────────────────────────────────────────────
@@ -1383,6 +1498,8 @@ async function onchain() {
     1: ETH_RPC,
     8453: process.env.BASE_RPC || 'https://mainnet.base.org',
     4663: process.env.RH_RPC || 'https://rpc.mainnet.chain.robinhood.com',
+    // HyperEVM: its rows land in addresses.json only once our V3 venue is deployed there.
+    999: process.env.HYPEREVM_RPC || 'https://rpc.hyperliquid.xyz/evm',
   };
   const evmPairs = [];
   for (const p of evmReadPairs(evmEntries)) {
@@ -1406,7 +1523,7 @@ async function onchain() {
   // `base` rows were read (20 Base pairs) every one of them came back NOT CHECKED. That
   // is the honest outcome, but a chain that is always skipped is as inert as a chain
   // that is never read. Other chains keep 50.
-  const EVM_BATCH_MAX = { 8453: 10 };
+  const EVM_BATCH_MAX = { 8453: 10, 999: 10 };
   for (const [cid, pairs] of byChain) {
     for (const group of chunk(pairs, EVM_BATCH_MAX[cid] ?? 50)) {
       const res = await post(
@@ -1765,6 +1882,25 @@ function selfTest() {
       collect(() => checkRows({ [s]: [row('x', 'abc…def')] })).failed.some((m) => m.includes(`${s}/x`) && m.includes('TRUNCATED')),
     ),
   );
+
+  // 1 on Cardano: only decoding tells a real address from one that looks right.
+  const ADA = 'addr1xy6kxswfkhnxfwllzcxkqfumhyjedvkvkvlt3p7mhwxwp3spv7vdp6er80lvtdm32cqvvetu93ams9yrggg5pm5tq3usr47kat';
+  const adaBytes = bech32Decode(ADA)?.bytes ?? new Uint8Array(57);
+  const adaFails = (address, part) =>
+    collect(() => checkRows({ cardano: [row('fee', address)] })).failed.some((m) => m.includes('cardano/fee') && m.includes(part));
+  t('CONTROL: the venue fee address passes check 1, and the encoder round-trips it', bech32Encode('addr', adaBytes) === ADA
+    && collect(() => checkRows({ cardano: [row('fee', ADA)] })).failed.length === 0);
+  t('a Cardano address with one character changed fails its checksum', adaFails(`${ADA.slice(0, 20)}q${ADA.slice(21)}`, 'not bech32'));
+  t('a Cardano address in capitals fails', adaFails(ADA.toUpperCase(), 'not bech32'));
+  t('a testnet Cardano address fails', adaFails(bech32Encode('addr_test', Uint8Array.from([adaBytes[0] & 0xf0, ...adaBytes.slice(1)])), '"addr_test" address'));
+  t('an "addr" whose header names the testnet fails', adaFails(bech32Encode('addr', Uint8Array.from([adaBytes[0] & 0xf0, ...adaBytes.slice(1)])), 'names network 0'));
+  t('a base address with only one hash (28 bytes) fails', adaFails(bech32Encode('addr', adaBytes.slice(0, 29)), '28 payload bytes'));
+  t('a truncated Cardano address fails', adaFails(`${ADA.slice(0, 12)}…${ADA.slice(-6)}`, 'TRUNCATED'));
+  t('a Cardano row may carry no expect.type: nothing reads Cardano on chain', collect(() =>
+    checkExpectTypes(checkRows({ cardano: [row('fee', ADA, { expect: { type: 'wallet' } })] }))).failed.some((m) => m.includes('cardano/fee') && m.includes('expect.type')));
+  // 5c. The Cardano drift scan reads literals, not comments.
+  t('check 5c finds the fee address literal', cardanoLiterals(`export const CARDANO_VENUE_FEE_ADDRESS: string | null =\n  '${ADA}';`).join() === ADA);
+  t('check 5c ignores a Cardano address mentioned only in a comment', cardanoLiterals(`// was '${ADA}'\nexport const X = 1;`).length === 0);
 
   // 0. The closed key set. Naming base and robinhood above fixes those two; this is what
   //    stops the NEXT section from being as blind as they were.
@@ -2306,6 +2442,7 @@ console.log(
 console.log(
   `  drift: ${[...literalsChecked].map(([label, n]) => `${n} ${label}`).join(' + ')} EVM literals -> registry, ` +
     `${solanaLiteralsChecked} curve/program.ts Solana literals -> registry, ` +
+    `${cardanoLiteralsChecked} cardano/venueFee.ts Cardano literals -> registry, ` +
     `${[...createsScanned]
       .map(([cid, n]) => `${n} ${EVM_CHAINS[cid]}${nestedScanned.get(cid) ? ` (${nestedScanned.get(cid)} nested)` : ''}`)
       .join(' + ')} CREATEs from broadcast receipts -> registry`,
@@ -2329,6 +2466,7 @@ for (const [label, n] of literalsChecked) {
   if (n === 0) fail(`check 5 scanned ZERO address literals in ${label} — the scan is broken or the file moved, not the file clean`);
 }
 if (solanaLiteralsChecked === 0) fail('check 5b scanned ZERO Solana literals in curve/program.ts — the scan is broken, or the module moved; it did not "find nothing wrong"');
+if (cardanoLiteralsChecked === 0) fail('check 5c scanned ZERO Cardano literals in cardano/venueFee.ts: the scan is broken, or the fee address moved; it did not "find nothing wrong"');
 if (broadcastsChecked === 0) fail('check 6 scanned ZERO mainnet CREATEs — the broadcast scan is broken or the receipts are gone; it did not "find nothing wrong"');
 
 // `--onchain` stays opt-in ON PURPOSE, and it is not the old hole.

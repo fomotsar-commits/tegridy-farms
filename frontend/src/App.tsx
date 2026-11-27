@@ -28,6 +28,7 @@ import { holdReloadWhileWalletWorks } from './lib/reloadHold';
 import { StaleBuildFallback } from './components/StaleBuildFallback';
 import { rangePoolsVisible } from './lib/solana/clmm/programId';
 import { cardanoOwnPoolsVisible, cardanoSwapVisible } from './lib/cardano/flags';
+import { hyperEvmLive } from './lib/chains/hyperEvm';
 
 const HomePage = lazy(() => import('./pages/HomePage'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
@@ -325,6 +326,8 @@ function AnimatedRoutes() {
         <Route path="solana" element={<DeepLinkSheet><Suspense fallback={<SwapSkeleton />}><TradeHostPage /></Suspense></DeepLinkSheet>} />
         {/* No route until the Cardano swap is opened (lib/cardano/flags.ts). */}
         {cardanoSwapVisible() && <Route path="cardano" element={<Suspense fallback={<SwapSkeleton />}><TradeHostPage /></Suspense>} />}
+        {/* No route until every HyperEVM address is deployed (lib/chains/hyperEvm.ts). */}
+        {hyperEvmLive() && <Route path="hyperevm" element={<Suspense fallback={<SwapSkeleton />}><TradeHostPage /></Suspense>} />}
         {/* Pools is its own section: /liquidity, /pools, /range-pools and /zap. */}
         <Route path="liquidity" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />
         <Route path="solana-lp" element={<SolanaLpRedirect />} />
@@ -334,6 +337,7 @@ function AnimatedRoutes() {
         <Route path="pools" element={<DeepLinkSheet><Suspense fallback={<PoolsFallback />}><PoolsHostPage /></Suspense></DeepLinkSheet>} />
         {/* The venue's own Cardano pools: no route until CARDANO_OWN_POOLS_OPEN (lib/cardano/flags.ts). */}
         {cardanoOwnPoolsVisible() && <Route path="cardano-pools" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />}
+        {hyperEvmLive() && <Route path="hyperevm-pools" element={<Suspense fallback={<SwapSkeleton />}><PoolsHostPage /></Suspense>} />}
         {/* No /solana-launch and no redirect for it: it 404s, because the rail it
             would point at cannot launch either. */}
         <Route path="curve-launch" element={<Suspense fallback={<PageSkeleton />}><LaunchHubPage /></Suspense>} />

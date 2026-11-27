@@ -23,7 +23,8 @@ test('div rounds toward negative infinity, as Plutus divideInteger', () => {
   assert.equal(div(7n, -2n), -4n);
   assert.equal(div(-7n, -2n), 3n);
   assert.equal(div(-6n, 2n), -3n);
-  assert.throws(() => div(1n, 0n));
+  // A ContractFailure, as every other way the contract fails: the order is left alone, never the round (select.ts chooseBatch).
+  assert.throws(() => div(1n, 0n), ContractFailure);
 });
 
 test('math.ak test_calculate_sqrt', () => {

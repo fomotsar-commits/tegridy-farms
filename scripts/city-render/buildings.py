@@ -1,11 +1,11 @@
-# The twenty buildings, in 3D, each one idea in an island's materials, every room's wrapped in its
-# own picture. They follow the approved plates (frontend/src/lib/city/pieces.ts), taller so the art
+# The designed buildings, in 3D, each one idea in an island's materials, every room's wrapped in its
+# own picture (the owner's own stand on five civic plots: owners.py). They follow the approved plates (frontend/src/lib/city/pieces.ts), taller so the art
 # reads. Site coordinates throughout (kit.V turns them for Blender). A builder gets its plot (from
 # plan.json) and, for a room, its picture (material, image).
 import math, random
 import bpy, bmesh
 from mathutils import Vector
-from kit import (V, box, cyl, sphere, tube, mesh, bilinear, rects, slab_from, wrap_art, wrap_drum, walls_art, light, ladder, put, inked,
+from kit import (AMBER, V, box, cyl, sphere, tube, mesh, bilinear, rects, slab_from, wrap_art, wrap_drum, walls_art, light, ladder, put, inked,
                  mat, glow, glass, dark_glass, cream, brass, basalt, stone, thatch, tin, wood, bamboo, shell, painted, terrazzo, paving,
                  hexrgb, lin, WARM, CREAM)
 
@@ -21,7 +21,9 @@ def _art_block(name, x, y, z, w, d, h, A, top=None, rot=0.0):
 
 def _door(x, y, z, w, h, lit=False, face='L'):
     """A door on a wall's face: 'L' faces the sheet's lower left (site +y), 'R' the lower right (site +x)."""
-    m = glow(WARM, 6.0, 'door glow') if lit else mat('door', (0.03, 0.03, 0.035), rough=0.4)
+    # warm amber, not white: a lit room seen through a door (at 6 it burned out to a blank panel)
+    # its own glow on a dark base, so a portrait's key light cannot wash it to white either
+    m = mat('door glow', (0.05, 0.03, 0.015), rough=0.3, emit=AMBER, strength=1.6) if lit else mat('door', (0.03, 0.03, 0.035), rough=0.4)
     if face == 'L':
         box('door', x, y - 0.02, z, w, 0.05, h, m)
     else:
@@ -29,7 +31,7 @@ def _door(x, y, z, w, h, lit=False, face='L'):
 
 
 def _window(x, y, z, w, h, face='L', lit=True):
-    m = glow(WARM, 5.0, 'window glow') if lit else dark_glass()
+    m = mat('window glow', (0.05, 0.03, 0.015), rough=0.3, emit=AMBER, strength=1.5) if lit else dark_glass()
     if face == 'L':
         box('window', x, y - 0.015, z, w, 0.04, h, m)
     else:
@@ -171,28 +173,6 @@ def pads(p, A):
         tube('pad rim', [(cx + r * math.cos(rot + 0.18 + (2 * math.pi - 0.36) * i / n), cy + r * math.sin(rot + 0.18 + (2 * math.pi - 0.36) * i / n), z + 0.04) for i in range(n + 1)], 0.018, vein)
         light('POINT', 'pad glow', (cx, cy, z - 0.35), 30, lin(hexrgb('#a6e83a')), shadow=False)
     return ZP + 3.8
-
-
-def blade(p, A):
-    """NFT loans. The Blade: the gallery wall from the loans sheet, under one roof drawn out to a point and tied back to a mast."""
-    X, Y = p['X'], p['Y']
-    wall = inked(box('gallery wall', X - 0.1, Y + 2.35, ZP, 3.6, 0.32, 2.1, mat('gallery white', (0.62, 0.6, 0.56), rough=0.6)))
-    for i, col in enumerate(('#f5e4b8', '#5b7fe0', '#b49cff')):
-        fx = X + 0.1 + i * 1.15
-        box('frame', fx, Y + 2.67, ZP + 0.55, 0.95, 0.05, 1.15, mat('frame', (0.02, 0.02, 0.025), rough=0.3))
-        box('picture', fx + 0.08, Y + 2.71, ZP + 0.63, 0.79, 0.03, 0.99, glow(lin(hexrgb(col)), 2.2, f'loan art {col}'))
-        box('loan line', fx + 0.08, Y + 2.735, ZP + 0.85 + i * 0.22, 0.79, 0.015, 0.03, glow((1.0, 0.95, 0.8), 12.0, 'loan line'))
-        box('plaque', fx + 0.3, Y + 2.7, ZP + 0.3, 0.35, 0.03, 0.12, cream())
-    for (bx, tx) in ((0.5, 0.95), (2.9, 2.4)):
-        tube('strut', [(X + bx, Y + 1.0, ZP), (X + tx, Y + 2.2, ZP + 2.6)], 0.035, stone())
-    C = [(X - 0.7, Y + 1.35, ZP + 2.4), (X + 3.3, Y + 0.9, ZP + 2.7), (X + 5.7, Y + 3.35, ZP + 3.8), (X - 0.7, Y + 3.35, ZP + 2.2)]
-    inked(bilinear('blade roof', C, 10, tin(), thick=0.05))
-    mx, my = X + 4.2, Y + 0.7
-    cyl('mast', mx, my, ZP, 0.05, 5.0, stone(), verts=10)
-    for c in (C[1], C[2]):
-        tube('tie', [(mx, my, ZP + 5.0), c], 0.012, cream())
-    light('SPOT', 'gallery wash', (X + 1.7, Y + 4.2, ZP + 0.2), 260, (1.0, 0.92, 0.8), spot=70, blend=0.9, aim=(X + 1.7, Y + 2.6, ZP + 1.3))
-    return ZP + 3.4
 
 
 def balance(p, A):
@@ -388,65 +368,6 @@ def lighthouse(p, A):
     return zt + 2.1
 
 
-def canopy(p, A):
-    """Central Station. The Umbrellas: three thin shells on single columns over the stand every swap sets off from."""
-    X, Y = p['X'], p['Y']
-    hall = inked(box('hall', X - 0.45, Y + 0.05, ZP, 4.8, 0.85, 1.3, dark_glass()))
-    for i in range(12):
-        box('pane', X - 0.35 + i * 0.39, Y + 0.89, ZP + 0.12, 0.3, 0.03, 1.0, glow(WARM, 2.6 if i % 3 else 1.2, 'hall pane'))
-    nx, ny = X + 4.5, Y + 0.25
-    inked(box('clock needle', nx, ny, ZP, 0.45, 0.45, 4.6, stone()))
-    _hip('needle top', nx, ny, 0.45, 0.45, ZP + 4.6, 1.1, 0.0, stone())
-    box('clock face', nx + 0.1, ny + 0.44, ZP + 4.0, 0.25, 0.03, 0.25, glow((1.0, 0.95, 0.85), 8.0, 'clock'))
-    sh = shell(p['acc'])
-    for i in range(3):
-        ux, uy = X + 0.3 + i * 1.62, Y + 2.0
-        lift = 0.45 if i == 1 else 0.0
-        zc, zt, half = ZP + 1.7 + lift, ZP + 2.95 + lift, 0.85
-        for (sx, sy) in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
-            inked(bilinear('umbrella', [(ux, uy, zc), (ux + sx * half, uy, zt), (ux + sx * half, uy + sy * half, zt), (ux, uy + sy * half, zt)], 6, sh, thick=0.04))
-        cyl('column', ux, uy, ZP, 0.08, zc - ZP, stone(), r2=0.05, verts=16)
-        light('POINT', 'under umbrella', (ux, uy, zc - 0.35), 70, WARM, shadow=False)
-    return ZP + 3.6
-
-
-def hourglass(p, A):
-    """The Treasury. The Hourglass: a brass lattice over a stone strongroom, every member straight; 48 marks ring its foot for the 48-hour wait."""
-    X, Y = p['X'], p['Y']
-    cx, cy = X + 1.6, Y + 1.3
-    z0, z1, R, tw = ZP + 0.16, ZP + 4.9, 1.38, 2.2
-    inked(cyl('base', cx, cy, ZP, 1.75, 0.16, stone(), verts=72))
-    for i in range(48):
-        a = 2 * math.pi * i / 48
-        box('mark', cx + 1.58 * math.cos(a) - 0.03, cy + 1.58 * math.sin(a) - 0.03, z0, 0.06, 0.06, 0.02, brass())
-    inked(cyl('strongroom', cx, cy, z0, 0.68, 1.05, stone(), verts=48))
-    box('vault door', cx - 0.25, cy + 0.6, z0, 0.5, 0.12, 0.85, brass())
-    b = brass()
-    for turn in (1, -1):
-        for i in range(24):
-            a0 = 2 * math.pi * i / 24
-            a1 = a0 + turn * tw
-            tube('lattice', [(cx + R * math.cos(a0), cy + R * math.sin(a0), z0), (cx + R * math.cos(a1), cy + R * math.sin(a1), z1)], 0.018, b)
-    for (z, r) in ((z0, R), (z1, R), ((z0 + z1) / 2, R * math.cos(tw / 2))):
-        tube('lattice ring', [(cx + r * math.cos(2 * math.pi * i / 64), cy + r * math.sin(2 * math.pi * i / 64), z) for i in range(65)], 0.025, b)
-    light('POINT', 'waist', (cx, cy, (z0 + z1) / 2), 160, (1.0, 0.75, 0.35), shadow=False)
-    light('SPOT', 'brass wash', (cx + 2.4, cy + 2.4, ZP + 0.2), 400, (1.0, 0.85, 0.6), spot=50, blend=0.9, aim=(cx, cy, ZP + 2.5))
-    return z1 + 0.2
-
-
-def lifeguard(p, A):
-    """Range pools. The Diving Tower: one thin wall, three boards out over the lanes."""
-    x, y = p['x0'] + 6.45, p['y0'] + 2.3
-    inked(box('tower wall', x, y, ZP, 0.2, 0.8, 3.4, stone()))
-    for (z, ln) in ((1.05, 1.0), (1.95, 1.45), (2.85, 0.9)):
-        inked(box('board', x - ln, y + 0.12, ZP + z, ln + 0.2, 0.56, 0.07, mat('board', (0.8, 0.78, 0.72), rough=0.5)))
-    for i in range(1, 14):
-        box('rung', x + 0.2, y + 0.3, ZP + i * 0.24, 0.03, 0.2, 0.025, cream())
-    tube('flag pole', [(x + 0.1, y + 0.4, ZP + 3.4), (x + 0.1, y + 0.4, ZP + 4.2)], 0.012, cream())
-    mesh('flag', [V(x + 0.1, y + 0.4, ZP + 4.2), V(x + 0.6, y + 0.28, ZP + 4.05), V(x + 0.1, y + 0.4, ZP + 3.9)], [(0, 1, 2)], mat('flag', (0.85, 0.2, 0.12), rough=0.6))
-    return ZP + 4.2
-
-
 def lift(p, A):
     """BOBO. The Raising: four bamboo masts, the thatched roof part-way up them on its ropes, not yet set down."""
     X, Y = p['X'], p['Y']
@@ -593,48 +514,8 @@ def bloom(p, A):
     return z1 + 2.5
 
 
-def slip(p, A):
-    """The launch slip. The Slip: a hull in frame, its ribs showing, the stern under a tarp, a timber arch over the bow."""
-    X, Y = p['X'], p['Y']
-    cx, ya, yb = X + 1.45, Y + 0.45, Y + 4.05
-    w = wood()
-    rects('slipway', [((X + 0.5, Y + 0.1), (X + 2.4, Y + 4.9), ZP + 0.005)], mat('slipway', (0.08, 0.08, 0.085), rough=0.6))
-    for i in range(10):
-        yy = Y + 0.4 + i * 0.47
-        box('sleeper', X + 0.7, yy, ZP, 1.5, 0.12, 0.06, w)
-    half = lambda t: 0.8 * math.sin(math.pi * (0.13 + t * 0.87)) ** 0.75
-    sheer = lambda t: ZP + 1.35 + 0.55 * abs(t - 0.42) ** 2.2 / 0.58 ** 2.2
-    keel = lambda t: ZP + 0.45 + (((t - 0.78) / 0.22) ** 1.6 * 1.2 if t > 0.78 else 0)
-    yy = lambda t: ya + (yb - ya) * t
-    tube('keel', [(cx, yy(i / 30), keel(i / 30)) for i in range(31)] + [(cx, yb, sheer(1) + 0.15)], 0.045, w)
-    for i in range(15):
-        t = i / 15
-        pts = []
-        for j in range(13):
-            s = j / 12
-            ang = math.pi * s
-            pts.append((cx - half(t) * math.cos(ang), yy(t), keel(t) + (sheer(t) - keel(t)) * (1 - math.sin(ang)) ** 0.6))
-        tube('rib', pts, 0.025, w)
-    for sgn in (-1, 1):
-        tube('sheer', [(cx + sgn * half(i / 30), yy(i / 30), sheer(i / 30)) for i in range(31)] + [(cx, yb, sheer(1) + 0.15)], 0.022, cream())
-    tarp = mat('tarp', (0.35, 0.22, 0.1), rough=0.8)
-    ts = [0, 0.07, 0.14, 0.21, 0.28]
-    verts = [V(cx - half(t), yy(t), sheer(t) + 0.08) for t in ts] + [V(cx + half(t), yy(t), sheer(t) + 0.08) for t in ts]
-    faces = [(i, i + 1, 6 + i, 5 + i) for i in range(4)]
-    mesh('tarp top', verts, faces, tarp)
-    for sgn in (-1, 1):
-        sv = [V(cx + sgn * half(t), yy(t), sheer(t) + 0.08) for t in ts] + [V(cx + sgn * (half(t) - 0.05), yy(t), sheer(t) - 0.45) for t in ts]
-        mesh('tarp side', sv, [(i, i + 1, 6 + i, 5 + i) for i in range(4)], tarp)
-    for ay in (Y + 3.2, Y + 3.6):
-        tube('arch', [(X - 0.35 + 3.6 * (i / 28), ay, ZP + 3.9 * 4 * (i / 28) * (1 - i / 28)) for i in range(29)], 0.05, w)
-    tube('tackle', [(cx, Y + 3.4, ZP + 3.9), (cx, yb, sheer(1) + 0.2)], 0.008, cream())
-    cyl('lamp post', X + 2.85, Y + 4.4, ZP, 0.03, 0.95, basalt(), verts=8)
-    sphere('lamp off', X + 2.85, Y + 4.4, ZP + 1.0, 0.07, mat('amber off', (0.35, 0.22, 0.05), rough=0.3), seg=10)
-    return ZP + 3.0
-
-
 BUILDERS = {
-    'wing': wing, 'pads': pads, 'blade': blade, 'balance': balance, 'ghost': ghost, 'slouch': slouch, 'monolith': monolith,
-    'gridshell': gridshell, 'wave': wave, 'lighthouse': lighthouse, 'canopy': canopy, 'hourglass': hourglass, 'lifeguard': lifeguard,
-    'lift': lift, 'halo': halo, 'stack': stack, 'villa': villa, 'bloom': bloom, 'slip': slip,
+    'wing': wing, 'pads': pads, 'balance': balance, 'ghost': ghost, 'slouch': slouch, 'monolith': monolith,
+    'gridshell': gridshell, 'wave': wave, 'lighthouse': lighthouse,
+    'lift': lift, 'halo': halo, 'stack': stack, 'villa': villa, 'bloom': bloom,
 }

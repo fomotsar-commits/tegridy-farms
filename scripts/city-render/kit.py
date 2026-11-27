@@ -11,6 +11,7 @@ from mathutils import Vector
 ROOT = None          # the repo's root, set by island.py
 CREAM = (0.96, 0.89, 0.72)
 WARM = (1.0, 0.8, 0.55)
+AMBER = (1.0, 0.6, 0.28)   # a lit room seen through a door or a window
 BG = (0.0196, 0.0314, 0.0588)   # the sheet's #05080f
 
 
@@ -162,7 +163,8 @@ def glow(colour=WARM, strength=20.0, name=None):
 
 
 def glass():
-    return mat('frosted', (1.0, 0.93, 0.8), rough=0.35, trans=0.6, emit=WARM, strength=4.0)
+    # lit from inside in amber, not burned to white (UX review, 2026-11-19)
+    return mat('frosted', (0.4, 0.3, 0.2), rough=0.35, trans=0.6, emit=(1.0, 0.72, 0.42), strength=2.2)
 
 
 def dark_glass():
@@ -201,45 +203,64 @@ def water_old(colour):
     return m
 
 
-def water(colour, strength=2.2):
-    """A pool lit from below: its own colour, light rippling across it as caustics do, under a clear gloss."""
+def water(colour, strength=1.6):
+    """
+    A pool at night, lit from below (UX review, 2026-11-19: the old crazy-paving caustics read as
+    rugs). Deep in its own colour, with fine soft threads of light wavering across it rather than
+    tiles; it glows most when looked down into and turns to a dark mirror at a low angle, as water
+    does, under a clear, slightly rippled surface that catches the lamps.
+    """
     name = f'water {colour}'
     if name in _mats:
         return _mats[name]
     c = lin(hexrgb(colour))
     m = bpy.data.materials.new(name)
     nt, b = _bsdf(m)
-    # a soft, wavering mesh of light, as sunlight makes on a pool floor: voronoi edges, bent by noise
     tc = nt.nodes.new('ShaderNodeTexCoord')
     bend = nt.nodes.new('ShaderNodeTexNoise')
-    bend.inputs['Scale'].default_value = 1.6
-    bend.inputs['Detail'].default_value = 2.0
-    add = nt.nodes.new('ShaderNodeVectorMath')
-    add.operation = 'ADD'
-    nt.links.new(tc.outputs['Object'], add.inputs[0])
-    nt.links.new(bend.outputs['Color'], add.inputs[1])
+    bend.inputs['Scale'].default_value = 2.4
+    bend.inputs['Detail'].default_value = 3.0
+    bend.inputs['Distortion'].default_value = 0.6
+    mix_v = nt.nodes.new('ShaderNodeVectorMath')
+    mix_v.operation = 'MULTIPLY_ADD'
+    mix_v.inputs[1].default_value = (0.35, 0.35, 0.35)
+    nt.links.new(bend.outputs['Color'], mix_v.inputs[0])
+    nt.links.new(tc.outputs['Object'], mix_v.inputs[2])
     vo = nt.nodes.new('ShaderNodeTexVoronoi')
     vo.feature = 'DISTANCE_TO_EDGE'
-    vo.inputs['Scale'].default_value = 7.0
-    nt.links.new(add.outputs['Vector'], vo.inputs['Vector'])
+    vo.inputs['Scale'].default_value = 16.0
+    nt.links.new(mix_v.outputs['Vector'], vo.inputs['Vector'])
     ramp = nt.nodes.new('ShaderNodeValToRGB')
     ramp.color_ramp.interpolation = 'EASE'
     ramp.color_ramp.elements[0].position = 0.0
-    ramp.color_ramp.elements[0].color = (*[0.12 + 0.95 * v for v in c], 1)
-    ramp.color_ramp.elements[1].position = 0.05
-    ramp.color_ramp.elements[1].color = (*[v * 0.62 for v in c], 1)
+    ramp.color_ramp.elements[0].color = (*[0.05 + 0.75 * v for v in c], 1)
+    ramp.color_ramp.elements[1].position = 0.06
+    ramp.color_ramp.elements[1].color = (*[v * 0.5 for v in c], 1)
     nt.links.new(vo.outputs['Distance'], ramp.inputs['Fac'])
-    nt.links.new(ramp.outputs['Color'], b.inputs['Base Color'])
+    # the glow: strongest looked straight down into, a third of that at a grazing look
+    lw = nt.nodes.new('ShaderNodeLayerWeight')
+    lw.inputs['Blend'].default_value = 0.35
+    inv = nt.nodes.new('ShaderNodeMath')
+    inv.operation = 'MULTIPLY_ADD'
+    inv.inputs[1].default_value = -0.68
+    inv.inputs[2].default_value = 1.0
+    nt.links.new(lw.outputs['Facing'], inv.inputs[0])
+    st = nt.nodes.new('ShaderNodeMath')
+    st.operation = 'MULTIPLY'
+    st.inputs[1].default_value = strength
+    nt.links.new(inv.outputs['Value'], st.inputs[0])
+    b.inputs['Base Color'].default_value = (*[v * 0.16 for v in c], 1)
     key = 'Emission Color' if 'Emission Color' in b.inputs else 'Emission'
     nt.links.new(ramp.outputs['Color'], b.inputs[key])
-    b.inputs['Emission Strength'].default_value = strength
-    b.inputs['Roughness'].default_value = 0.08
+    nt.links.new(st.outputs['Value'], b.inputs['Emission Strength'])
+    b.inputs['Roughness'].default_value = 0.03
     _set(b, ('Coat Weight', 'Clearcoat'), 1.0)
-    _set(b, ('Coat Roughness',), 0.02)
+    _set(b, ('Coat Roughness',), 0.01)
     nz = nt.nodes.new('ShaderNodeTexNoise')
-    nz.inputs['Scale'].default_value = 4.0
+    nz.inputs['Scale'].default_value = 7.0
+    nz.inputs['Detail'].default_value = 4.0
     bp = nt.nodes.new('ShaderNodeBump')
-    bp.inputs['Strength'].default_value = 0.15
+    bp.inputs['Strength'].default_value = 0.08
     nt.links.new(nz.outputs['Fac'], bp.inputs['Height'])
     key2 = 'Coat Normal' if 'Coat Normal' in b.inputs else 'Normal'
     nt.links.new(bp.outputs['Normal'], b.inputs[key2])
@@ -548,19 +569,63 @@ def ladder(x, y, top, z0=0.06, along=1):
 def lamp(x, y):
     cyl('lamp post', x, y, 0.06, 0.04, 1.35, basalt(), verts=10)
     sphere('lamp head', x, y, 1.45, 0.09, glow(WARM, 18.0, 'lamp glow'), seg=12)
-    light('POINT', 'lamp', (x, y, 1.4), 22, WARM, shadow=False, soft=0.1)
+    # bright enough to throw a pool of light on the pavement under it (the review: "white dots, no light on the ground")
+    light('POINT', 'lamp', (x, y, 1.4), 48, WARM, shadow=False, soft=0.1)
 
 
-def patio(x, y, colour):
+def patio(x, y, colour, seed=''):
+    """
+    A room's own corner of its garden, one of four by the room (UX review, 2026-11-19: every plot had
+    the same parasol): a parasol over two loungers; a fire pit ringed by log stools, burning; a daybed
+    under a canopy in the pool's colour; a hammock slung between two posts.
+    """
+    kind = sum(ord(c) for c in seed) % 4 if seed else 0
     cushion = painted(colour, 0.7)
-    for dx in (-0.75, 0.55):
-        box('lounger', x + dx, y - 0.45, 0.06, 0.34, 0.7, 0.12, cushion, bevel=0.03)
-    cyl('parasol pole', x, y, 0.06, 0.03, 0.95, wood(), verts=8)
-    bpy.ops.mesh.primitive_cone_add(vertices=24, radius1=0.62, radius2=0.04, depth=0.32, location=tuple(V(x, y, 1.0)))
-    o = bpy.context.active_object
-    o.name = 'parasol'
-    put(o)
-    o.data.materials.append(thatch())
+    if kind == 0:
+        for dx in (-0.75, 0.55):
+            box('lounger', x + dx, y - 0.45, 0.06, 0.34, 0.7, 0.12, cushion, bevel=0.03)
+        cyl('parasol pole', x, y, 0.06, 0.03, 0.95, wood(), verts=8)
+        bpy.ops.mesh.primitive_cone_add(vertices=24, radius1=0.62, radius2=0.04, depth=0.32, location=tuple(V(x, y, 1.0)))
+        o = bpy.context.active_object
+        o.name = 'parasol'
+        put(o)
+        o.data.materials.append(thatch())
+    elif kind == 1:
+        cyl('fire ring', x, y, 0.06, 0.36, 0.12, stone(), verts=20)
+        cyl('embers', x, y, 0.17, 0.27, 0.02, glow((1.0, 0.38, 0.08), 14.0, 'embers'), verts=20)
+        for i, (dx, dy, h) in enumerate(((0.0, 0.0, 0.34), (0.09, 0.05, 0.24), (-0.08, 0.04, 0.22), (0.02, -0.08, 0.2))):
+            bpy.ops.mesh.primitive_cone_add(vertices=8, radius1=0.08 - i * 0.008, radius2=0.0, depth=h, location=tuple(V(x + dx, y + dy, 0.19 + h / 2)))
+            o = bpy.context.active_object
+            o.name = 'flame'
+            put(o)
+            o.data.materials.append(glow((1.0, 0.62, 0.2), 24.0, 'flame'))
+        light('POINT', 'fire', (x, y, 0.55), 60, (1.0, 0.55, 0.22), shadow=True, soft=0.25)
+        for i in range(3):
+            a = math.pi * 2 * i / 3 + 0.5
+            cyl('log stool', x + math.cos(a) * 0.78, y + math.sin(a) * 0.78, 0.06, 0.13, 0.26, wood(), verts=12)
+    elif kind == 2:
+        box('daybed', x - 0.6, y - 0.42, 0.06, 1.2, 0.84, 0.22, cushion, bevel=0.04)
+        box('daybed pillow', x - 0.52, y - 0.36, 0.28, 0.22, 0.72, 0.12, cream(), bevel=0.04)
+        for (dx, dy) in ((-0.6, -0.42), (0.6, -0.42), (0.6, 0.42), (-0.6, 0.42)):
+            cyl('daybed post', x + dx, y + dy, 0.06, 0.025, 1.3, wood(), verts=8)
+        box('daybed canopy', x - 0.66, y - 0.48, 1.36, 1.32, 0.96, 0.025, shell(colour))
+        light('POINT', 'daybed lantern', (x + 0.45, y + 0.3, 1.1), 14, WARM, shadow=False, soft=0.1)
+        sphere('lantern', x + 0.45, y + 0.3, 1.18, 0.07, glow(WARM, 16.0, 'lamp glow'), seg=10)
+    else:
+        for dx in (-0.85, 0.85):
+            cyl('hammock post', x + dx, y, 0.06, 0.05, 1.15, wood(), verts=10)
+        n = 12
+        verts, faces = [], []
+        for i in range(n + 1):
+            t = i / n
+            z = 0.95 - 0.38 * math.sin(math.pi * t)
+            for w in (-0.22, 0.22):
+                verts.append(V(x - 0.8 + 1.6 * t, y + w * math.sin(math.pi * t) ** 0.5, z))
+        for i in range(n):
+            faces.append((2 * i, 2 * i + 1, 2 * i + 3, 2 * i + 2))
+        o = mesh('hammock', verts, faces, cushion, smooth=True)
+        s = o.modifiers.new('solid', 'SOLIDIFY')
+        s.thickness = 0.03
 
 
 def stones(pts):

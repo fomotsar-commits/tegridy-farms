@@ -337,7 +337,7 @@ test('stopped for a person (above the float cap): it stays up, the alerts check 
     const r = start({ BATCHER_KEY_FILE: key, BATCHER_LIVE: '1' }, [view]);
     await until(() => r.of('alerts', 'fail').length >= 3);
     assert.equal(r.code(), null, 'a stop for a person ended the process (Railway would restart it, and it would read as recovered)');
-    assert.match(r.of('alerts', 'fail')[0]!.body, /^STOPPED: the batcher holds 125000000 lovelace, above its cap of 100000000/);
+    assert.match(r.of('alerts', 'fail')[0]!.body, /^STOPPED: the batcher holds 125000000 lovelace in plain ADA, above its cap of 100000000/);
     assert.ok(r.of('alive', 'ok').length >= 2);
     assert.match(r.of('alive', 'ok').at(-1)!.body, /^STOPPED: the batcher holds/);
     assert.equal(view.submitted.length, 0);

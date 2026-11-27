@@ -238,6 +238,34 @@ structurally refuse to ship the contracts without one.
 > the multisig await the **2-of-2 accept ceremony** on each chain — both role Safes are at
 > `nonce() == 0`, and an N-of-M is unproven until something has executed at the new threshold.
 
+### HyperEVM 999 — deployed 2026-11-25
+Our own Uniswap V3 venue: Uniswap's code unchanged, deployed with Uniswap's own HyperEVM kit
+(`contracts/hyperevm/`, record `contracts/hyperevm/deployments/999.json`). Read back the same day:
+every contract byte-identical to Uniswap's own HyperEVM deployment. HYPE gas, explorer
+hyperevmscan.io. Not the TegridyFactory venue of Base and Robinhood.
+
+| Contract | Address |
+|---|---|
+| UniswapV3Factory (fee tiers 0.01%, 0.05%, 0.3%, 1%) | `0xcaDc93E96De58EA554c71ca609974625615E046D` |
+| NonfungiblePositionManager | `0xcb03207ae13076F520b8c81Ea4FE6F08F8bC63b2` |
+| QuoterV2 | `0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3` |
+| UniversalRouter 2.2.0 | `0x8652f9389D1738598E8a732d122440cDA85FAF1A` |
+| V3OpenFeeAdapter (owns the factory; the pool cut goes only to the treasury Safe) | `0x5f30Aa592fa4dB6AB62373666334E93772c28887` |
+| TickLens | `0xB021651dACaD5dabf83ef587297E093DfA0c95Ec` |
+| Position NFT descriptor (proxy / implementation / ProxyAdmin) | `0xE9F83A07b071748E795d2489651d5310fA098Db8` / `0xa24C7287eC56A7DEFDc70033803451240e267a52` / `0x885d37970e17bF28AFe79B1Bff7401799D641E78` |
+| UnsupportedProtocol (Universal Router stand-in) | `0x06D2C296F84Df77aFaAC0bDF26dD63A6B91b9a8e` |
+| HyperEVMFeeAdapterDeployer (one-shot, spent) | `0xF01574122A97281444369020e5D314CD99Cc8781` |
+| Treasury Safe (same address as Base; site fee + pool cut) | `0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0` |
+| Admin Safe (same address as Base's multisig; adapter owner + fee setter, ProxyAdmin owner) | `0xBC4E8abe4b0F16FC65c5bCADd018b3C44c47Be5B` |
+
+**How the money moves.** Liquidity providers keep each pool's fee minus the venue's cut, which
+is Uniswap's own schedule: **1/4 of the pool fee** on the 0.01% and 0.05% pools, **1/6** on the
+0.3% and 1% pools, set per pool through the adapter and paid only to the treasury Safe. A swap
+made on this site also pays the **0.5% site fee** to the treasury Safe (Universal Router
+`PAY_PORTION`). There is no pool-opening fee on this venue. Several of these addresses are
+other contracts on Base or Robinhood (same deployer, same nonce): read the chain before reading
+the address.
+
 ### Bungalow lighthouses — `LighthouseLadder`, redeployed 2026-09-05
 
 | Bungalow | Chain | Pool |

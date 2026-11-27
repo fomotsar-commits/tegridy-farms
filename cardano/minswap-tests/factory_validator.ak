@@ -373,6 +373,41 @@ test opening_with_the_fee_paid_in_tokens() fail {
   )
 }
 
+// ADA bound to a token cannot be spent without carrying the token on: an
+// output that also holds one does not count, though its lovelace is the fee.
+test opening_with_a_junk_token_beside_the_fee() fail {
+  test_opens(
+    test_opening(
+      [
+        Output {
+          ..test_paid(test_fee, test_treasury_address()),
+          value: value.from_lovelace(test_fee)
+            |> value.add(test_token_policy, test_token_name, 1),
+        },
+      ],
+      test_setting(test_fee),
+    ),
+  )
+}
+
+// A token sent to the treasury beside a fee of ADA alone neither counts nor
+// stops the opening.
+test opens_with_a_token_sent_to_the_treasury_beside_the_fee() {
+  test_opens(
+    test_opening(
+      [
+        test_paid(test_fee, test_treasury_address()),
+        Output {
+          ..test_paid(2000000, test_treasury_address()),
+          value: value.from_lovelace(2000000)
+            |> value.add(test_token_policy, test_token_name, 1),
+        },
+      ],
+      test_setting(test_fee),
+    ),
+  )
+}
+
 // --- Refused: the setting that names the fee ---------------------------------
 
 test opening_without_the_setting() fail {
