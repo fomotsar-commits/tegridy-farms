@@ -95,7 +95,7 @@ export const COLLECTIONS = {
     ],
   },
   junglebay: {
-    name: "Jungle Bay Ape Club",
+    name: "Jungle Bay",
     contract: "0xd37264c71e9af940e49795F0d3a8336afAaFDdA9",
     slug: "junglebay",
     openseaSlug: "junglebay",
@@ -118,7 +118,11 @@ export const COLLECTIONS = {
     // rest of the list when this one fails.
     metadataBase: `${IPFS_GATEWAYS[0]}QmaTrk9RrN3yhwyB1EbRFrxBEEtcbBaGs2NppJGn262Bid`,
     image: "https://nft-cdn.alchemy.com/eth-mainnet/5da8fc69b3357b9bfe42717280e7c102",
-    description: "Jungle Bay Ape Club is a collection of unique hand-drawn apes living on the Ethereum blockchain. Each ape is uniquely generated from over 120 traits across 9 categories, creating a vibrant community of digital primates.",
+    // The collection page's banner, from the Jungle Bay curator (2026-11-26).
+    // The marketplace otherwise paints no art (owner, 2026-11-14): this is one
+    // collection's own picture over its own page, nothing site-wide.
+    banner: { src: "/art/drop/jb-island-grave-wide.webp", position: "50% 32%" },
+    description: "Jungle Bay is a collection of unique hand-drawn apes living on the Ethereum blockchain. Each ape is uniquely generated from over 120 traits across 9 categories, creating a vibrant community of digital primates.",
     tags: ["ERC-721", "ETHEREUM", "PFP", "COMMUNITY"],
     pixelated: false,
     highlights: [
