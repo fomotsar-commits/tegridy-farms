@@ -1,6 +1,17 @@
 import { test, expect, type Page } from '@playwright/test';
 import { BUNGALOWS, BUNGALOW_COUNT } from '../src/lib/bungalows';
+import { ART } from '../src/lib/artConfig';
+import { BUNGALOW_ART_OVERRIDES } from '../src/lib/bungalowArtOverrides';
 import { gotoRoute } from './fixtures/routes';
+
+// A spot the room's studio pinned to a piece from outside her own pool (the Jungle Bay
+// curator's pieces in /art/drop/, 2026-11-26): that piece's path, minus its extension.
+// Any other spot draws from her pool.
+function pinnedOutsideHerPool(surface: string): string | null {
+  const pin = BUNGALOW_ART_OVERRIDES[`bayla|${surface}`];
+  const piece = pin && Object.values(ART).find((p) => p.id === pin.artId);
+  return piece && !piece.src.includes('/art/bayla/') ? piece.src.replace(/\.[a-z]+$/, '') : null;
+}
 
 // Bungalow doors (memetics.finance/<bungalow>). No wallet fixture: it pins the skin to
 // toweli, and these tests are about the door choosing it. A door switches the skin in
@@ -30,7 +41,9 @@ test.describe('bungalow doors', () => {
     const srcs = await page.$$eval('img[data-art-surface]', (imgs) =>
       imgs.map((i) => ({ surface: i.getAttribute('data-art-surface') ?? '', src: i.getAttribute('src') ?? '' })));
     for (const s of srcs.filter((x) => !x.surface.startsWith('nav-logo'))) {
-      expect(s.src, `${s.surface} should draw from her pool`).toContain('/art/bayla/');
+      const pinned = pinnedOutsideHerPool(s.surface);
+      if (pinned) expect(s.src, `${s.surface} should draw the piece her studio pinned`).toContain(pinned);
+      else expect(s.src, `${s.surface} should draw from her pool`).toContain('/art/bayla/');
     }
     await expect(page.locator('h1:has-text("Farm TOWELI.")')).toHaveCount(0);
   });
