@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-28
 
+- Sharing an add on X: the GIF now says how much of each coin went in, in a line across its top ("0.5 SOL + 1.23M $BAYLA"), for an add to any pool. The figures are read from your add's own transaction, never from what you typed, and rounded down; no wallet address is shown. If they cannot be read, the GIF goes as it did before.
 - BAYLA's room: a Liberation bar now heads her market. It fills with the BAYLA in all our Solana pools, measured against the BAYLA in her pump.fun pool on PumpSwap, and says Liberated the day ours hold more (32% on 2026-11-26). It counts BAYLA, not dollars, so no price move shifts it, and it is read from Solana when the page opens; when either side cannot be read it says so instead of showing an empty bar. Its link opens her Add SOL + BAYLA form.
 
 ### 2026-11-27

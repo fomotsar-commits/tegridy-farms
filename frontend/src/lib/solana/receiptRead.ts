@@ -271,5 +271,6 @@ export async function settleAddReceipt(
         : null,
     under: RECEIPT_WORDS.addedTo(ask.quote.symbol, ask.token.symbol),
     fee,
+    ...(quoteIn !== null && tokenIn !== null ? { deposit: { quote: quoteIn, quoteDecimals: ask.quote.decimals, token: tokenIn, tokenDecimals: ask.token.decimals } } : {}),
   });
 }
