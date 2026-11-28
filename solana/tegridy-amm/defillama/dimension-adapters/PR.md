@@ -1,8 +1,10 @@
 # Pull request text for `DefiLlama/dimension-adapters` (volume, fees, revenue)
 
-Sent on 2026-11-28 as https://github.com/DefiLlama/dimension-adapters/pull/11422. Below are its title and
-description as they stand there after the review; `dexs/memetics-finance.ts` beside this file is the
-adapter at the pull request's head. Do not open a second pull request.
+Sent on 2026-11-28 as https://github.com/DefiLlama/dimension-adapters/pull/11422 and merged there the same
+day. Below are its title and description as they stood at merge. They describe our version of the
+adapter, which reads the chain over RPC: `dexs/memetics-finance.ts` beside this file, the pull request's
+third commit. DefiLlama's maintainer rewrote it onto their own data provider before merging; see the
+README. Do not open a second pull request.
 
 **Title**
 
