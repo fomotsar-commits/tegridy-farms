@@ -1,12 +1,12 @@
 //! Jupiter's quote parity check (jupiter-amm-test-kit): for each swap below, `Amm::quote`
-//! must equal what the DEPLOYED program pays out when it runs that swap in LiteSVM.
+//! must equal what the program pays out when it runs that swap in LiteSVM.
 //!
 //!   cargo test --test parity
 //!
-//! The program is `tests/fixtures/memetics.so`, the ELF read from mainnet, not a local build:
-//! the parity that matters is with the binary Jupiter would route to. The pools are
-//! `tests/fixtures/accounts/<pool>/` with the tier's swap guard cleared (`common::snapshot`).
-//! To take both again: `node scripts/take-fixtures.mjs` (read only).
+//! The program is `tests/fixtures/memetics.so`, a build read from mainnet, not a local build.
+//! README.md (under the fixtures) says which build, and why parity with it holds for the one
+//! mainnet runs. The pools are `tests/fixtures/accounts/<pool>/` with the tier's swap guard
+//! cleared (`common::snapshot`). To take both again: `node scripts/take-fixtures.mjs`.
 
 mod common;
 
@@ -49,11 +49,14 @@ fn bayla_usdc() {
     assert_pool_parity::<MemeticsAmm>(&test, encode_swap);
 }
 
-/// The ELF under test: 714,776 bytes read from mainnet at slot 469,908,387 (last deployed in
-/// slot 469,177,891 by the vault's proposal #32, the build with the swap guard). When proposal
-/// #35 executes (it can from 2026-11-16 05:13 UTC), take the fixtures again and pin its hash.
+/// The fixture build: proposal #32's (the swap guard), 714,776 bytes, read at slot 469,908,387.
+/// Mainnet has run another since proposal #35 executed (2026-11-17), and the next upgrade
+/// installs a third. Neither changes what a router is quoted or paid: with either in place,
+/// only this pin fails (README.md, under the fixtures). The fixtures are taken again in that
+/// upgrade's same-day release by `scripts/take-fixtures.mjs`, which writes this hash only when
+/// it is the one the registry expects.
 #[test]
-fn the_program_is_the_deployed_binary() {
+fn the_program_is_the_fixture_build() {
     use sha2::{Digest, Sha256};
     let elf = std::fs::read("tests/fixtures/memetics.so").expect("read tests/fixtures/memetics.so");
     let hex: String = Sha256::digest(&elf)

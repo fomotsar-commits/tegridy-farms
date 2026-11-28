@@ -1,9 +1,9 @@
 //! Jupiter's quote parity check on the fee paths the live pools do not take. Both BAYLA pools
 //! charge no creator fee, so `tests/parity.rs` never runs the program's creator-fee split or
 //! its creator fee on the output. Here the BAYLA/SOL snapshot (`common::snapshot`) is copied
-//! with it switched on, and the DEPLOYED program
-//! (`tests/fixtures/memetics.so`) runs each swap in LiteSVM against the copy: the quote must
-//! still equal what it pays out. The kit asks for this ("different fee modes").
+//! with it switched on, and the fixture build (`tests/fixtures/memetics.so`, a program build
+//! read from mainnet) runs each swap in LiteSVM against the copy: the quote must still equal
+//! what it pays out. The kit asks for this ("different fee modes").
 //!
 //!   cargo test --test fee_paths
 //!
@@ -124,7 +124,7 @@ fn quotes_on(dir: &PathBuf, enable_creator_fee: bool) -> Vec<u64> {
         .collect()
 }
 
-/// Each of `SWAPS` on the copy: the quote equals what the deployed program pays. Returns the
+/// Each of `SWAPS` on the copy: the quote equals what the fixture build pays. Returns the
 /// amounts out.
 fn assert_parity(name: &str, creator_fee_on: u8, enable_creator_fee: bool) -> Vec<u64> {
     let dir = copy_with(name, creator_fee_on, enable_creator_fee);
@@ -147,8 +147,8 @@ fn creator_fee_on_both_tokens() {
 /// `OnlyToken0`: on the input when SOL goes in, off the output when SOL comes out.
 ///
 /// The two `quote_vectors.json` cases named "fee_paths token-0 copy" are these swaps, so the
-/// site's own quote (jupiterSdkParity.test.ts) meets the deployed program on the fund fee,
-/// the creator fee and fees booked to both.
+/// site's own quote (jupiterSdkParity.test.ts) meets the fixture build on the fund fee, the
+/// creator fee and fees booked to both.
 #[test]
 fn creator_fee_on_token_0() {
     let paid = assert_parity("token-0", 1, true);

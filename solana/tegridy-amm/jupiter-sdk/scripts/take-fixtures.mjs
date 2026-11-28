@@ -1,15 +1,19 @@
 #!/usr/bin/env node
-// Takes the test fixtures again from mainnet, read only: both BAYLA pools' accounts at one
-// finalized slot (tests/fixtures/accounts/<pool>/<key>.bin, a bincode `Account` each, as the
-// test kit writes them) and the deployed program (tests/fixtures/memetics.so, the ELF cut to
-// its own length, so its sha256 is the registry's). Three requests, 2.5 s apart. Prints the
-// slot, the time and the hash to pin in tests/parity.rs. Run from this folder:
-//   node scripts/take-fixtures.mjs [rpc url, default the public mainnet endpoint]
+// Takes the test fixtures again from mainnet, read only, in three requests 2.5 s apart: both
+// BAYLA pools' accounts at one finalized slot (tests/fixtures/accounts/<pool>/<key>.bin, bincode
+// `Account`s as the test kit writes them) and the program's ELF (tests/fixtures/memetics.so).
+// It writes nothing until all three are read and checked, and nothing unless the ELF is the
+// build the registry expects (frontend/scripts/addresses.json); it then pins that hash in
+// tests/parity.rs. Usage: node scripts/take-fixtures.mjs [rpc url, default the public one]
 
 import { createHash } from 'node:crypto';
-import { mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
+const CRATE = join(dirname(fileURLToPath(import.meta.url)), '..');
+const REGISTRY = join(CRATE, '../../../frontend/scripts/addresses.json');
+const PARITY = join(CRATE, 'tests/parity.rs');
 const RPC = process.argv[2] ?? 'https://api.mainnet-beta.solana.com';
 const PROGRAM = 'EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT';
 const POOLS = ['ErvzV1NMZmcfAqZtGH4AQhYAjn77nJEworKK1mYPz5w4', 'J35mQ6UF9PpB6bQMes2TRVUMbJVPwMYjcfapbkdm8mYm'];
@@ -21,6 +25,8 @@ const SYSVARS = [
 ];
 // PoolState offsets (src/state.rs `pool_fields`): the fee tier, two token accounts, two mints, the price record.
 const POOL_KEYS = [8, 72, 104, 168, 200, 296];
+// The one hash tests/parity.rs pins.
+const PIN = /"[0-9a-f]{64}"/g;
 
 const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 function b58(bytes) {
@@ -77,6 +83,7 @@ function decode58(s) {
   return Buffer.from(hex, 'hex');
 }
 
+// Read: all three requests.
 const first = await accounts([...POOLS, PROGRAM]);
 const wanted = new Set([...SYSVARS, PROGRAM]);
 const perPool = new Map();
@@ -89,26 +96,46 @@ for (const pool of POOLS) {
   for (const k of keys) wanted.add(k);
 }
 const snap = await accounts([...wanted]);
-for (const [pool, keys] of perPool) {
-  const dir = join('tests/fixtures/accounts', pool);
-  mkdirSync(dir, { recursive: true });
-  for (const f of readdirSync(dir)) if (f.endsWith('.bin')) rmSync(join(dir, f));
-  for (const k of [...keys, ...SYSVARS]) writeFileSync(join(dir, `${k}.bin`), bincode(snap.map.get(k)));
-}
-
 const programAccount = Buffer.from(snap.map.get(PROGRAM).data[0], 'base64');
 const programData = b58(programAccount.subarray(4, 36));
 const { context, value } = await rpc('getAccountInfo', [programData, { encoding: 'base64', commitment: 'finalized' }]);
+if (!value) throw new Error(`${programData} does not exist`);
+
+// Check, and build every file, before the first write.
 const pd = Buffer.from(value.data[0], 'base64');
 const elf = pd.subarray(45);
 // ELF64: e_shoff at 0x28, e_shentsize at 0x3a, e_shnum at 0x3c; the section headers end the file.
 const length = Number(elf.readBigUInt64LE(0x28)) + elf.readUInt16LE(0x3a) * elf.readUInt16LE(0x3c);
 if (elf.readUInt32BE(0) !== 0x7f454c46 || length > elf.length || elf.subarray(length).some((b) => b !== 0)) {
-  throw new Error('the program data does not hold one ELF followed by zeros');
+  throw new Error('the program data does not hold one ELF followed by zeros: nothing written');
 }
-writeFileSync('tests/fixtures/memetics.so', elf.subarray(0, length));
+const sha256 = createHash('sha256').update(elf.subarray(0, length)).digest('hex');
+const row = JSON.parse(readFileSync(REGISTRY, 'utf8')).solana.find((r) => r.id === 'cp-swap-programdata-restart');
+const expected = row?.expect?.holdsProgram;
+if (row?.address !== programData || expected?.sha256 !== sha256 || expected?.bytes !== length) {
+  throw new Error(`mainnet holds ${sha256} (${length} bytes) at ${programData}; the registry expects `
+    + `${expected?.sha256} (${expected?.bytes} bytes) at ${row?.address}: nothing written`);
+}
+const parity = readFileSync(PARITY, 'utf8');
+const pins = parity.match(PIN) ?? [];
+if (pins.length !== 1) throw new Error(`tests/parity.rs holds ${pins.length} pinned hashes, not one: nothing written`);
+const files = [];
+for (const [pool, keys] of perPool) {
+  for (const k of [...keys, ...SYSVARS]) files.push([pool, `${k}.bin`, bincode(snap.map.get(k))]);
+}
+
+// Write.
+for (const pool of POOLS) {
+  const dir = join(CRATE, 'tests/fixtures/accounts', pool);
+  mkdirSync(dir, { recursive: true });
+  for (const f of readdirSync(dir)) if (f.endsWith('.bin')) rmSync(join(dir, f));
+}
+for (const [pool, name, bytes] of files) writeFileSync(join(CRATE, 'tests/fixtures/accounts', pool, name), bytes);
+writeFileSync(join(CRATE, 'tests/fixtures/memetics.so'), elf.subarray(0, length));
+writeFileSync(PARITY, parity.replace(PIN, `"${sha256}"`));
 
 const clock = Buffer.from(snap.map.get(SYSVARS[0]).data[0], 'base64');
 console.log(`accounts: finalized slot ${snap.slot}, clock ${new Date(Number(clock.readBigInt64LE(32)) * 1000).toISOString()}`);
 console.log(`program: ${programData} at slot ${context.slot}, last deployed slot ${pd.readBigUInt64LE(4)}`);
-console.log(`memetics.so: ${length} bytes, sha256 ${createHash('sha256').update(elf.subarray(0, length)).digest('hex')}`);
+console.log(`memetics.so: ${length} bytes, sha256 ${sha256}, the registry's: pinned in tests/parity.rs`);
+console.log('Now say which build it is in README.md (under the fixtures), tests/parity.rs and SUBMISSION.md.');

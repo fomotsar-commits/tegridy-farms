@@ -16,11 +16,13 @@ page. The owner sends the form. Nothing in this folder sends anything.
    sending, the owner chooses one: the guard off for the fee setting to be listed (a vault
    proposal, 48 hours), or a program change that lets Jupiter's program through
    (`../TEGRIDY_FORK.md`, "The swap guard").
-2. The fixtures are taken again from the program then on mainnet (`README.md`, under the
-   fixtures): `node scripts/take-fixtures.mjs`, pin the printed hash in `tests/parity.rs`, and
-   write `tests/fixtures/quote_vectors.json` again, with the site's
-   `frontend/src/lib/solana/cpswap/jupiterSdkParity.test.ts`. Every test passes. Today's
-   fixtures are from 2026-11-15, before proposal #35 changes the program.
+2. The fixtures are taken again from the program then on mainnet, in the same-day release of
+   the upgrade to `4082fcfb…` (`../TEGRIDY_FORK.md` lists it; `README.md`, under the
+   fixtures): `node scripts/take-fixtures.mjs`, which pins the hash in `tests/parity.rs` only
+   when it is the registry's, then write `tests/fixtures/quote_vectors.json` again, with the
+   site's `frontend/src/lib/solana/cpswap/jupiterSdkParity.test.ts`. Every test passes.
+   Today's fixture build is proposal #32's `01fe923b…`, read 2026-11-15; mainnet has run
+   `9f0150e3…` since proposal #35 executed on 2026-11-17, which changes no quote this SDK gives.
 3. The Scope A audit report is published (`../AUDIT_RFQ.md` asks for it first, on its own).
 4. The figures below are read again on the day.
 
@@ -34,7 +36,7 @@ page. The owner sends the form. Nothing in this folder sends anything.
   `tests/layout.rs` reads the program's own source; a standalone copy can be made if Jupiter
   prefers one.
 - **Parity tests:** `cargo test` in that folder. `tests/parity.rs` runs Jupiter's
-  `jupiter-amm-test-kit` against the deployed program; the fixtures are committed.
+  `jupiter-amm-test-kit` against a program build read from mainnet; the fixtures are committed.
 - **Audit:** the Scope A report. [link]
 - **Traction**, read 2026-11-01 06:34 UTC from the site's own counters
   (`/api/aggregator?resource=venue-tvl` and `?resource=venue-volume`):

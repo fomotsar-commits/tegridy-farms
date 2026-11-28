@@ -1,8 +1,8 @@
 {
-  "about": "Quote vectors for the pool program's swap_base_input path. Two readers must reproduce every one: the Jupiter SDK (tests/quote_vectors.rs) and the site's own quote, quoteOwnPool in frontend/src/lib/solana/cpswap/read.ts (jupiterSdkParity.test.ts). `out` is what the curve pays; `refusal` names the program error that refuses the swap, or is null. A ZeroAmountOut refusal has out 0: the site quotes 0 there and its builders refuse it as too small. `live` swaps read the snapshots in accounts/<pool>/, the same files the LiteSVM parity test (tests/parity.rs) runs on. The two `fee_paths token-0 copy` cases are what the deployed program paid in tests/fee_paths.rs, which checks them. Amounts are raw token units, as decimal strings.",
+  "about": "Quote vectors for the pool program's swap_base_input path. Two readers must reproduce every one: the Jupiter SDK (tests/quote_vectors.rs) and the site's own quote, quoteOwnPool in frontend/src/lib/solana/cpswap/read.ts (jupiterSdkParity.test.ts). `out` is what the curve pays; `refusal` names the program error that refuses the swap, or is null. A ZeroAmountOut refusal has out 0: the site quotes 0 there and its builders refuse it as too small. `live` swaps read the snapshots in accounts/<pool>/, the same files the LiteSVM parity test (tests/parity.rs) runs on. The two `fee_paths token-0 copy` cases are what the fixture build (tests/fixtures/memetics.so, read from mainnet) paid in tests/fee_paths.rs, which checks them. The cases named for a tier \"before the island split of 2026-10-18\" hold that tier's rates of then, not today's. Amounts are raw token units, as decimal strings.",
   "synthetic": [
     {
-      "name": "tier 1, SOL in, the venue cut booked in the SOL vault",
+      "name": "tier 1 before the island split of 2026-10-18 (venue 16%, island 0), SOL in, the venue's share booked in the SOL vault",
       "pool": {
         "status": 0,
         "openTime": "0",
@@ -38,7 +38,7 @@
       "refusal": null
     },
     {
-      "name": "tier 1, token in",
+      "name": "tier 1 before the island split of 2026-10-18 (venue 16%, island 0), token in",
       "pool": {
         "status": 0,
         "openTime": "0",
@@ -74,7 +74,7 @@
       "refusal": null
     },
     {
-      "name": "tier 0, creator fee off on the pool",
+      "name": "tier 0 before the island split of 2026-10-18 (venue 20%, island 0), creator fee off on the pool",
       "pool": {
         "status": 0,
         "openTime": "0",
@@ -290,7 +290,7 @@
       "refusal": null
     },
     {
-      "name": "fee_paths token-0 copy, SOL in: what the deployed program paid",
+      "name": "fee_paths token-0 copy, SOL in: what the fixture build paid",
       "pool": {
         "status": 0,
         "openTime": "1791055084",
@@ -326,7 +326,7 @@
       "refusal": null
     },
     {
-      "name": "fee_paths token-0 copy, BAYLA in: what the deployed program paid",
+      "name": "fee_paths token-0 copy, BAYLA in: what the fixture build paid",
       "pool": {
         "status": 0,
         "openTime": "1791055084",

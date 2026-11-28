@@ -130,14 +130,15 @@ Follow-up for the same thread (a reply, never a new post), naming their own spec
 > 50,000 slots per /events call, 120 requests a minute. Program
 > `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT` (Raydium cp-swap fork, same account layouts).
 
-## 3. Jupiter (free; the SDK is rebuilt, the audit is the blocker)
+## 3. Jupiter (free; the swap guard is the first blocker)
 
-Everything for Jupiter's AMM integrators form is in `jupiter-sdk/SUBMISSION.md` on the
-branch `docs/jupiter-listing-pack` (5491039ea, not merged yet). The SDK was
-re-proven against the live program build on 2026-11-07 (branch
-`feat/jupiter-sdk-interface-070`, commit `8675c5d20`: 22 crate tests and the site's 52 parity
-checks pass). Still missing: the Scope A audit report (`AUDIT_RFQ.md` has the quote request
-ready to send) and traction, which listings 1 and 2 are meant to build.
+Jupiter calls every swap it routes from its own program, and our swap guard, on for both fee
+tiers since 2026-11-14 (vault proposal #33), refuses any swap another program calls. So today
+no route through our pools would land, and the SDK quotes none of them. First the owner
+chooses: the guard off on the tier to list (a vault proposal, 48 hours), or a program change
+that lets Jupiter's program through (`TEGRIDY_FORK.md`, "The swap guard"). Then the Scope A
+audit report (`AUDIT_RFQ.md`) and traction, which listings 1 and 2 are meant to build. The
+pack for Jupiter's AMM integrators form is `jupiter-sdk/SUBMISSION.md` on trunk.
 
 ## 4. DexTools (free; the adapter is built)
 

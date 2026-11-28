@@ -1,6 +1,7 @@
 //! Jupiter `Amm` for the Memetics pools: the constant-product program at
 //! `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`, a fork of raydium-cp-swap (Apache-2.0)
-//! whose curve and fee code is byte-identical to upstream's; its swap adds the swap guard.
+//! whose three curve files are upstream's byte for byte; its pool state adds a price record,
+//! and its swap adds the swap guard, the keeper's zero rates and that record (`math.rs`).
 //!
 //! All it does, per Jupiter's DEX integration rules: decode the pool, its fee tier, its two
 //! vaults and its two mints in `update`; quote ExactIn swaps in `quote`, with no network call;
@@ -10,8 +11,8 @@
 //! shares are taken OUT of that fee and stay in the pool's token account, booked: the venue's
 //! (protocol_fee_rate) until the venue's vault collects it, the island's (fund_fee_rate) until
 //! its collector (the island's Workshop on the live tiers) does. The rest stays in the pool for
-//! the people who supplied it. A swap pays nobody outside the pool. `update` refuses a fee tier naming any other
-//! collector, so no quote is ever given for a pool whose shares would go anywhere else.
+//! the people who supplied it, and a swap pays nobody outside the pool. `update` refuses a tier
+//! naming any other collector, so no quote is given for a pool whose shares go anywhere else.
 
 pub mod math;
 pub mod state;

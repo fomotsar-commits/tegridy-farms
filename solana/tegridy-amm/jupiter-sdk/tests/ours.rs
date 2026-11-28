@@ -8,10 +8,14 @@ mod common;
 use std::collections::HashMap;
 
 use jupiter_amm_interface::{Amm, QuoteParams, SwapMode, SwapParams};
-use memetics_jupiter_sdk::state::{AmmConfig, Field, PoolState, config_fields};
+use memetics_jupiter_sdk::math::swap_exact_in;
+use memetics_jupiter_sdk::state::{
+    AmmConfig, Field, PoolState, config_fields, token_account_amount,
+};
 use memetics_jupiter_sdk::{
     AUTHORITY, ISLAND_WORKSHOP, PROGRAM_ID, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, VENUE_VAULT,
 };
+use rust_decimal::Decimal;
 use solana_pubkey::Pubkey;
 
 /// The keys the SDK may name, each with what it is. Written out as text, so changing a
@@ -27,7 +31,7 @@ const ALLOWED: &[(&str, &str)] = &[
     ),
     (
         "GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd",
-        "the venue's Squads vault: admin and every fee tier's collector",
+        "the venue's Squads vault: admin, the only collector of a tier's venue share (protocol_fee_rate), and allowed for the island's (fund_fee_rate)",
     ),
     (
         "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
@@ -39,7 +43,7 @@ const ALLOWED: &[(&str, &str)] = &[
     ),
     (
         "G2EHPseTXetHbBvvRDs27XQyXfQikXXyxP9uMbsKrbu",
-        "the island's Workshop: collects the island's share of the fee under the split of 2026-10-18",
+        "the island's Workshop: collects the island's share (fund_fee_rate) under the split of 2026-10-18",
     ),
 ];
 
@@ -136,6 +140,57 @@ fn the_live_pools_pay_only_the_venue_and_the_island() {
     }
 }
 
+/// What a router sees on tier 1, where every live pool sits: a fee of 1% of the input, in the
+/// input token, of which 10.4% is booked to the venue and 5.6% to the island, each rounded
+/// down. One SOL in pays 10,000,000 lamports: 1,040,000 to the venue, 560,000 to the island.
+#[test]
+fn a_router_sees_the_tiers_fee_and_its_two_shares() {
+    let pool_key = common::BAYLA_SOL_POOL;
+    let snapshot = common::snapshot(&pool_key);
+    let pool = PoolState::decode(&common::account(&snapshot, &pool_key).data).unwrap();
+    let config = AmmConfig::decode(&common::account(&snapshot, &pool.amm_config).data).unwrap();
+    let vault = |k: &Pubkey| token_account_amount(&common::account(&snapshot, k).data).unwrap();
+    let now = snapshot.clock().expect("clock in snapshot").unix_timestamp;
+    let amm = common::amm(&pool_key);
+    let (sol, bayla) = (pool.token_0_mint, pool.token_1_mint);
+    // (in, out, amount in, fee, the venue's share, the island's share); the second splits unevenly.
+    for (input, output, amount, fee, venue, island) in [
+        (sol, bayla, 1_000_000_000, 10_000_000, 1_040_000, 560_000),
+        (sol, bayla, 123_456_789, 1_234_568, 128_395, 69_135),
+        (
+            bayla,
+            sol,
+            1_000_000_000_000,
+            10_000_000_000,
+            1_040_000_000,
+            560_000_000,
+        ),
+    ] {
+        let q = amm
+            .quote(&QuoteParams {
+                amount,
+                input_mint: input,
+                output_mint: output,
+                swap_mode: SwapMode::ExactIn,
+                fee_mode: Default::default(),
+            })
+            .expect("quote");
+        assert_eq!(
+            (q.fee_amount, q.fee_mint, q.fee_pct),
+            (fee, input, Decimal::new(1, 2)),
+            "{amount}"
+        );
+        let (vault_0, vault_1) = (vault(&pool.token_0_vault), vault(&pool.token_1_vault));
+        let r = swap_exact_in(&pool, &config, vault_0, vault_1, input == sol, amount, now).unwrap();
+        assert_eq!(
+            (r.trade_fee, r.protocol_fee, r.fund_fee, r.creator_fee),
+            (fee, venue, island, 0),
+            "{amount}"
+        );
+        assert_eq!(r.output_amount, q.out_amount, "{amount}");
+    }
+}
+
 /// A swap's accounts: the trader's own three, and otherwise only accounts our program owns
 /// or controls, the two mints, and the token programs. No account outside the pool is paid.
 #[test]
@@ -198,7 +253,7 @@ fn a_swap_touches_only_the_pool_and_the_trader() {
 }
 
 /// `update` refuses a fee tier naming any other fee collector, so no quote is ever given for
-/// a pool whose venue cut would be paid somewhere else.
+/// a pool whose venue's or island's share would be paid somewhere else.
 #[test]
 fn a_fee_tier_paying_anyone_else_is_refused() {
     let pool_key = common::BAYLA_SOL_POOL;
