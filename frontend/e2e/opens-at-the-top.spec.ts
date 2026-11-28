@@ -155,7 +155,9 @@ const landingSettled = async (page: Page) => {
 test.describe('a page opened by its address', () => {
   test('the trading view of a collection', async ({ page }) => {
     await prepare(page, { appears: '.back-to-top' });
-    await page.goto('/nakamigos/junglebaygoldcards');
+    // Named: a bare address opens Floor (2026-11-15), and Gold Cards' Floor is
+    // empty, too short to need Back to top.
+    await page.goto('/nakamigos/junglebaygoldcards/gallery');
     await tradingViewSettled(page);
     await expectOpenedAtTheTop(page, { mustScroll: true });
   });
@@ -185,7 +187,11 @@ test.describe('a page reached from another page', () => {
     await expectScrolled(page);
     await arm(page, { appears: '.back-to-top' });
     await card.click();
-    await tradingViewSettled(page);
+    // A collection card opens Floor (owner, 2026-11-15: "always land on floor").
+    await expect(page).toHaveTitle('Jungle Bay Gold Cards - Listings | Tradermigos', { timeout: 20_000 });
+    // The tab row on a computer, the bottom bar on a phone: whichever is shown.
+    await expect(page.locator('nav[aria-label="Main navigation"], nav[aria-label="Bottom navigation"]').filter({ visible: true }).getByRole('button', { name: 'Floor', exact: true }))
+      .toHaveAttribute('aria-current', 'page');
     await expectOpenedAtTheTop(page, { mustScroll: true });
   });
 

@@ -11,8 +11,9 @@ import { CollectionProvider, useActiveCollection } from "./contexts/CollectionCo
 import { ToastProvider, useToast } from "./contexts/ToastContext";
 import { FavoritesProvider, useFavorites } from "./contexts/FavoritesContext";
 import { CartProvider, useCart } from "./contexts/CartContext";
-import { COLLECTIONS, DEFAULT_COLLECTION, VALID_TABS, PLATFORM_FEE_RECIPIENT, PLATFORM_FEE_BPS } from "./constants";
+import { COLLECTIONS, DEFAULT_COLLECTION, PLATFORM_FEE_RECIPIENT, PLATFORM_FEE_BPS } from "./constants";
 import { canTradeOnVenue } from "./lib/venue";
+import { parseRoute } from "./lib/parseRoute";
 import Header from "./components/Header";
 import Hero from "./components/Hero";
 import Gallery from "./components/Gallery";
@@ -108,48 +109,9 @@ function prefetchTab(tabKey) {
 }
 
 // ═══ Route-based tab mapping (multi-collection: /:collection/:tab) ═══
-// VALID_TABS lives in constants.js so navRouting.test.jsx can enforce that
-// every nav target routes without importing the whole app tree.
-
-function parseRoute(pathname) {
-  // Strip the /nakamigos prefix when embedded in Tegriddy Farms
-  const stripped = pathname.replace(/^\/nakamigos\/?/, "/");
-  const segments = stripped.replace(/^\//, "").split("/").filter(Boolean);
-
-  // "/" — landing page
-  if (segments.length === 0) return { collectionSlug: null, tab: "landing", tokenId: null };
-
-  const first = segments[0];
-
-  // Check if the first segment is a known collection slug
-  if (COLLECTIONS[first]) {
-    // Bare /:collection (and the trailing-slash form the Gallery nav produces)
-    // resolves to the gallery — the default tab. Previously defaulted to
-    // "listings", which made the Gallery nav button + "G" hotkey land on
-    // Listings (F607).
-    const second = segments[1] || "gallery";
-    // Deep link: /:collection/nft/:id
-    if (second === "nft" && segments[2]) {
-      // Strict digits only — parseInt("12abc") === 12 would resolve a junk
-      // segment to a real token (F547). Mirrors the ?token= reader's regex.
-      const seg = segments[2];
-      return { collectionSlug: first, tab: "gallery", tokenId: /^\d{1,10}$/.test(seg) ? seg : null };
-    }
-    const tab = VALID_TABS.includes(second) ? second : "404";
-    return { collectionSlug: first, tab, tokenId: null };
-  }
-
-  // Legacy routes without collection prefix — redirect to nakamigos
-  if (first === "nft" && segments[1]) {
-    const seg = segments[1];
-    return { collectionSlug: "nakamigos", tab: "gallery", tokenId: /^\d{1,10}$/.test(seg) ? seg : null };
-  }
-  if (VALID_TABS.includes(first)) {
-    return { collectionSlug: "nakamigos", tab: first, tokenId: null };
-  }
-
-  return { collectionSlug: null, tab: "404", tokenId: null };
-}
+// lib/parseRoute.js: its own file so a test reads it without the app tree. A
+// bare collection address opens on Floor for a collection that trades here,
+// on Gallery for a view-only one (landingTabFor).
 
 // Tab index for keyboard shortcuts (matches PRIMARY_NAV in Header)
 const TAB_KEYS = {
