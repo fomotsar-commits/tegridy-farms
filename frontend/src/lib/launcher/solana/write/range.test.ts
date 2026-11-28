@@ -301,7 +301,7 @@ describe('opening a range position', () => {
     expect(await msg(chainWith({ frozenVault: 0 }))).toBe(RANGE_COPY.vaultFrozen);
     expect(await msg(chainWith({ frozenVault: 1 }))).toBe(RANGE_COPY.vaultFrozen);
     // A vault that did not read is never taken as open.
-    expect(await msg(chainWith({ vaultMissing: true }))).toBe(RANGE_COPY.poolChanged('its vaults'));
+    expect(await msg(chainWith({ vaultMissing: true }))).toBe(RANGE_COPY.poolChanged('the accounts that hold its coins'));
   });
 
   it('a token whose creator can freeze it is said first on the review, in the LP deposit’s words; one that cannot says nothing', async () => {
@@ -309,7 +309,7 @@ describe('opening a range position', () => {
     const args = { owner: ME, pool: POOL, ...inRange, side: 'token' as const, amount: 5_000_000n, toleranceBps: 100 };
     const frozen = ok(await prepareRangeOpen(W(ready(chainWith({ freezeAuthority: auth }))), cfgLocal, PROG, READS, args));
     const warnings = (frozen.summary as Extract<RangeSummary, { kind: 'range-open' }>).warnings;
-    expect(warnings).toContain(`The token: Its creator can freeze any account that holds it (freeze authority ${auth.toBase58()}), a pool’s own vault and your own account included. While a pool’s vault is frozen, nobody can take liquidity out of that pool.`);
+    expect(warnings).toContain(`The token: Its creator can freeze any account that holds it (freeze authority ${auth.toBase58()}), a pool’s own and yours included. While a pool’s account for it is frozen, nobody can take liquidity out of that pool.`);
     const clean = ok(await prepareRangeOpen(W(ready(chainWith())), cfgLocal, PROG, READS, args));
     expect((clean.summary as Extract<RangeSummary, { kind: 'range-open' }>).warnings.some((w) => /freeze/.test(w))).toBe(false);
   });
@@ -318,7 +318,7 @@ describe('opening a range position', () => {
     const auth = Keypair.generate().publicKey;
     const mintOf = (o: { freezeAuthority?: PublicKey } = {}) => ({ address: 'm', owner: TOKEN_PROGRAM_ID.toBase58(), lamports: 1, data: encodeMint({ decimals: 6, ...o }) });
     const token = Keypair.generate().publicKey.toBase58();
-    const wording = `Its creator can freeze any account that holds it (freeze authority ${auth.toBase58()}), a pool’s own vault and your own account included. While a pool’s vault is frozen, nobody can take liquidity out of that pool.`;
+    const wording = `Its creator can freeze any account that holds it (freeze authority ${auth.toBase58()}), a pool’s own and yours included. While a pool’s account for it is frozen, nobody can take liquidity out of that pool.`;
     // The pairing coin's side: BAYLA has no risk line of its own, so a freeze authority on it is read and said.
     expect(freezeLines({ tokenMint: token, quote: BAYLA_QUOTE }, mintOf(), mintOf({ freezeAuthority: auth }))).toEqual([`BAYLA: ${wording}`]);
     expect(freezeLines({ tokenMint: token, quote: BAYLA_QUOTE }, mintOf({ freezeAuthority: auth }), mintOf())).toEqual([`The token: ${wording}`]);
@@ -753,6 +753,6 @@ describe('the pins are held to the chain', () => {
     data.set(Keypair.generate().publicKey.toBytes(), POOL_STATE_OFFSETS.tokenVault0);
     c.set(POOL, { ...pool, data });
     const r = await prepareRangeOpen(W(c), cfgLocal, PROG, READS, { owner: ME, pool: POOL, ...inRange, side: 'token', amount: 5_000_000n, toleranceBps: 100 });
-    expect(r.ok ? null : r.outcome.message).toBe(RANGE_COPY.poolChanged('its vaults'));
+    expect(r.ok ? null : r.outcome.message).toBe(RANGE_COPY.poolChanged('the accounts that hold its coins'));
   });
 });

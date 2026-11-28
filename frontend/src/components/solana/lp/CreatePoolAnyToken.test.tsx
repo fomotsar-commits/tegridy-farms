@@ -246,7 +246,7 @@ describe('all of it at once: a freezable copy with no market price, paired with 
     // Before anything is typed, the token's warnings are already above Review.
     const [copyLine, freezeLine] = tokenReasons(freezableCopy, 'pools').warned;
     expect(copyLine).toContain('It calls itself by a well-known token’s name but has a different mint');
-    expect(freezeLine).toContain('Its creator can freeze the vault of the pool you open');
+    expect(freezeLine).toContain('Its creator can freeze it inside the pool you open');
     const early = within(panel).getByTestId('lp-create-warnings');
     expect(early).toHaveTextContent(copyLine!);
     expect(early).toHaveTextContent(freezeLine!);
@@ -335,7 +335,7 @@ describe('one warning at a time, on SOL', () => {
     await within(panel).findByRole('button', { name: 'Max SOL' });
     const [freezeLine] = tokenReasons(freezable, 'pools').warned;
     expect(freezeLine).toBe(
-      'Its creator can freeze the vault of the pool you open, and while it is frozen nobody can take liquidity out, you included. They can also freeze your own account for the token.',
+      'Its creator can freeze it inside the pool you open, and while it is frozen nobody can take liquidity out, you included. They can also freeze your own account for the token.',
     );
     const warnings = within(panel).getByTestId('lp-create-warnings');
     expect(warnings).toHaveTextContent(freezeLine!);

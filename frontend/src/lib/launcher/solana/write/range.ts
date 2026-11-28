@@ -112,8 +112,8 @@ export const RANGE_COPY = {
   addingPaused: 'Opening positions in this pool is switched off by the team’s vault right now.',
   withdrawalsOff:
     'Withdrawals are switched off on this pool by the team’s vault, so money put in now could not be taken out until the vault switches them back on. Nothing was built.',
-  vaultFrozen: 'One of this pool’s vaults is frozen by its coin’s issuer, so nothing can move in or out of the pool, for anyone. Nothing was built.',
-  cannotSize: (why: string) => `This site cannot size your account for a coin of this pool (${why}), so nothing was built.`,
+  vaultFrozen: 'A coin’s issuer has frozen this pool’s own account for that coin, so nothing can move in or out of the pool, for anyone. Nothing was built.',
+  cannotSize: (why: string) => `This site could not size your account for a coin of this pool (${why}), so nothing was built.`,
   priceOff: (pct: string, side: 'above' | 'below', loss: string | null) =>
     `This pool’s price is ${pct} ${side} the outside price (Jupiter’s). Anyone can open a range pool at any price. ` +
     (loss === null
@@ -126,24 +126,24 @@ export const RANGE_COPY = {
   collectingPaused: 'Collecting fees from this pool is switched off by the team’s vault right now.',
   rewardsPaused: 'Collecting rewards from this pool is switched off by the team’s vault right now.',
   earnedWaitsOnRemoval:
-    'Taking liquidity out of this pool is switched off by the team’s vault right now, so what this position earned since it was last changed cannot be collected yet. It stays owed to it.',
+    'Taking liquidity out of this pool is switched off by the team’s vault right now, so what this position earned since it was last changed waits until that is switched back on. It stays owed to it.',
   paysRecordOnly:
     'Taking liquidity out of this pool is switched off by the team’s vault right now, so this pays only what the position’s record held at its last change. What it earned since stays owed to it.',
   closeRewardShort:
-    'A reward’s vault holds less than this position is owed, and the program closes a position only once every reward owed is paid, so it cannot be closed now. Take out 100% and keep it open instead: that pays what the vault holds, and the rest stays owed to it.',
+    'The pool holds less of a reward than this position is owed, and the program closes a position only once every reward owed is paid, so closing waits until the pool holds enough. Take out 100% and keep it open instead: that pays what the pool holds, and the rest stays owed to it.',
   badRange: 'That range is not one a position may use in this pool.',
   buysNothing: 'That amount buys nothing in this range: a range above the price takes the token only, and one below it takes the pairing coin only.',
   noTokenAccount: (address: string) => LP_COPY.noTokenAccount(address),
   noCoinAccount: (symbol: string, address: string) => LP_COPY.noCoinAccount(symbol, address),
   short: (need: string, have: string) => LP_COPY.overBalance(need, have),
   notAPosition: 'This address is not a range position of this venue.',
-  notYourNft: 'The position’s NFT is not in your wallet’s own account for it, so this site cannot take it out for you.',
+  notYourNft: 'The position’s NFT is not in your wallet’s own account for it, so this site does not take it out for you.',
   nothingToTake: 'There is nothing in this position to take out, and no fees or rewards to collect.',
   badPercent: 'Choose how much to take out: from 0% (fees only) to 100%.',
   badTolerance: 'The price tolerance must be from 0% to 50%.',
   poolTaken: (at: string | null) =>
     `Someone has opened this pool already${at ? `, at ${at}` : ''}, so nothing was built. Read the pools again to put coins into it instead.`,
-  poolAccountsTaken: 'Something already sits at one of this pool’s own addresses, so it cannot be opened. Nothing was built.',
+  poolAccountsTaken: 'Something already sits at one of this pool’s own addresses, so opening it would fail. Nothing was built.',
   noTier: 'The range fee tier is not on this network yet, so no pool can be opened. Nothing was built.',
   startOutside: 'That opening price is outside what a range pool can hold.',
   createNoMarket: 'This token has no market price, so a pool for it would be its launch. The venue does not open launches this way. Nothing was built.',
@@ -221,7 +221,7 @@ export function rangePins(
   const m0 = new PublicKey(pool.tokenMint0);
   const m1 = new PublicKey(pool.tokenMint1);
   if (pool.tokenVault0 !== deriveVault(programId, addr, m0).toBase58() || pool.tokenVault1 !== deriveVault(programId, addr, m1).toBase58()) {
-    return RANGE_COPY.poolChanged('its vaults');
+    return RANGE_COPY.poolChanged('the accounts that hold its coins');
   }
   if (pool.observationKey !== deriveObservation(programId, addr).toBase58()) return RANGE_COPY.poolChanged('its price record');
   if (!config || config.owner !== programId.toBase58()) return RANGE_COPY.poolChanged('its fee tier');
@@ -417,7 +417,7 @@ export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, pro
   const vaults = fresh.extra.slice(bands.length);
   const v0 = tokenVault(vaults[0] ?? null, pins.token0Program.toBase58());
   const v1 = tokenVault(vaults[1] ?? null, pins.token1Program.toBase58());
-  if (!v0 || !v1) return notSent('build', RANGE_COPY.poolChanged('its vaults'));
+  if (!v0 || !v1) return notSent('build', RANGE_COPY.poolChanged('the accounts that hold its coins'));
   if (v0.frozen || v1.frozen) return notSent('build', RANGE_COPY.vaultFrozen);
 
   const range: TickRange = { tickLower: a.tickLower, tickUpper: a.tickUpper };

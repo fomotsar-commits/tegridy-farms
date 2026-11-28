@@ -606,11 +606,11 @@ describe('a frozen vault on a pool paired with a coin: who is said to have froze
   it('USDC: the token’s issuer or USDC’s. BAYLA: the token’s issuer, as on a SOL pool', async () => {
     const usdc = world(USDC_QUOTE, { heldLp: LP_SUPPLY / 10n, frozenTokenVault: true });
     expect(refused(await withdraw(usdc))).toBe(
-      "The token's issuer, or USDC's, has frozen one of this pool's vaults, so nothing can move in or out, for anyone. That is the issuer's doing, not the pool program's.",
+      "The token's issuer, or USDC's, has frozen this pool's own account for one of its coins, so nothing can move in or out, for anyone. That is the issuer's doing, not the pool program's.",
     );
     const bayla = world(BAYLA_QUOTE, { heldLp: LP_SUPPLY / 10n, frozenTokenVault: true });
     expect(refused(await withdraw(bayla))).toBe(
-      "The token's issuer has frozen one of this pool's vaults, so nothing can move in or out, for anyone. That is the issuer's doing, not the pool program's.",
+      "The token's issuer has frozen this pool's own account for one of its coins, so nothing can move in or out, for anyone. That is the issuer's doing, not the pool program's.",
     );
   });
 });

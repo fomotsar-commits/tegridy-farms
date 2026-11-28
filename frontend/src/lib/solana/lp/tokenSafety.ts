@@ -406,12 +406,12 @@ export function freezeWarning(mint: string, freezeAuthority: string): { code: 'f
   if (FREEZE_AUTHORITY_ACCEPTED.has(mint)) {
     return {
       code: 'freeze-authority-accepted',
-      text: `Its issuer can freeze any account that holds it (freeze authority ${freezeAuthority}), a pool’s own vault and your own account included. While a pool’s vault is frozen, nobody can take liquidity out of that pool. That is how ${mint === USDC_MINT ? 'USDC' : 'USDT'} is built.`,
+      text: `Its issuer can freeze any account that holds it (freeze authority ${freezeAuthority}), a pool’s own and yours included. While a pool’s account for it is frozen, nobody can take liquidity out of that pool. That is how ${mint === USDC_MINT ? 'USDC' : 'USDT'} is built.`,
     };
   }
   return {
     code: 'freeze-authority',
-    text: `Its creator can freeze any account that holds it (freeze authority ${freezeAuthority}), a pool’s own vault and your own account included. While a pool’s vault is frozen, nobody can take liquidity out of that pool.`,
+    text: `Its creator can freeze any account that holds it (freeze authority ${freezeAuthority}), a pool’s own and yours included. While a pool’s account for it is frozen, nobody can take liquidity out of that pool.`,
   };
 }
 

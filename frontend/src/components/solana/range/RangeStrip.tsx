@@ -30,11 +30,19 @@ export function RangeStrip(p: {
   const [box, W] = useDrawWidth();
   const s = stripLayout({ now: p.now, market: p.market, lo: p.lo, hi: p.hi });
   if (!s) return null;
-  // Each label on the right of its line when the whole of it fits there, else on the left: one
-  // near an edge stays whole on a phone. The two never meet: one is at the top, one at the foot.
-  const labelLeft = (at: number, text: string) => {
+  // Each label goes right of its line, else left of it, else beside the other price's line: the
+  // first place where all of it fits and no line runs through it (a pool's price sits close to
+  // the market's). Failing all, the side with room, kept whole. The two labels never meet: one
+  // is at the top, one at the foot.
+  const labelLeft = (at: number, text: string, other: number | null) => {
     const x = (at / 100) * W;
+    const o = other === null ? null : (other / 100) * W;
     const width = markWidth(text);
+    const clearOf = (left: number, line: number) => line < left - 1 || line > left + width + 1;
+    const ok = (left: number) => left >= 4 && left + width <= W - 4 && clearOf(left, x) && (o === null || clearOf(left, o));
+    const tries = [x + MARK_GAP, x - MARK_GAP - width, ...(o === null ? [] : [o + MARK_GAP, o - MARK_GAP - width])];
+    const found = tries.find(ok);
+    if (found !== undefined) return found;
     const [left = x] = placeLabels([{ at: x, width, side: sideWithRoom(x, width, W, 'right', MARK_GAP) }], W, MARK_GAP);
     return left;
   };
@@ -59,8 +67,8 @@ export function RangeStrip(p: {
           />
         )}
         <div ref={box} aria-hidden="true" className="absolute inset-0">
-          {s.market !== null && <Mark at={s.market} left={labelLeft(s.market, 'market')} color={EDITORIAL_INK} label="market" low />}
-          <Mark at={s.now} left={labelLeft(s.now, p.nowMark)} color={GREEN} label={p.nowMark} />
+          {s.market !== null && <Mark at={s.market} left={labelLeft(s.market, 'market', s.now)} color={EDITORIAL_INK} label="market" low />}
+          <Mark at={s.now} left={labelLeft(s.now, p.nowMark, s.market)} color={GREEN} label={p.nowMark} />
         </div>
       </div>
       <figcaption className="mt-1.5 flex justify-between gap-3 font-mono text-[10px] tracking-[0.12em] text-[#f5e4b8]/55">

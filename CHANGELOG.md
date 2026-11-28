@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-28
 
+- Range pools and Pools, the words: how a range position earns now says "Positions in range share" its part of each fee. The Pools Rates card's Details say the 1%, 0.84% and 0.16% split once instead of four times, and list the venue's earnings under "The venue earns:". "Vault" now means only the team's vault: where a pool's own account for a coin is frozen or named wrong, the message says that. Range messages that said "cannot" now say what is true and what to do. On Pools the venue's pipe no longer runs through "TO THE VENUE", and on the range strip neither price line runs through the other's label.
 - BAYLA's room: a Liberation bar now heads her market. It fills with the BAYLA in all our Solana pools, measured against the BAYLA in her pump.fun pool on PumpSwap, and says Liberated the day ours hold more (32% on 2026-11-26). It counts BAYLA, not dollars, so no price move shifts it, and it is read from Solana when the page opens; when either side cannot be read it says so instead of showing an empty bar. Its link opens her Add SOL + BAYLA form.
 
 ### 2026-11-27

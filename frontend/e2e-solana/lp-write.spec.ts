@@ -717,7 +717,7 @@ test.describe('group B (chromium only)', () => {
     const p = a.page;
     const owner = B.stranger.publicKey;
     const freezeOnPool =
-      'Its creator can freeze the vault of this pool, and while it is frozen nobody can take liquidity out, you included. They can also freeze your own account for the token.';
+      'Its creator can freeze it inside this pool, and while it is frozen nobody can take liquidity out, you included. They can also freeze your own account for the token.';
     // Still refused: the squat pool.
     await openPools(p, B.ts);
     const squat = poolCard(p, B.squat.address);
@@ -780,7 +780,7 @@ test.describe('group B (chromium only)', () => {
     await connect(p);
     const row = positionRow(p, B.pf2.address);
     await expect(row).toHaveAttribute('data-remove', 'vault-frozen', { timeout: 60_000 });
-    await expect(row).toContainText("The token's issuer has frozen one of this pool's vaults, so nothing can move in or out, for anyone.");
+    await expect(row).toContainText("The token's issuer has frozen this pool's own account for one of its coins, so nothing can move in or out, for anyone.");
     await expect(ui.lp.removeButton(row)).toHaveCount(0);
     await expect(ui.lp.reviewRemove(row)).toHaveCount(0);
     expect(a.wallet.records).toEqual([]);

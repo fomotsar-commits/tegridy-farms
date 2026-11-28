@@ -75,7 +75,7 @@ export function RangeCreateCard(p: RangeCreateProps) {
         {`Opening this pool costs ${sol(CREATE_POOL_FEE_LAMPORTS)}, paid to the team’s vault (${CREATE_POOL_FEE_RECEIVER.toBase58()}). It is not refunded. On top of it come deposits for the pool’s own accounts and its first price bands, which never come back, and for your position, which come back when you close it. The review says each to the lamport.`}
       </Notice>
       <p className="text-white/85" data-testid="range-create-earns">
-        {`Positions whose range the price is in share ${split.lpOfFee} of each ${split.fee} swap fee (${split.lpOfSwap} of the swap), split by how much liquidity each has there. The venue keeps ${split.venueOfFee} (${split.venueOfSwap} of the swap).`}
+        {`Positions in range share ${split.lpOfFee} of each ${split.fee} swap fee (${split.lpOfSwap} of the swap), split by how much liquidity each has there. The venue keeps ${split.venueOfFee} (${split.venueOfSwap} of the swap).`}
       </p>
       {venue.elsewhere ? (
         <p className="text-amber-200 text-[12px]" data-testid="range-create-venue-elsewhere">
@@ -84,12 +84,12 @@ export function RangeCreateCard(p: RangeCreateProps) {
       ) : (
         <p className="text-white/70 text-[12px]">{venue.where}</p>
       )}
-      <Notice tone="warn">Trading opens the moment the pool exists, and its opening price can never be set again. A pool cannot be closed.</Notice>
+      <Notice tone="warn">Trading opens the moment the pool exists, and its opening price can never be set again. No one can close a pool.</Notice>
       {p.tokenDecimals !== null ? (
         <OpeningPrice {...p} tokenDecimals={p.tokenDecimals} />
       ) : p.tokenUnread ? (
         <div className="space-y-2">
-          <Notice tone="warn">The token could not be read just now, so its pool cannot be set up here yet.</Notice>
+          <Notice tone="warn">The token could not be read just now. Read it again to set up its pool.</Notice>
           <button type="button" className="btn-secondary min-h-[44px] px-4 text-[12px]" onClick={p.onReadAgain}>
             Read again
           </button>

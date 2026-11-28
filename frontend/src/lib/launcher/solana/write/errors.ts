@@ -82,7 +82,7 @@ export interface LpFailureCopy {
 // The log of a frozen account does not say which side it was, and USDC's issuer can
 // freeze as well as a token's creator can. So the words cover both sides.
 const LP_FROZEN =
-  "The issuer of the token, or of what it is paired with, has frozen an account this needs (one of the pool's vaults, or your own account for either), so nothing can move. That is the issuer's doing, not the pool program's.";
+  "The issuer of the token, or of what it is paired with, has frozen an account this needs (the pool's own account for either coin, or yours), so nothing can move. That is the issuer's doing, not the pool program's.";
 /**
  * A token program's "insufficient funds" while adding to a pool or opening one. Both
  * spend two things, the token and what it is paired with, and the log does not say which

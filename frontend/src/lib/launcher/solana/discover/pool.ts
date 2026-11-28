@@ -108,8 +108,8 @@ export async function readLaunchPool(
   const want: Array<[string, PublicKey, string]> = [
     [p.token0Mint, token0, 'the pool trades a different pair of tokens'],
     [p.token1Mint, token1, 'the pool trades a different pair of tokens'],
-    [p.token0Vault, deriveVault(cp, expected, token0), 'a pool vault is at an unexpected address'],
-    [p.token1Vault, deriveVault(cp, expected, token1), 'a pool vault is at an unexpected address'],
+    [p.token0Vault, deriveVault(cp, expected, token0), 'an account the pool holds a coin in is at an unexpected address'],
+    [p.token1Vault, deriveVault(cp, expected, token1), 'an account the pool holds a coin in is at an unexpected address'],
     [p.observationKey, deriveObservation(cp, expected), 'the pool price record is at an unexpected address'],
     [p.lpMint, deriveLpMint(cp, expected), 'the pool share token is at an unexpected address'],
     [p.token0Program, TOKEN_PROGRAM_ID, 'the pool uses an unexpected token program'],

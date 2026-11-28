@@ -37,7 +37,7 @@ describe('assessPool: a restart offered', () => {
     const h = assessPool({ ...base, safety: FREEZABLE, view: dead(), outside: outside() });
     expect(h.price.state).toBe('disagrees');
     expect(h.restart?.warnings).toHaveLength(1);
-    expect(h.restart?.warnings[0]).toMatch(/freeze the vault of this pool/);
+    expect(h.restart?.warnings[0]).toMatch(/freeze it inside this pool/);
   });
 
   it('in the pool’s own coin, for a pool paired with USDC', () => {

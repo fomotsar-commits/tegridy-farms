@@ -175,12 +175,12 @@ function secondLook(
   const t0 = tokenVault(a.vault0, pool.token0Program);
   const t1 = tokenVault(a.vault1, pool.token1Program);
   if (t0 === null || t1 === null) {
-    return { kind: 'unread', address, detail: 'a pool vault is missing, is not a working token account, or is not owned by the token program the pool names' };
+    return { kind: 'unread', address, detail: 'an account the pool holds a coin in is missing, is not a working token account, or is not owned by the token program the pool names' };
   }
   const reserve0 = vaultAmountWithoutFee(t0.amount, pool.protocolFeesToken0, pool.fundFeesToken0, pool.creatorFeesToken0);
   const reserve1 = vaultAmountWithoutFee(t1.amount, pool.protocolFeesToken1, pool.fundFeesToken1, pool.creatorFeesToken1);
   if (reserve0 === null || reserve1 === null) {
-    return { kind: 'unread', address, detail: 'the fees a pool owes are more than its vault holds' };
+    return { kind: 'unread', address, detail: 'the fees a pool owes are more than it holds of a coin' };
   }
   const cfgAcc = a.config;
   const config = cfgAcc && cfgAcc.owner === program ? decodeAmmConfig(pool.ammConfig, cfgAcc.data) : null;

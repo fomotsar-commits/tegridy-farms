@@ -160,7 +160,7 @@ async function checkCreateReview(
   }
   expect(rows['Opens for trading']).toBe('At once (one second after it lands)');
   expect(rows['Fee to open the pool']).toBe(`${solExact(tier.createPoolFee)}, paid to the team's vault (into ${CREATE_POOL_FEE_RECEIVER.toBase58()}, the account the pool program fixes); not refundable`);
-  expect(rows['Account deposits that never come back']).toBe(`${solExact(rents.neverRefunded)} (the pool, its price record, its share token and its two vaults; none can be closed)`);
+  expect(rows['Account deposits that never come back']).toBe(`${solExact(rents.neverRefunded)} (the pool, its price record, its share token and the two accounts that hold its coins; none can be closed)`);
   expect(rows['Name record of the pool share']).toBe(
     `${solExact(rents.nameRecord)}: ${solExact(METAPLEX_CREATE_FEE)} is Metaplex's fee for making it, ${solExact(rents.nameRecord - METAPLEX_CREATE_FEE)} stays in the record for good. It gives the share its name and picture in wallets; the team gets none of it`,
   );
@@ -889,11 +889,11 @@ test.describe('group B (chromium only)', () => {
     const usdcCopyLine = copyOf('USDC', 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
     // What each warning means for the pool being opened: said above Review, and again on the review.
     const copyOnOpening = 'It calls itself by a well-known token’s name but has a different mint, so it is not that token. If the copy turns out to be worth nothing, so is your share of the pool you open.';
-    const freezeOnOpening = 'Its creator can freeze the vault of the pool you open, and while it is frozen nobody can take liquidity out, you included. They can also freeze your own account for the token.';
+    const freezeOnOpening = 'Its creator can freeze it inside the pool you open, and while it is frozen nobody can take liquidity out, you included. They can also freeze your own account for the token.';
     const allowed: [PublicKey, string, string][] = [
       [
         B.freezable,
-        `Its creator can freeze any account that holds it (freeze authority ${owner.toBase58()}), a pool’s own vault and your own account included. While a pool’s vault is frozen, nobody can take liquidity out of that pool.`,
+        `Its creator can freeze any account that holds it (freeze authority ${owner.toBase58()}), a pool’s own and yours included. While a pool’s account for it is frozen, nobody can take liquidity out of that pool.`,
         freezeOnOpening,
       ],
       [B.usdcCopy, usdcCopyLine, copyOnOpening],

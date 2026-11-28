@@ -453,7 +453,7 @@ describe.each(COINS)('opening a pool paired with $symbol: the review', (coin) =>
     expect(value('Fee to open the pool')).toBe(
       `0.15 SOL, paid to the team's vault (into ${FEE_RECEIVER.toBase58()}, the account the pool program fixes); not refundable`,
     );
-    expect(value('Account deposits that never come back')).toBe('0.04 SOL (the pool, its price record, its share token and its two vaults; none can be closed)');
+    expect(value('Account deposits that never come back')).toBe('0.04 SOL (the pool, its price record, its share token and the two accounts that hold its coins; none can be closed)');
     expect(value('Your pool-share account')).toBe('0.00203928 SOL (it comes back if you close that account later)');
     expect(value('Network fee')).toBe('<0.0001 SOL');
   });

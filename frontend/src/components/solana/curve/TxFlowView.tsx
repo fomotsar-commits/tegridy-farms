@@ -667,7 +667,7 @@ function LpCreateRows({ summary: s }: { summary: Extract<TxSummary, { kind: 'lp-
       />
       <Row
         label="Account deposits that never come back"
-        value={`${solExact(s.rents.neverRefunded)} (the pool, its price record, its share token and its two vaults; none can be closed)`}
+        value={`${solExact(s.rents.neverRefunded)} (the pool, its price record, its share token and the two accounts that hold its coins; none can be closed)`}
         mono={false}
       />
       <Row
@@ -965,7 +965,7 @@ function testRunLabel(kind: TxKind, role: TokenRole): string {
 
 /** What the one-time account rent line is called, per kind. A Record, so a new kind must say. */
 const RENT_ROW_LABEL: Record<TxKind, string> = {
-  create: "One-time account rent (your token, its curve and vault, the treasury's token account, any token account of yours)",
+  create: "One-time account rent (your token, its curve and the curve's token account, the treasury's token account, any token account of yours)",
   buy: 'One-time account rent',
   sell: 'One-time account rent',
   migrate: 'One-time account rent',

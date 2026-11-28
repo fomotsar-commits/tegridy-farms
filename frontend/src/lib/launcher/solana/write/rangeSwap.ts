@@ -43,9 +43,9 @@ export const RANGE_SWAP_COPY = {
   swapsPaused: 'Swaps in this range pool are switched off by the team’s vault right now.',
   notOpenYet: 'This range pool does not take swaps yet.',
   tooLarge: `This trade would walk through more than ${MAX_SWAP_BANDS} price bands of the pool, more than one swap here carries. Try a smaller amount.`,
-  partFill: 'This pool cannot fill the whole trade at any price. Try a smaller amount.',
+  partFill: 'This pool can fill only part of this trade, at any price. Try a smaller amount.',
   bandUnread: 'A price band the pool marks as used did not read, so the swap could not be priced. Try again in a moment.',
-  dynamicFee: 'This range pool charges a fee that rises when the market moves fast, which this site cannot state before you sign yet, so it does not swap here.',
+  dynamicFee: 'This range pool charges a fee that rises when the market moves fast. This site does not yet say that fee before you sign, so it does not swap here.',
 } as const;
 
 export type RangeSwapArgs = VenueSwapArgs;
@@ -153,7 +153,7 @@ export async function prepareRangeSwap(rpc: WriteRpc, cfg: CurveWriteConfig, pro
   const [vault0, vault1] = fresh.extra.slice(bandsAt + starts.length);
   const v0 = tokenVault(vault0 ?? null, pins.token0Program.toBase58());
   const v1 = tokenVault(vault1 ?? null, pins.token1Program.toBase58());
-  if (!v0 || !v1) return notSent('build', RANGE_COPY.poolChanged('its vaults'));
+  if (!v0 || !v1) return notSent('build', RANGE_COPY.poolChanged('the accounts that hold its coins'));
   if (v0.frozen || v1.frozen) return notSent('build', RANGE_COPY.vaultFrozen);
   const bands = new Map<number, TickArrayView>();
   for (let i = 0; i < starts.length; i++) {

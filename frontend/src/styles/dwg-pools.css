@@ -414,6 +414,8 @@ section[data-dwg='door'] .btn-secondary { background: transparent; color: var(--
 .dwg-sheet[data-sheet='P'] .p01-manifold .p01-valve { fill: var(--dwg-bg); stroke: var(--dwg-ink); stroke-width: 1; }
 .dwg-sheet[data-sheet='P'] .p01-mcap { position: absolute; transform: translateY(-100%); white-space: nowrap; pointer-events: none; font: 500 9px/1 var(--font-family-mono); letter-spacing: 0.16em; color: var(--dwg-dim); }
 .dwg-sheet[data-sheet='P'] .p01-mcap[data-end] { transform: translate(-100%, -100%); }
+.dwg-sheet[data-sheet='P'] .p01-mcap[data-below] { transform: none; }
+.dwg-sheet[data-sheet='P'] .p01-mcap[data-end][data-below] { transform: translateX(-100%); }
 .dwg-sheet[data-sheet='P'] .p01-mcap::before { content: attr(data-t); content: attr(data-t) / ""; }
 /* A band 52rem wide: the sheet's inner width, so a 55.25rem screen (52rem + the column's padding and border). */
 @media (min-width: 55.25rem) {

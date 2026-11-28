@@ -165,7 +165,7 @@ describe('assessOpening: the token', () => {
     const freezable = at({ safety: warned('freeze-authority') });
     expect(freezable).toMatchObject({ verdict: 'allowed', reasons: [] });
     expect(freezable.warnings).toEqual([
-      'Its creator can freeze the vault of the pool you open, and while it is frozen nobody can take liquidity out, you included. They can also freeze your own account for the token.',
+      'Its creator can freeze it inside the pool you open, and while it is frozen nobody can take liquidity out, you included. They can also freeze your own account for the token.',
     ]);
     expect(at({ safety: warned('interest-bearing') }).warnings).toHaveLength(1);
     expect(at({ safety: warned('scaled-amount') }).warnings[0]).toMatch(/^The amount a wallet displays for this token changes over time\./);

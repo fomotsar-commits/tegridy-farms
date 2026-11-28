@@ -152,7 +152,7 @@ describe('how a range position earns', () => {
     show(readers());
     const card = await screen.findByTestId('range-earns');
     await waitFor(() => expect(card.textContent).toContain('pays a 1% fee'));
-    expect(card.textContent).toContain('share 84% of it (0.84% of the swap)');
+    expect(card.textContent).toContain('Positions in range share 84% of it (0.84% of the swap)');
     expect(card.textContent).toContain('The venue keeps 16% (0.16% of the swap)');
     // The venue's other take, the program's pool-opening fee: in plain sight, not in the fine print.
     const opening = within(card).getByText('Whoever opens a new range pool also pays the venue 0.5 SOL, to the team’s vault.');
@@ -221,6 +221,8 @@ describe('picking a pool', () => {
     const card = await screen.findByTestId('range-pools');
     await waitFor(() => expect(card.textContent).toContain('No range pool for BAYLA with SOL yet.'));
     expect(screen.queryByTestId('range-open')).toBeNull();
+    // With no pool to read a tier from, how a position earns is said without numbers.
+    expect(screen.getByTestId('range-earns')).toHaveTextContent('Each swap through your range pays the pool’s fee. Positions in range share most of it');
   });
 
   it('shows the pool’s fee and price now', async () => {
@@ -251,7 +253,7 @@ describe('opening a new pool', () => {
     expect(cost.closest('details')).toBeNull();
     const earns = within(card).getByTestId('range-create-earns');
     expect(earns.textContent).toBe(
-      'Positions whose range the price is in share 84% of each 1% swap fee (0.84% of the swap), split by how much liquidity each has there. The venue keeps 16% (0.16% of the swap).',
+      'Positions in range share 84% of each 1% swap fee (0.84% of the swap), split by how much liquidity each has there. The venue keeps 16% (0.16% of the swap).',
     );
     expect(earns.closest('details')).toBeNull();
     expect(card.textContent).toMatch(/10\.4% of each fee \(0\.104% of the swap\) to the team’s vault, .* and 5\.6% of each fee \(0\.056% of the swap\) to the island’s Workshop/);
@@ -500,7 +502,7 @@ describe('picking a range', () => {
     show(readers({ market: { kind: 'no-route', detail: 'Jupiter has no route for this token' } }));
     const open = await screen.findByTestId('range-open');
     await waitFor(() => expect(open.textContent).toContain('Market price (Jupiter)none: Jupiter has no route for this pair'));
-    expect(open.textContent).toContain('so this pool’s price cannot be checked against a market price');
+    expect(open.textContent).toContain('so there is no market price to check this pool’s price against');
   });
 
   it('the TOKEN can be the freezable one: USDC as the token says Circle can freeze it, where it is picked', async () => {
@@ -515,7 +517,7 @@ describe('picking a range', () => {
     const auth = key(92).toBase58();
     show(readers({ freeze: { kind: 'ok', value: { kind: 'mint', freezeAuthority: auth, decimals: 6 } } }), fakeApi(), 'on', `/range-pools?mint=${freezable}`);
     const card = await screen.findByTestId('range-pools');
-    await waitFor(() => expect(within(card).getByTestId('range-token-freeze')).toHaveTextContent(`Its creator can freeze any account that holds it (freeze authority ${auth}), a pool’s own vault and your own account included.`));
+    await waitFor(() => expect(within(card).getByTestId('range-token-freeze')).toHaveTextContent(`Its creator can freeze any account that holds it (freeze authority ${auth}), a pool’s own and yours included.`));
   });
 
   it('an address that is not a token mint is said as that, apart from a check that failed', async () => {

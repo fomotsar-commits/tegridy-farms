@@ -60,12 +60,12 @@ const USDC_RISK =
 const REVIEW_WARNINGS_LEAD = 'Read these warnings first. Nothing here stops you signing, and each one is a risk to what you put in:';
 /** The token's own warning, as its card and the Open-a-pool card say it. */
 const freezeOnToken = (authority: PublicKey) =>
-  `Its creator can freeze any account that holds it (freeze authority ${authority.toBase58()}), a pool’s own vault and your own account included. While a pool’s vault is frozen, nobody can take liquidity out of that pool.`;
+  `Its creator can freeze any account that holds it (freeze authority ${authority.toBase58()}), a pool’s own and yours included. While a pool’s account for it is frozen, nobody can take liquidity out of that pool.`;
 /** The same risk said for the pool: above Review in the form and on the review, then on the pool's own card. */
 const FREEZE_ON_OPENING =
-  'Its creator can freeze the vault of the pool you open, and while it is frozen nobody can take liquidity out, you included. They can also freeze your own account for the token.';
+  'Its creator can freeze it inside the pool you open, and while it is frozen nobody can take liquidity out, you included. They can also freeze your own account for the token.';
 const FREEZE_ON_POOL =
-  'Its creator can freeze the vault of this pool, and while it is frozen nobody can take liquidity out, you included. They can also freeze your own account for the token.';
+  'Its creator can freeze it inside this pool, and while it is frozen nobody can take liquidity out, you included. They can also freeze your own account for the token.';
 const offMarketLine = (gap: string) => `Your opening price is ${gap} the market price (Jupiter). The first trades would move it to the market price, at your cost.`;
 const lossLine = (loss: string) => `At these amounts, a move back to the market price would take up to about ${loss} of what you put in. That is an estimate.`;
 const spentFrom = (c: Coin) => `Your ${c.symbol} is spent straight from your own ${c.symbol} account. Nothing is wrapped.`;
@@ -181,7 +181,7 @@ async function checkOpeningRows(rows: Record<string, string>, o: Opening & { mar
   expect(rows['Opens for trading']).toBe('At once (one second after it lands)');
   // The fee and the deposits are SOL, whatever the pool is paired with.
   expect(rows['Fee to open the pool']).toBe(`${solExact(FEE_TO_OPEN)}, paid to the team's vault (into ${FEE_ACCOUNT}, the account the pool program fixes); not refundable`);
-  expect(rows['Account deposits that never come back']).toBe(`${solExact(rents.poolAccounts)} (the pool, its price record, its share token and its two vaults; none can be closed)`);
+  expect(rows['Account deposits that never come back']).toBe(`${solExact(rents.poolAccounts)} (the pool, its price record, its share token and the two accounts that hold its coins; none can be closed)`);
   expect(rows['Name record of the pool share']).toBe(
     `${solExact(rents.nameRecord)}: ${solExact(METAPLEX_CREATE_FEE)} is Metaplex's fee for making it, ${solExact(rents.nameRecord - METAPLEX_CREATE_FEE)} stays in the record for good. It gives the share its name and picture in wallets; the team gets none of it`,
   );

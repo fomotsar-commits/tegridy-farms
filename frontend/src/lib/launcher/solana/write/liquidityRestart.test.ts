@@ -325,7 +325,7 @@ describe('decodeIntent: a restart in any other shape is blocked', () => {
     expect(!r.ok && r.reason).toMatch(/tops up the pool after the deposit/);
   });
 
-  it('with a top-up sent anywhere but the pool’s own vault for that coin', async () => {
+  it('with a top-up sent anywhere but the pool’s own account for that coin', async () => {
     const { w, ixs, ctx } = await built();
     const up = ixs.findIndex(isTopUp);
     const k = ixs[up]!.keys.map((x) => ({ ...x }));
@@ -334,7 +334,7 @@ describe('decodeIntent: a restart in any other shape is blocked', () => {
       const bad = [...ixs];
       bad[up] = { ...ixs[up]!, keys: k.map((x, i) => (i === 2 ? { ...x, pubkey: to } : x)) } as TransactionInstruction;
       const r = decodeIntent(bad, ctx);
-      expect(!r.ok && r.reason).toMatch(/the top-up goes somewhere other than this pool’s own vault/);
+      expect(!r.ok && r.reason).toMatch(/the top-up goes somewhere other than this pool’s own account/);
     }
   });
 

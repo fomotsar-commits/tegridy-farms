@@ -183,7 +183,7 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
         : writes.status === 'failed'
           ? 'The deposit code did not load. Check your connection and reload the page.'
           : writes.status === 'ready' && !writes.cfg
-            ? 'This copy of the site cannot send transactions.'
+            ? 'This copy of the site does not send transactions.'
             : null;
 
   const pickCoin = (mint: string) => {
@@ -465,11 +465,11 @@ function HowItPays({ pool, pair }: { pool: RangePool | null; pair: NamedPair | n
     <Card title="How a range position earns" testId="range-earns" art={<CardArt pageId="range-pools" idx={0} />}>
       {s ? (
         <p className="text-white/85">
-          {`Each swap through your range pays a ${s.fee} fee. Positions whose range the price is in share ${s.lpOfFee} of it (${s.lpOfSwap} of the swap), split by how much liquidity each has there. The venue keeps ${s.venueOfFee} (${s.venueOfSwap} of the swap). Both shares are read from this pool’s fee tier on the chain.`}
+          {`Each swap through your range pays a ${s.fee} fee. Positions in range share ${s.lpOfFee} of it (${s.lpOfSwap} of the swap), split by how much liquidity each has there. The venue keeps ${s.venueOfFee} (${s.venueOfSwap} of the swap). Both shares are read from this pool’s fee tier on the chain.`}
         </p>
       ) : (
         <p className="text-white/85">
-          Each swap through your range pays the pool’s fee. Positions whose range the price is in share most of it, and the venue keeps a part; pick a pool to see both, read from its fee tier on the chain.
+          Each swap through your range pays the pool’s fee. Positions in range share most of it, and the venue keeps a part; pick a pool to see both, read from its fee tier on the chain.
         </p>
       )}
       <p className="text-white/85">{RANGE_OPENING_FEE_TEXT}</p>

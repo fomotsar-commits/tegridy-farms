@@ -196,8 +196,8 @@ describe('classifyToken', () => {
     expect(reasons(s)).toEqual({ blocks: [], warnings: ['freeze-authority'], verdict: 'warn' });
     const text = s.kind === 'read' ? s.warnings[0]!.text : '';
     expect(text).toContain(authority.toBase58());
-    expect(text).toMatch(/a pool’s own vault and your own account included/);
-    expect(text).toMatch(/While a pool’s vault is frozen, nobody can take liquidity out of that pool\./);
+    expect(text).toMatch(/a pool’s own and yours included/);
+    expect(text).toMatch(/While a pool’s account for it is frozen, nobody can take liquidity out of that pool\./);
   });
 
   it('accepts USDC’s freeze authority, and says so', () => {
@@ -206,7 +206,7 @@ describe('classifyToken', () => {
     expect(reasons(s)).toEqual({ blocks: [], warnings: ['freeze-authority-accepted'], verdict: 'warn' });
     // Accepted is not harmless: the words say what a freeze does to a pool, as they do for any other freezable token.
     const text = s.kind === 'read' ? s.warnings[0]!.text : '';
-    expect(text).toContain('a pool’s own vault and your own account included. While a pool’s vault is frozen, nobody can take liquidity out of that pool.');
+    expect(text).toContain('a pool’s own and yours included. While a pool’s account for it is frozen, nobody can take liquidity out of that pool.');
     expect(text).toContain('That is how USDC is built.');
   });
 

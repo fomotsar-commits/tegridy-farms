@@ -79,7 +79,7 @@ export function RangeRows({ summary: s, coinName }: { summary: RangeSummary; coi
             return (
               <Fragment key={r.mint.toBase58()}>
                 {r.amount < r.owed && (
-                  <Notice tone="warn">{`This reward’s vault holds less than the position is owed, so it pays ${rewardAmount(r.amount, r.decimals, r.mint.toBase58(), coinName?.(r.mint.toBase58()))} now and the rest stays owed.`}</Notice>
+                  <Notice tone="warn">{`The pool holds less of this reward than the position is owed, so it pays ${rewardAmount(r.amount, r.decimals, r.mint.toBase58(), coinName?.(r.mint.toBase58()))} now and the rest stays owed.`}</Notice>
                 )}
                 {r.feeOnTransfer === true && <Notice tone="warn">{`${coin} takes its own fee out of each transfer, so less ${coin} than this arrives in your wallet.`}</Notice>}
                 {r.feeOnTransfer === null && <Notice tone="warn">{`${coin}’s mint could not be read just now, so whether it takes a fee out of each transfer is not known.`}</Notice>}
@@ -131,13 +131,13 @@ export function RangeCreateRows({ summary: s }: { summary: RangeCreateSummary })
       <Row label="Fee to open the pool" value={`${sol(s.createFee)}, to the team’s vault (${s.feeReceiver.toBase58()}). Not refunded.`} mono={false} />
       <Row
         label="Deposits that never come back"
-        value={`${sol(s.neverBack)}: the pool, its two vaults, its price record, its far-band map and its new price bands. A pool cannot be closed.`}
+        value={`${sol(s.neverBack)}: the pool, the two accounts that hold its coins, its price record, its far-band map and its new price bands. No one can close a pool.`}
         mono={false}
       />
       <Row label="Deposits back when you close your position" value={`${sol(s.backOnClose)}: its record, its NFT and the NFT’s account.`} mono={false} />
       <Row
         label="How a position earns"
-        value={`Positions whose range the price is in share ${split.lpOfFee} of each ${split.fee} swap fee (${split.lpOfSwap} of the swap), split by how much liquidity each has there. The venue keeps ${venue.cut}.`}
+        value={`Positions in range share ${split.lpOfFee} of each ${split.fee} swap fee (${split.lpOfSwap} of the swap), split by how much liquidity each has there. The venue keeps ${venue.cut}.`}
         mono={false}
       />
       {/* Anything but the agreed split is said once, in bold, at the top of the review (TxFlowView). */}

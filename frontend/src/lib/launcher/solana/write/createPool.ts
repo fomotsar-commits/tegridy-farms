@@ -119,7 +119,7 @@ export const CREATE_COPY = {
   cannotPair: (symbol: string) => `This site does not open a pool that prices this token in ${symbol}.`,
   coinPriceUnread: (symbol: string, detail: string) =>
     `We could not get the price of ${symbol} from Jupiter just now (${detail}), so we could not check the opening price. Try again in a moment.`,
-  cannotSizeVault: (why: string) => `This site cannot work out the deposit for this token's pool vault (${why}), so nothing was built.`,
+  cannotSizeVault: (why: string) => `This site cannot work out the deposit for the account the pool keeps this token in (${why}), so nothing was built.`,
   justOpened:
     'Someone opened a pool for this token at the standard address since this page read it. Read the pools again: you may be able to add to it instead.',
   freshTaken: "Something is already at the new pool's address. Press Review again for a fresh one.",

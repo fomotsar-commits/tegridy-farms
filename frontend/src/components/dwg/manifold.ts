@@ -35,9 +35,16 @@ export interface ManifoldShape {
   /** Each pipe out as a path, its height the centre line the stroke is laid on; null for a share of nothing. */
   readonly pool: string | null;
   readonly venue: string | null;
-  /** Where each pipe's caption sits, as fractions of the box. */
-  readonly captions: { readonly fee: readonly [number, number]; readonly pool: readonly [number, number]; readonly venue: readonly [number, number] };
+  /** Where each pipe's caption sits, as fractions of the box, and on which side of that point. */
+  readonly captions: { readonly fee: Caption; readonly pool: Caption; readonly venue: Caption };
 }
+
+/**
+ * A caption's anchor and its side: 'above' ends at the point, 'below' starts there. Each pipe out
+ * is captioned on its outer side, so the venue's, which falls toward its caption's end, never
+ * runs through it at a phone's scale (the caption keeps its 9 px however small the drawing is).
+ */
+type Caption = readonly [number, number, 'above' | 'below'];
 
 /** The manifold set out in MANIFOLD_BOX for these widths. */
 export function manifoldShape(widths: ManifoldWidths): ManifoldShape {
@@ -57,9 +64,9 @@ export function manifoldShape(widths: ManifoldWidths): ManifoldShape {
     pool: pipe(py, widths.pool),
     venue: pipe(vy, widths.venue),
     captions: {
-      fee: [x0 / w, (cy - widths.in / 2 - 10) / h],
-      pool: [x1 / w, (py - widths.pool / 2 - 8) / h],
-      venue: [x1 / w, (vy - widths.venue / 2 - 8) / h],
+      fee: [x0 / w, (cy - widths.in / 2 - 10) / h, 'above'],
+      pool: [x1 / w, (py - widths.pool / 2 - 8) / h, 'above'],
+      venue: [x1 / w, (vy + widths.venue / 2 + 6) / h, 'below'],
     },
   };
 }

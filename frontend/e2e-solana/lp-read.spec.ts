@@ -180,7 +180,7 @@ test('a freezable token is allowed with a warning, on the token and on its pool,
   await expect(ui.lp.safety(p)).toHaveAttribute('data-verdict', 'warn');
   // The freeze authority is named, and what it can do to a pool is said.
   await expect(ui.lp.safety(p)).toContainText(
-    `Its creator can freeze any account that holds it (freeze authority ${stranger.publicKey.toBase58()}), a pool’s own vault and your own account included. While a pool’s vault is frozen, nobody can take liquidity out of that pool.`,
+    `Its creator can freeze any account that holds it (freeze authority ${stranger.publicKey.toBase58()}), a pool’s own and yours included. While a pool’s account for it is frozen, nobody can take liquidity out of that pool.`,
   );
   const card = poolCard(p, freezePool.address);
   await expect(card).toContainText('At the standard address for its fee tier');
@@ -190,7 +190,7 @@ test('a freezable token is allowed with a warning, on the token and on its pool,
   // Never a clean pass: the heading says there are warnings, and the pool's own is listed under it.
   await expect(card).toContainText('Deposits: the checks pass, with warnings');
   await expect(ui.lp.poolWarnings(card)).toContainText(
-    'Its creator can freeze the vault of this pool, and while it is frozen nobody can take liquidity out, you included. They can also freeze your own account for the token.',
+    'Its creator can freeze it inside this pool, and while it is frozen nobody can take liquidity out, you included. They can also freeze your own account for the token.',
   );
   await expect(ui.lp.status(p)).toHaveText('One pool found for this token.');
   expect(a.jup.asked, 'its price is checked against Jupiter now').toContain(freezable.toBase58());

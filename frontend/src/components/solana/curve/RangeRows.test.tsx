@@ -159,9 +159,9 @@ describe('the review of a new range pool and its first position', () => {
     render(<TxReview prepared={prepared(creating({ owner: PLATFORM_TREASURY_VAULT.toBase58(), fundOwner: WORKSHOP_WALLET.toBase58() }))} decimals={6} display={(x) => x} />);
     expect(screen.getByRole('heading').textContent).toBe('Review: open the pool and your position');
     const fee = screen.getByText(`0.5 SOL, to the team’s vault (${PLATFORM_TREASURY_VAULT.toBase58()}). Not refunded.`);
-    expect(screen.getByText('0.2 SOL: the pool, its two vaults, its price record, its far-band map and its new price bands. A pool cannot be closed.')).toBeInTheDocument();
+    expect(screen.getByText('0.2 SOL: the pool, the two accounts that hold its coins, its price record, its far-band map and its new price bands. No one can close a pool.')).toBeInTheDocument();
     expect(screen.getByText('0.006 SOL: its record, its NFT and the NFT’s account.')).toBeInTheDocument();
-    const earns = screen.getByText(/^Positions whose range the price is in share 84% of each 1% swap fee \(0\.84% of the swap\)/);
+    const earns = screen.getByText(/^Positions in range share 84% of each 1% swap fee \(0\.84% of the swap\)/);
     expect(earns.textContent).toContain('The venue keeps 16% of each swap’s fee (0.16% of the swap).');
     expect(screen.getByText(/10\.4% of each fee \(0\.104% of the swap\) to the team’s vault, .* 5\.6% of each fee \(0\.056% of the swap\) to the island’s Workshop/)).toBeInTheDocument();
     expect(before(fee, earns)).toBe(true);
@@ -211,7 +211,7 @@ describe('a collect’s review', () => {
 
   it('a reward’s vault holding less than is owed: what it pays, by the coin’s ticker, and the rest stays owed', () => {
     render(<RangeRows summary={collect([paid({ owed: 999_999n, amount: 400_000n })])} />);
-    expect(screen.getByText('This reward’s vault holds less than the position is owed, so it pays 0.4 BAYLA now and the rest stays owed.')).toBeInTheDocument();
+    expect(screen.getByText('The pool holds less of this reward than the position is owed, so it pays 0.4 BAYLA now and the rest stays owed.')).toBeInTheDocument();
     expect(document.body.textContent).not.toContain(BAYLA.toBase58());
   });
 
