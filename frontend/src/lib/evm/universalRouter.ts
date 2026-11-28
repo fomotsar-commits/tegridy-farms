@@ -26,6 +26,7 @@ export function universalRouterOn(chainId: number): Address | null {
 
 // Commands.sol
 const V3_SWAP_EXACT_IN = 0x00;
+const PERMIT2_TRANSFER_FROM = 0x02;
 const SWEEP = 0x04;
 const TRANSFER = 0x05;
 const PAY_PORTION = 0x06;
@@ -190,6 +191,31 @@ export function swapTokens(a: {
     v3SwapExactIn(a.chainId, ADDRESS_THIS, a.amountIn, 0n, v3Path(a.tokenIn, a.poolFee, a.tokenOut), true),
     payPortion(a.tokenOut, a.feeRecipient, a.feeBips),
     sweep(a.tokenOut, MSG_SENDER, a.minOut),
+  );
+  return { commands: commandBytes(cmds), inputs };
+}
+
+/**
+ * Swap one coin for another with the fee taken from the coin going IN: for a coin coming out
+ * that the site does not list (HyperEVM's opened pools), so the treasury is paid in the listed
+ * coin, never in the unknown one. The router pulls `amountIn` through Permit2 to itself
+ * (PERMIT2_TRANSFER_FROM: token, recipient, uint160 amount), pays `feeBips` of it to
+ * `feeRecipient`, then swaps everything it holds of `tokenIn` (CONTRACT_BALANCE, paid by the
+ * router, not the user) straight to the swapper, who must get at least `minOut`. The same
+ * shape as buyWithEth, with Permit2 in place of the call's value.
+ */
+export function swapTokensFeeOnInput(a: {
+  chainId: number; tokenIn: Address; tokenOut: Address; poolFee: number; amountIn: bigint; minOut: bigint;
+  feeBips: bigint; feeRecipient: Address; permit?: { permit: PermitSingle; signature: Hex };
+}): RouterCall {
+  const cmds: number[] = [];
+  const inputs: Hex[] = [];
+  if (a.permit) { cmds.push(PERMIT2_PERMIT); inputs.push(permit2Permit(a.permit.permit, a.permit.signature)); }
+  cmds.push(PERMIT2_TRANSFER_FROM, PAY_PORTION, V3_SWAP_EXACT_IN);
+  inputs.push(
+    encodeAbiParameters([{ type: 'address' }, { type: 'address' }, { type: 'uint160' }], [a.tokenIn, ADDRESS_THIS, a.amountIn]),
+    payPortion(a.tokenIn, a.feeRecipient, a.feeBips),
+    v3SwapExactIn(a.chainId, MSG_SENDER, CONTRACT_BALANCE, a.minOut, v3Path(a.tokenIn, a.poolFee, a.tokenOut), false),
   );
   return { commands: commandBytes(cmds), inputs };
 }

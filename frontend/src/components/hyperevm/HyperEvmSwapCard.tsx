@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { encodeFunctionData, erc20Abi } from 'viem';
 import { useSignTypedData } from 'wagmi';
 import { HYPEREVM_TOKENS, WHYPE, hyperEvmAddressUrl, hyperEvmVenue, type HyperEvmToken, type HyperEvmVenue } from '../../lib/chains/hyperEvm';
@@ -43,6 +43,12 @@ function SwapForm({ venue, lead, pageHeading }: { venue: HyperEvmVenue; lead?: R
   const balance = useBalance(from, send.address, refresh);
   const amountIn = parseAmount(text, from.decimals);
   const pools = poolsState.status === 'ready' ? poolsState.pools : null;
+  // The listed coins, then every coin someone opened a pool for (each shows its whole address below).
+  const coins = useMemo(() => {
+    const out: HyperEvmToken[] = [...HYPEREVM_TOKENS];
+    for (const p of pools ?? []) for (const t of [p.token0, p.token1]) if (t.unlisted && !out.some((x) => x.address.toLowerCase() === t.address.toLowerCase())) out.push(t);
+    return out;
+  }, [pools]);
 
   useEffect(() => {
     setReview(false);
@@ -150,7 +156,7 @@ function SwapForm({ venue, lead, pageHeading }: { venue: HyperEvmVenue; lead?: R
               value={text} onChange={(e) => setText(e.target.value)}
               className="min-w-0 flex-1 bg-transparent text-white text-[22px] outline-none" data-testid="hyperevm-swap-amount"
             />
-            <CoinSelect label="Coin you pay" value={from} onChange={pickFrom} />
+            <CoinSelect label="Coin you pay" value={from} onChange={pickFrom} tokens={coins} />
           </div>
           {tooMuch && <p className="text-amber-300/90 text-[11px]">More than this wallet holds.</p>}
         </div>
@@ -165,9 +171,11 @@ function SwapForm({ venue, lead, pageHeading }: { venue: HyperEvmVenue; lead?: R
             <div className="min-w-0 flex-1 text-white text-[22px] truncate" data-testid="hyperevm-swap-out">
               {best ? amountText(best.out, to.decimals) : quote && !quote.ok && quote.why === 'loading' ? '…' : '0'}
             </div>
-            <CoinSelect label="Coin you get" value={to} onChange={pickTo} />
+            <CoinSelect label="Coin you get" value={to} onChange={pickTo} tokens={coins} />
           </div>
         </div>
+
+        {[from, to].filter((t) => t.unlisted).map((t) => <CoinLine key={t.address} token={t} />)}
 
         <QuoteNote quote={quote} poolsUnread={poolsState.status === 'unread'} noPools={pools !== null && pools.length === 0} />
 
@@ -208,11 +216,11 @@ function SwapForm({ venue, lead, pageHeading }: { venue: HyperEvmVenue; lead?: R
 
         <FinePrint summary="How this swap works">
           <p>The quote is our QuoterV2's, for our pools of these two coins at every fee tier; the pool that pays you most is used. Your wallet signs one transaction to our Universal Router (Uniswap's v2.2.0, unchanged), which swaps in that pool and pays the site fee to the treasury Safe. If you would get less than "At least", the swap is refused and nothing moves.</p>
-          <p>The site fee is taken from the HYPE going in when you pay in HYPE, otherwise from the coin coming out. Selling a coin first asks your wallet to let Permit2 (Uniswap's approval contract) move exactly this amount, then to sign a permit for the router that lasts 30 minutes.</p>
+          <p>The site fee is taken from the HYPE going in when you pay in HYPE, and from the coin going in when you buy a coin off the site's list; otherwise from the coin coming out. Selling a coin first asks your wallet to let Permit2 (Uniswap's approval contract) move exactly this amount, then to sign a permit for the router that lasts 30 minutes.</p>
           <p>The pool fee goes to the pool's LPs. Where the venue's cut is on for that pool, a fixed share of it goes to the treasury, read from the pool itself. Gas is paid in HYPE.</p>
         </FinePrint>
         <FinePrint summary="The coins">
-          {HYPEREVM_TOKENS.map((t) => <CoinLine key={t.address} token={t} />)}
+          {coins.map((t) => <CoinLine key={t.address} token={t} />)}
         </FinePrint>
       </div>
     </section>
