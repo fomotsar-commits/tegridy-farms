@@ -2,11 +2,10 @@
 //!
 //! Mirrors of `programs/cp-swap/src/states/pool.rs` (`PoolState`, zero-copy and
 //! `#[repr(C, packed)]`) and `programs/cp-swap/src/states/config.rs` (`AmmConfig`, Borsh).
-//! Neither layout has padding between fields, so each field sits at the sum of the sizes
-//! before it. `tests/layout.rs` recomputes every offset below from the program's own source
-//! and fails if one moves. The program crate itself is not a dependency: it builds on the
-//! Solana 2 crates and this one on Jupiter's Solana 3/4 generation, and two `Pubkey` types
-//! do not mix.
+//! Neither layout has padding, so each field sits at the sum of the sizes before it.
+//! `tests/layout.rs` recomputes every offset below from the program's source and fails if one
+//! moves. The program crate is not a dependency: it builds on the Solana 2 crates, this one on
+//! Jupiter's Solana 3/4 generation, and two `Pubkey` types do not mix.
 
 use solana_pubkey::Pubkey;
 
@@ -86,6 +85,7 @@ pub mod config_fields {
     pub const PROTOCOL_OWNER: Field = field("protocol_owner", 44, 32);
     pub const FUND_OWNER: Field = field("fund_owner", 76, 32);
     pub const CREATOR_FEE_RATE: Field = field("creator_fee_rate", 108, 8);
+    pub const SWAP_GUARD: Field = field("swap_guard", 116, 8);
 
     /// Every `AmmConfig` field this crate reads.
     pub const ALL: &[Field] = &[
@@ -95,6 +95,7 @@ pub mod config_fields {
         PROTOCOL_OWNER,
         FUND_OWNER,
         CREATOR_FEE_RATE,
+        SWAP_GUARD,
     ];
 }
 
@@ -130,6 +131,9 @@ pub struct AmmConfig {
     pub protocol_owner: Pubkey,
     pub fund_owner: Pubkey,
     pub creator_fee_rate: u64,
+    /// The tier's swap guard: 1 refuses a swap another program calls, which is how Jupiter
+    /// calls every swap it routes (`refuses_swap` in the program's states/config.rs).
+    pub swap_guard: u64,
 }
 
 /// pool.rs `PoolStatusBitIndex::Swap`: a SET bit disables swaps.
@@ -186,6 +190,7 @@ impl AmmConfig {
             protocol_owner: pubkey_at(data, PROTOCOL_OWNER)?,
             fund_owner: pubkey_at(data, FUND_OWNER)?,
             creator_fee_rate: u64_at(data, CREATOR_FEE_RATE)?,
+            swap_guard: u64_at(data, SWAP_GUARD)?,
         })
     }
 }
@@ -203,6 +208,12 @@ fn u64_at(data: &[u8], f: Field) -> Option<u64> {
 /// spl-token (and Token-2022) account: mint(32) owner(32) amount(u64 LE @64).
 pub fn token_account_amount(data: &[u8]) -> Option<u64> {
     Some(u64::from_le_bytes(data.get(64..72)?.try_into().ok()?))
+}
+
+/// spl-token (and Token-2022) account: its state byte at 108 is 1 (initialized, not frozen).
+/// The token program moves no tokens out of or into a frozen account.
+pub fn token_account_usable(data: &[u8]) -> bool {
+    data.get(108) == Some(&1)
 }
 
 /// spl-token (and Token-2022) account: the mint it holds, at its first 32 bytes.

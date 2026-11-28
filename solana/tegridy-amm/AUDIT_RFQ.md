@@ -18,7 +18,7 @@
 > route trades to a program, and wants the report with the submission
 > ([DEX integration](https://developers.jup.ag/docs/routing/dex-integration)). The pools it
 > would route are cp-swap's, and the code it needs from us is built and tested
-> (`jupiter-sdk/`). So a Scope A report on its own unblocks the listing. Please quote Scope A
+> (`jupiter-sdk/`). So the listing needs Scope A's report, not Scope B's. Please quote Scope A
 > so that it can start, finish and be published on its own. Scope B can follow: the launcher
 > is paused on chain and has never opened a launch.
 

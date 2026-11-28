@@ -1,12 +1,14 @@
 //! Jupiter's quote parity check (jupiter-amm-test-kit): for each swap below, `Amm::quote`
-//! must equal what the DEPLOYED program pays out when it runs that swap in LiteSVM.
+//! must equal what the program pays out when it runs that swap in LiteSVM.
 //!
 //!   cargo test --test parity
 //!
-//! The program is `tests/fixtures/memetics.so`, the ELF read from mainnet (what
-//! `solana program dump` writes), not a local build: the parity that matters is with the
-//! binary Jupiter would route to. The pool snapshots are `tests/fixtures/accounts/<pool>/`.
-//! To take them again, run with `REFRESH=1 RPC=<mainnet url>`: the kit only reads accounts.
+//! The program is `tests/fixtures/memetics.so`, a build read from mainnet, not a local build.
+//! README.md (under the fixtures) says which build, and why parity with it holds for the one
+//! mainnet runs. The pools are `tests/fixtures/accounts/<pool>/` with the tier's swap guard
+//! cleared (`common::snapshot`). To take both again: `node scripts/take-fixtures.mjs`.
+
+mod common;
 
 use jupiter_amm_interface::Swap;
 use jupiter_amm_test_kit::{PoolTest, assert_pool_parity};
@@ -21,35 +23,40 @@ const BAYLA: Pubkey = pubkey!("7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump");
 
 #[test]
 fn bayla_sol() {
-    let test = PoolTest::new(BAYLA_SOL_POOL)
+    let mut test = PoolTest::new(BAYLA_SOL_POOL)
         .add_swap(WSOL, BAYLA, 100_000_000) // 0.1 SOL
         .add_swap(WSOL, BAYLA, 10_000_000_000) // 10 SOL
         .add_swap(WSOL, BAYLA, 123_456_789) // an amount whose fee does not divide evenly
         .add_swap(BAYLA, WSOL, 10_000_000_000) // 10,000 BAYLA (6 decimals)
         .add_swap(BAYLA, WSOL, 1_000_000_000_000) // 1,000,000 BAYLA
         .add_swap(BAYLA, WSOL, 987_654_321_123);
+    test.fixtures_dir = common::snapshot_dir(&BAYLA_SOL_POOL);
 
     assert_pool_parity::<MemeticsAmm>(&test, encode_swap);
 }
 
 #[test]
 fn bayla_usdc() {
-    let test = PoolTest::new(BAYLA_USDC_POOL)
+    let mut test = PoolTest::new(BAYLA_USDC_POOL)
         .add_swap(USDC, BAYLA, 5_000_000) // 5 USDC
         .add_swap(USDC, BAYLA, 200_000_000) // 200 USDC
         .add_swap(USDC, BAYLA, 7_654_321) // an amount whose fee does not divide evenly
         .add_swap(BAYLA, USDC, 20_000_000_000) // 20,000 BAYLA
         .add_swap(BAYLA, USDC, 500_000_000_000) // 500,000 BAYLA
         .add_swap(BAYLA, USDC, 33_333_333_333);
+    test.fixtures_dir = common::snapshot_dir(&BAYLA_USDC_POOL);
 
     assert_pool_parity::<MemeticsAmm>(&test, encode_swap);
 }
 
-/// The ELF under test is the one on mainnet: 691,640 bytes, the release build
-/// `cp_swap.mainnet.so` (MAINNET_RUNBOOK.md). A program upgrade changes it: delete the file,
-/// rerun with `RPC` set to dump the new one, and pin its hash here.
+/// The fixture build: proposal #32's (the swap guard), 714,776 bytes, read at slot 469,908,387.
+/// Mainnet has run another since proposal #35 executed (2026-11-17), and the next upgrade
+/// installs a third. Neither changes what a router is quoted or paid: with either in place,
+/// only this pin fails (README.md, under the fixtures). The fixtures are taken again in that
+/// upgrade's same-day release by `scripts/take-fixtures.mjs`, which writes this hash only when
+/// it is the one the registry expects.
 #[test]
-fn the_program_is_the_deployed_binary() {
+fn the_program_is_the_fixture_build() {
     use sha2::{Digest, Sha256};
     let elf = std::fs::read("tests/fixtures/memetics.so").expect("read tests/fixtures/memetics.so");
     let hex: String = Sha256::digest(&elf)
@@ -58,7 +65,7 @@ fn the_program_is_the_deployed_binary() {
         .collect();
     assert_eq!(
         hex,
-        "88b98aa91559824c682f6e6c31906abf222d189ce7a45f16af117368b33db882"
+        "01fe923bd9ba3435212d015c2b0d7549592a601ab5707c6222bd0252166e9938"
     );
 }
 

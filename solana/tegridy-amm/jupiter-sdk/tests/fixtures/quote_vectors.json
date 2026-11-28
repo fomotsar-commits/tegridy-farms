@@ -1,8 +1,8 @@
 {
-  "about": "Quote vectors for the pool program's swap_base_input path. Two readers must reproduce every one: the Jupiter SDK (tests/quote_vectors.rs) and the site's own quote, quoteOwnPool in frontend/src/lib/solana/cpswap/read.ts (jupiterSdkParity.test.ts). `out` is what the curve pays; `refusal` names the program error that refuses the swap, or is null. A ZeroAmountOut refusal has out 0: the site quotes 0 there and its builders refuse it as too small. `live` swaps read the snapshots in accounts/<pool>/, the same files the LiteSVM parity test (tests/parity.rs) runs on. The two `fee_paths token-0 copy` cases are what the deployed program paid in tests/fee_paths.rs, which checks them. Amounts are raw token units, as decimal strings.",
+  "about": "Quote vectors for the pool program's swap_base_input path. Two readers must reproduce every one: the Jupiter SDK (tests/quote_vectors.rs) and the site's own quote, quoteOwnPool in frontend/src/lib/solana/cpswap/read.ts (jupiterSdkParity.test.ts). `out` is what the curve pays; `refusal` names the program error that refuses the swap, or is null. A ZeroAmountOut refusal has out 0: the site quotes 0 there and its builders refuse it as too small. `live` swaps read the snapshots in accounts/<pool>/, the same files the LiteSVM parity test (tests/parity.rs) runs on. The two `fee_paths token-0 copy` cases are what the fixture build (tests/fixtures/memetics.so, read from mainnet) paid in tests/fee_paths.rs, which checks them. The cases named for a tier \"before the island split of 2026-10-18\" hold that tier's rates of then, not today's. Amounts are raw token units, as decimal strings.",
   "synthetic": [
     {
-      "name": "tier 1, SOL in, the venue cut booked in the SOL vault",
+      "name": "tier 1 before the island split of 2026-10-18 (venue 16%, island 0), SOL in, the venue's share booked in the SOL vault",
       "pool": {
         "status": 0,
         "openTime": "0",
@@ -38,7 +38,7 @@
       "refusal": null
     },
     {
-      "name": "tier 1, token in",
+      "name": "tier 1 before the island split of 2026-10-18 (venue 16%, island 0), token in",
       "pool": {
         "status": 0,
         "openTime": "0",
@@ -74,7 +74,7 @@
       "refusal": null
     },
     {
-      "name": "tier 0, creator fee off on the pool",
+      "name": "tier 0 before the island split of 2026-10-18 (venue 20%, island 0), creator fee off on the pool",
       "pool": {
         "status": 0,
         "openTime": "0",
@@ -290,19 +290,19 @@
       "refusal": null
     },
     {
-      "name": "fee_paths token-0 copy, SOL in: what the deployed program paid",
+      "name": "fee_paths token-0 copy, SOL in: what the fixture build paid",
       "pool": {
         "status": 0,
         "openTime": "1791055084",
         "creatorFeeOn": 1,
         "enableCreatorFee": true,
         "protocolFees": [
-          "8006334",
-          "0"
+          "51190358",
+          "6981922974"
         ],
         "fundFees": [
           "1000000",
-          "0"
+          "3671517572"
         ],
         "creatorFees": [
           "0",
@@ -311,34 +311,34 @@
       },
       "config": {
         "tradeFeeRate": "10000",
-        "protocolFeeRate": "160000",
-        "fundFeeRate": "40000",
+        "protocolFeeRate": "104000",
+        "fundFeeRate": "56000",
         "creatorFeeRate": "5000"
       },
       "vaults": [
-        "34367758993",
-        "5486481706516"
+        "57871739942",
+        "9732543293202"
       ],
-      "now": "1792127545",
+      "now": "1794784137",
       "inputIsToken0": true,
       "amountIn": "123456789",
-      "out": "19346135128",
+      "out": "20401875107",
       "refusal": null
     },
     {
-      "name": "fee_paths token-0 copy, BAYLA in: what the deployed program paid",
+      "name": "fee_paths token-0 copy, BAYLA in: what the fixture build paid",
       "pool": {
         "status": 0,
         "openTime": "1791055084",
         "creatorFeeOn": 1,
         "enableCreatorFee": true,
         "protocolFees": [
-          "8006334",
-          "0"
+          "51190358",
+          "6981922974"
         ],
         "fundFees": [
           "1000000",
-          "0"
+          "3671517572"
         ],
         "creatorFees": [
           "0",
@@ -347,18 +347,18 @@
       },
       "config": {
         "tradeFeeRate": "10000",
-        "protocolFeeRate": "160000",
-        "fundFeeRate": "40000",
+        "protocolFeeRate": "104000",
+        "fundFeeRate": "56000",
         "creatorFeeRate": "5000"
       },
       "vaults": [
-        "34367758993",
-        "5486481706516"
+        "57871739942",
+        "9732543293202"
       ],
-      "now": "1792127545",
+      "now": "1794784137",
       "inputIsToken0": false,
       "amountIn": "987654321123",
-      "out": "5171887154",
+      "out": "5257850724",
       "refusal": null
     },
     {
@@ -1124,84 +1124,84 @@
       "inputMint": "So11111111111111111111111111111111111111112",
       "outputMint": "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump",
       "amountIn": "100000000",
-      "out": "15762662517"
+      "out": "16623921911"
     },
     {
       "pool": "ErvzV1NMZmcfAqZtGH4AQhYAjn77nJEworKK1mYPz5w4",
       "inputMint": "So11111111111111111111111111111111111111112",
       "outputMint": "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump",
       "amountIn": "10000000000",
-      "out": "1227213566080"
+      "out": "1421717085517"
     },
     {
       "pool": "ErvzV1NMZmcfAqZtGH4AQhYAjn77nJEworKK1mYPz5w4",
       "inputMint": "So11111111111111111111111111111111111111112",
       "outputMint": "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump",
       "amountIn": "123456789",
-      "out": "19446971409"
+      "out": "20515131584"
     },
     {
       "pool": "ErvzV1NMZmcfAqZtGH4AQhYAjn77nJEworKK1mYPz5w4",
       "inputMint": "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump",
       "outputMint": "So11111111111111111111111111111111111111112",
       "amountIn": "10000000000",
-      "out": "61888269"
+      "out": "58796519"
     },
     {
       "pool": "ErvzV1NMZmcfAqZtGH4AQhYAjn77nJEworKK1mYPz5w4",
       "inputMint": "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump",
       "outputMint": "So11111111111111111111111111111111111111112",
       "amountIn": "1000000000000",
-      "out": "5252258351"
+      "out": "5341684588"
     },
     {
       "pool": "ErvzV1NMZmcfAqZtGH4AQhYAjn77nJEworKK1mYPz5w4",
       "inputMint": "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump",
       "outputMint": "So11111111111111111111111111111111111111112",
       "amountIn": "987654321123",
-      "out": "5197223701"
+      "out": "5281764337"
     },
     {
       "pool": "J35mQ6UF9PpB6bQMes2TRVUMbJVPwMYjcfapbkdm8mYm",
       "inputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
       "outputMint": "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump",
       "amountIn": "5000000",
-      "out": "8156345790"
+      "out": "11506533951"
     },
     {
       "pool": "J35mQ6UF9PpB6bQMes2TRVUMbJVPwMYjcfapbkdm8mYm",
       "inputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
       "outputMint": "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump",
       "amountIn": "200000000",
-      "out": "250598148766"
+      "out": "345729417319"
     },
     {
       "pool": "J35mQ6UF9PpB6bQMes2TRVUMbJVPwMYjcfapbkdm8mYm",
       "inputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
       "outputMint": "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump",
       "amountIn": "7654321",
-      "out": "12435154977"
+      "out": "17535864607"
     },
     {
       "pool": "J35mQ6UF9PpB6bQMes2TRVUMbJVPwMYjcfapbkdm8mYm",
       "inputMint": "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump",
       "outputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
       "amountIn": "20000000000",
-      "out": "11703461"
+      "out": "8323752"
     },
     {
       "pool": "J35mQ6UF9PpB6bQMes2TRVUMbJVPwMYjcfapbkdm8mYm",
       "inputMint": "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump",
       "outputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
       "amountIn": "500000000000",
-      "out": "202807003"
+      "out": "154630956"
     },
     {
       "pool": "J35mQ6UF9PpB6bQMes2TRVUMbJVPwMYjcfapbkdm8mYm",
       "inputMint": "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump",
       "outputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
       "amountIn": "33333333333",
-      "out": "19268824"
+      "out": "13740951"
     }
   ]
 }

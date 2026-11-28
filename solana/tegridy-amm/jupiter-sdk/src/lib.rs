@@ -1,17 +1,18 @@
 //! Jupiter `Amm` for the Memetics pools: the constant-product program at
 //! `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`, a fork of raydium-cp-swap (Apache-2.0)
-//! whose swap, curve and fee code is byte-identical to upstream's.
+//! whose three curve files are upstream's byte for byte; its pool state adds a price record,
+//! and its swap adds the swap guard, the keeper's zero rates and that record (`math.rs`).
 //!
 //! All it does, per Jupiter's DEX integration rules: decode the pool, its fee tier, its two
 //! vaults and its two mints in `update`; quote ExactIn swaps in `quote`, with no network call;
 //! and list the accounts of the program's own `swap_base_input`.
 //!
-//! HOW MONEY MOVES on a swap: the trader pays the fee tier's trade fee out of the input. The
-//! venue's cut of that fee (protocol_fee_rate and fund_fee_rate, taken OUT of the trade fee)
-//! stays in the pool's token account, booked to the venue, until the venue's vault collects
-//! it; the rest of the fee stays in the pool for the people who supplied it. A swap pays
-//! nobody outside the pool. `update` refuses a fee tier whose collectors are not the
-//! venue's vault, so no quote is ever given for a pool whose cut would go anywhere else.
+//! HOW MONEY MOVES on a swap: the trader pays the fee tier's trade fee out of the input. Two
+//! shares are taken OUT of that fee and stay in the pool's token account, booked: the venue's
+//! (protocol_fee_rate) until the venue's vault collects it, the island's (fund_fee_rate) until
+//! its collector (the island's Workshop on the live tiers) does. The rest stays in the pool for
+//! the people who supplied it, and a swap pays nobody outside the pool. `update` refuses a tier
+//! naming any other collector, so no quote is given for a pool whose shares go anywhere else.
 
 pub mod math;
 pub mod state;
@@ -30,6 +31,7 @@ use std::sync::atomic::Ordering;
 use crate::math::{FEE_RATE_DENOMINATOR_VALUE, Refusal, swap_exact_in};
 use crate::state::{
     AmmConfig, PoolState, has_transfer_fee, token_account_amount, token_account_mint,
+    token_account_usable,
 };
 
 /// The pool program, on mainnet since 2026-09-29.
@@ -37,8 +39,11 @@ pub const PROGRAM_ID: Pubkey = pubkey!("EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ
 /// The program's own signer over every pool's token accounts: the address of
 /// `[b"vault_and_lp_mint_auth_seed"]` under `PROGRAM_ID` (lib.rs `AUTH_SEED`).
 pub const AUTHORITY: Pubkey = pubkey!("Bkr8XPZySJmcUAxKSDNCcH5KE2WDs2Y3GeZLRbeATSfB");
-/// The venue's Squads vault: the only fee collector a fee tier may name.
+/// The venue's Squads vault: the only collector of a fee tier's venue share (`protocol_owner`).
 pub const VENUE_VAULT: Pubkey = pubkey!("GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd");
+/// The island's Workshop: under the split of 2026-10-18 it collects the island's share
+/// (`fund_owner`) on the live fee tiers. The vault may still be named there instead.
+pub const ISLAND_WORKSHOP: Pubkey = pubkey!("G2EHPseTXetHbBvvRDs27XQyXfQikXXyxP9uMbsKrbu");
 pub const TOKEN_PROGRAM: Pubkey = pubkey!("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 pub const TOKEN_2022_PROGRAM: Pubkey = pubkey!("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
 
@@ -69,7 +74,7 @@ struct Market {
 pub struct MemeticsAmm {
     key: Pubkey,
     pool: PoolState,
-    /// `None` until the first `update`; a quote before it is refused.
+    /// `Some` only after an `update` that passed every check; a quote without it is refused.
     market: Option<Market>,
     clock: ClockRef,
 }
@@ -85,7 +90,7 @@ impl MemeticsAmm {
     }
 
     /// One of the pool's token accounts: owned by the token program the pool names, holding
-    /// the mint the pool names. Returns its balance.
+    /// the mint the pool names, not frozen. Returns its balance.
     fn vault_amount(
         provider: &impl AccountProvider,
         vault: &Pubkey,
@@ -95,6 +100,12 @@ impl MemeticsAmm {
         let account = provider.try_get(vault)?;
         if account.owner() != token_program || token_account_mint(account.data()) != Some(*mint) {
             return Err(format!("pool token account {vault} is not the pool's").into());
+        }
+        if !token_account_usable(account.data()) {
+            return Err(format!(
+                "pool token account {vault} is frozen or not initialized: the program cannot move its tokens"
+            )
+            .into());
         }
         token_account_amount(account.data())
             .ok_or_else(|| format!("pool token account {vault} did not decode").into())
@@ -163,6 +174,8 @@ impl Amm for MemeticsAmm {
     }
 
     fn update(&mut self, account_provider: impl AccountProvider) -> Result<(), AmmError> {
+        // Cleared first, so every refusal below also stops quotes from the last good state.
+        self.market = None;
         let pool = Self::decode_pool(&account_provider.try_get(&self.key)?)?;
 
         let config = {
@@ -173,8 +186,15 @@ impl Amm for MemeticsAmm {
             AmmConfig::decode(account.data())
                 .ok_or_else(|| AmmError::from("account is not a Memetics fee tier"))?
         };
-        if config.protocol_owner != VENUE_VAULT || config.fund_owner != VENUE_VAULT {
-            return Err("fee tier names a fee collector that is not the venue's vault".into());
+        if config.protocol_owner != VENUE_VAULT
+            || (config.fund_owner != VENUE_VAULT && config.fund_owner != ISLAND_WORKSHOP)
+        {
+            return Err("fee tier names a fee collector that is not the venue's vault (or, for the island's share, the island's Workshop)".into());
+        }
+        // Jupiter calls every swap from its own program, and a tier with its swap guard on
+        // refuses that (6015 SwapNotDirect): a quote for it would fail every route.
+        if config.swap_guard != 0 {
+            return Err("fee tier's swap guard is on: it refuses a swap another program calls, as Jupiter's are".into());
         }
 
         let vault_0 = Self::vault_amount(
@@ -208,10 +228,9 @@ impl Amm for MemeticsAmm {
         if quote_params.swap_mode != SwapMode::ExactIn {
             return Err("only ExactIn swaps are quoted".into());
         }
-        let market = self
-            .market
-            .as_ref()
-            .ok_or_else(|| AmmError::from("pool not updated yet"))?;
+        let market = self.market.as_ref().ok_or_else(|| {
+            AmmError::from("no quote: the pool's last update was refused, or none has run")
+        })?;
         if market.transfer_fee {
             return Err("a mint in this pool charges a transfer fee; no quote is given".into());
         }

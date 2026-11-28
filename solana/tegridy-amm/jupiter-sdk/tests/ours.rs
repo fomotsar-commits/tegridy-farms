@@ -1,14 +1,21 @@
 //! Every key this SDK names, and every account a swap through it touches, is the venue's
-//! own or a public token program. Owner rulings: venue money and liquidity never go to
-//! another venue; every fee owner, receiver and authority is ours.
+//! own, the island's Workshop or a public token program. Owner rulings: venue money and
+//! liquidity never go to another venue; every fee owner, receiver and authority is ours,
+//! except the island's share, which the split of 2026-10-18 gives to the island's Workshop.
 
 mod common;
 
 use std::collections::HashMap;
 
-use jupiter_amm_interface::{Amm, SwapMode, SwapParams};
-use memetics_jupiter_sdk::state::{AmmConfig, PoolState, config_fields};
-use memetics_jupiter_sdk::{AUTHORITY, PROGRAM_ID, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, VENUE_VAULT};
+use jupiter_amm_interface::{Amm, QuoteParams, SwapMode, SwapParams};
+use memetics_jupiter_sdk::math::swap_exact_in;
+use memetics_jupiter_sdk::state::{
+    AmmConfig, Field, PoolState, config_fields, token_account_amount,
+};
+use memetics_jupiter_sdk::{
+    AUTHORITY, ISLAND_WORKSHOP, PROGRAM_ID, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, VENUE_VAULT,
+};
+use rust_decimal::Decimal;
 use solana_pubkey::Pubkey;
 
 /// The keys the SDK may name, each with what it is. Written out as text, so changing a
@@ -24,7 +31,7 @@ const ALLOWED: &[(&str, &str)] = &[
     ),
     (
         "GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd",
-        "the venue's Squads vault: admin and every fee tier's collector",
+        "the venue's Squads vault: admin, the only collector of a tier's venue share (protocol_fee_rate), and allowed for the island's (fund_fee_rate)",
     ),
     (
         "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
@@ -34,7 +41,15 @@ const ALLOWED: &[(&str, &str)] = &[
         "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
         "the Token-2022 program",
     ),
+    (
+        "G2EHPseTXetHbBvvRDs27XQyXfQikXXyxP9uMbsKrbu",
+        "the island's Workshop: collects the island's share (fund_fee_rate) under the split of 2026-10-18",
+    ),
 ];
+
+const REFUSED_COLLECTOR: &str = "fee tier names a fee collector that is not the venue's vault (or, for the island's share, the island's Workshop)";
+const GUARD_ON: &str =
+    "fee tier's swap guard is on: it refuses a swap another program calls, as Jupiter's are";
 
 fn allowed(key: &Pubkey) -> bool {
     ALLOWED
@@ -49,6 +64,7 @@ fn the_named_keys_are_ours() {
     assert_eq!(VENUE_VAULT.to_string(), ALLOWED[2].0);
     assert_eq!(TOKEN_PROGRAM.to_string(), ALLOWED[3].0);
     assert_eq!(TOKEN_2022_PROGRAM.to_string(), ALLOWED[4].0);
+    assert_eq!(ISLAND_WORKSHOP.to_string(), ALLOWED[5].0);
     // lib.rs `AUTH_SEED` under our program, not a key copied from anywhere.
     let (derived, _) = Pubkey::find_program_address(&[b"vault_and_lp_mint_auth_seed"], &PROGRAM_ID);
     assert_eq!(AUTHORITY, derived);
@@ -90,12 +106,12 @@ fn the_sdk_names_no_other_key() {
 }
 
 /// The live pools, as snapshotted: owned by our program, priced by a fee tier our program
-/// owns whose two fee collectors are the venue's vault, holding their tokens in accounts
-/// only our program's signer controls.
+/// owns whose venue share goes to the venue's vault and island share to the vault or the
+/// island's Workshop, holding their tokens in accounts only our program's signer controls.
 #[test]
-fn the_live_pools_pay_only_the_venue() {
+fn the_live_pools_pay_only_the_venue_and_the_island() {
     for pool_key in common::POOLS {
-        let snapshot = common::snapshot(&pool_key);
+        let snapshot = common::mainnet_snapshot(&pool_key);
         let pool_account = common::account(&snapshot, &pool_key);
         assert_eq!(pool_account.owner, PROGRAM_ID, "{pool_key}");
         let pool = PoolState::decode(&pool_account.data).expect("pool decodes");
@@ -107,7 +123,10 @@ fn the_live_pools_pay_only_the_venue() {
             config.protocol_owner, VENUE_VAULT,
             "{pool_key} protocol fee owner"
         );
-        assert_eq!(config.fund_owner, VENUE_VAULT, "{pool_key} fund fee owner");
+        assert!(
+            [VENUE_VAULT, ISLAND_WORKSHOP].contains(&config.fund_owner),
+            "{pool_key} fund fee owner"
+        );
 
         for vault in [pool.token_0_vault, pool.token_1_vault] {
             let data = common::account(&snapshot, &vault).data;
@@ -118,6 +137,57 @@ fn the_live_pools_pay_only_the_venue() {
                 "{pool_key} vault {vault}"
             );
         }
+    }
+}
+
+/// What a router sees on tier 1, where every live pool sits: a fee of 1% of the input, in the
+/// input token, of which 10.4% is booked to the venue and 5.6% to the island, each rounded
+/// down. One SOL in pays 10,000,000 lamports: 1,040,000 to the venue, 560,000 to the island.
+#[test]
+fn a_router_sees_the_tiers_fee_and_its_two_shares() {
+    let pool_key = common::BAYLA_SOL_POOL;
+    let snapshot = common::snapshot(&pool_key);
+    let pool = PoolState::decode(&common::account(&snapshot, &pool_key).data).unwrap();
+    let config = AmmConfig::decode(&common::account(&snapshot, &pool.amm_config).data).unwrap();
+    let vault = |k: &Pubkey| token_account_amount(&common::account(&snapshot, k).data).unwrap();
+    let now = snapshot.clock().expect("clock in snapshot").unix_timestamp;
+    let amm = common::amm(&pool_key);
+    let (sol, bayla) = (pool.token_0_mint, pool.token_1_mint);
+    // (in, out, amount in, fee, the venue's share, the island's share); the second splits unevenly.
+    for (input, output, amount, fee, venue, island) in [
+        (sol, bayla, 1_000_000_000, 10_000_000, 1_040_000, 560_000),
+        (sol, bayla, 123_456_789, 1_234_568, 128_395, 69_135),
+        (
+            bayla,
+            sol,
+            1_000_000_000_000,
+            10_000_000_000,
+            1_040_000_000,
+            560_000_000,
+        ),
+    ] {
+        let q = amm
+            .quote(&QuoteParams {
+                amount,
+                input_mint: input,
+                output_mint: output,
+                swap_mode: SwapMode::ExactIn,
+                fee_mode: Default::default(),
+            })
+            .expect("quote");
+        assert_eq!(
+            (q.fee_amount, q.fee_mint, q.fee_pct),
+            (fee, input, Decimal::new(1, 2)),
+            "{amount}"
+        );
+        let (vault_0, vault_1) = (vault(&pool.token_0_vault), vault(&pool.token_1_vault));
+        let r = swap_exact_in(&pool, &config, vault_0, vault_1, input == sol, amount, now).unwrap();
+        assert_eq!(
+            (r.trade_fee, r.protocol_fee, r.fund_fee, r.creator_fee),
+            (fee, venue, island, 0),
+            "{amount}"
+        );
+        assert_eq!(r.output_amount, q.out_amount, "{amount}");
     }
 }
 
@@ -183,7 +253,7 @@ fn a_swap_touches_only_the_pool_and_the_trader() {
 }
 
 /// `update` refuses a fee tier naming any other fee collector, so no quote is ever given for
-/// a pool whose venue cut would be paid somewhere else.
+/// a pool whose venue's or island's share would be paid somewhere else.
 #[test]
 fn a_fee_tier_paying_anyone_else_is_refused() {
     let pool_key = common::BAYLA_SOL_POOL;
@@ -201,12 +271,86 @@ fn a_fee_tier_paying_anyone_else_is_refused() {
         let refused = common::amm_from(&snapshot, &pool_key, &accounts)
             .err()
             .map(|e| e.to_string());
-        assert_eq!(
-            refused.as_deref(),
-            Some("fee tier names a fee collector that is not the venue's vault"),
-            "{}",
-            f.name,
-        );
+        assert_eq!(refused.as_deref(), Some(REFUSED_COLLECTOR), "{}", f.name);
+    }
+}
+
+/// Under the split the island's share (`fund_owner`) may be collected by the vault or by the
+/// island's Workshop, and the pool is quoted either way. The venue's share stays the vault's.
+#[test]
+fn the_islands_share_may_go_to_its_workshop_but_the_venues_may_not() {
+    let pool_key = common::BAYLA_SOL_POOL;
+    let snapshot = common::snapshot(&pool_key);
+    let pool = PoolState::decode(&common::account(&snapshot, &pool_key).data).unwrap();
+    let workshop: Pubkey = ALLOWED[5].0.parse().unwrap();
+    let with = |f: Field, key: &Pubkey| {
+        let mut accounts: HashMap<_, _> = common::accounts_to_update(&snapshot, &pool_key);
+        let config = accounts.get_mut(&pool.amm_config).unwrap();
+        config.data[f.offset..f.offset + f.size].copy_from_slice(key.as_ref());
+        common::amm_from(&snapshot, &pool_key, &accounts).map_err(|e| e.to_string())
+    };
+    let mints = common::amm(&pool_key).get_reserve_mints();
+    for key in [VENUE_VAULT, workshop] {
+        let amm = with(config_fields::FUND_OWNER, &key)
+            .unwrap_or_else(|e| panic!("the island's share to {key}: {e}"));
+        let quote = amm.quote(&QuoteParams {
+            amount: 1_000_000_000,
+            input_mint: mints[0],
+            output_mint: mints[1],
+            swap_mode: SwapMode::ExactIn,
+            fee_mode: Default::default(),
+        });
+        assert!(quote.is_ok(), "the island's share to {key}: {quote:?}");
+    }
+    assert_eq!(
+        with(config_fields::PROTOCOL_OWNER, &workshop)
+            .err()
+            .as_deref(),
+        Some(REFUSED_COLLECTOR),
+        "the venue's share to the Workshop",
+    );
+}
+
+/// `update` refuses a fee tier whose swap guard is on: Jupiter calls every swap from its own
+/// program, which such a tier refuses, so a quote would fail every route. Off, in the tests'
+/// guard-off view, it updates.
+#[test]
+fn a_fee_tier_with_its_swap_guard_on_is_refused() {
+    let pool_key = common::BAYLA_SOL_POOL;
+    let snapshot = common::snapshot(&pool_key);
+    let pool = PoolState::decode(&common::account(&snapshot, &pool_key).data).unwrap();
+    let f = config_fields::SWAP_GUARD;
+    let mut accounts: HashMap<_, _> = common::accounts_to_update(&snapshot, &pool_key);
+    let config = accounts.get(&pool.amm_config).unwrap();
+    assert_eq!(
+        &config.data[f.offset..f.offset + f.size],
+        &[0u8; 8],
+        "the view's guard is off"
+    );
+    assert!(
+        common::amm_from(&snapshot, &pool_key, &accounts).is_ok(),
+        "the view updates"
+    );
+    let config = accounts.get_mut(&pool.amm_config).unwrap();
+    config.data[f.offset..f.offset + f.size].copy_from_slice(&1u64.to_le_bytes());
+    let refused = common::amm_from(&snapshot, &pool_key, &accounts)
+        .err()
+        .map(|e| e.to_string());
+    assert_eq!(refused.as_deref(), Some(GUARD_ON));
+}
+
+/// As mainnet holds them, both live tiers have the guard on (vault proposal #33, 2026-11-14),
+/// so no live pool gets a quote. A listing waits on the owner's choice: the guard off on a
+/// tier, or a program change that admits Jupiter. When that changes, so does this test.
+#[test]
+fn as_mainnet_holds_them_no_live_pool_is_quoted() {
+    for pool_key in common::POOLS {
+        let snapshot = common::mainnet_snapshot(&pool_key);
+        let accounts = common::accounts_to_update(&snapshot, &pool_key);
+        let refused = common::amm_from(&snapshot, &pool_key, &accounts)
+            .err()
+            .map(|e| e.to_string());
+        assert_eq!(refused.as_deref(), Some(GUARD_ON), "{pool_key}");
     }
 }
 

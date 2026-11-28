@@ -1,14 +1,19 @@
 //! The program's ExactIn swap, as arithmetic.
 //!
-//! Transcribed from raydium-io/raydium-cp-swap @ 78f254e1 (Apache-2.0, Copyright Raydium),
-//! the files our program carries byte for byte (solana-ci.yml `diff-guard`):
+//! Transcribed from raydium-io/raydium-cp-swap @ 78f254e1 (Apache-2.0, Copyright Raydium).
+//! Our program carries the three curve files byte for byte (solana-ci.yml `diff-guard` pins
+//! its patch). Its pool.rs adds the price record and leaves the three functions read here
+//! unchanged; its swap_base_input.rs adds the swap guard (refused in lib.rs `update`), the
+//! keeper's zero rates (a router is never the keeper) and the price record, which moves no
+//! amount. The sources:
+//!
 //!   programs/cp-swap/src/curve/fees.rs              ceil_div, floor_div, the fee splits
 //!   programs/cp-swap/src/curve/constant_product.rs  swap_base_input_without_fees
 //!   programs/cp-swap/src/curve/calculator.rs        CurveCalculator::swap_base_input
 //!   programs/cp-swap/src/states/pool.rs             vault_amount_without_fee,
-//!                                                   is_creator_fee_on_input,
-//!                                                   adjust_creator_fee_rate
+//!                                                   is_creator_fee_on_input, adjust_creator_fee_rate
 //!   programs/cp-swap/src/instructions/swap_base_input.rs  the checks around them
+//!
 //! The one change: where upstream unwraps (a panic, which on chain fails the transaction),
 //! this returns a refusal, so a quote never panics in Jupiter's router.
 
@@ -26,7 +31,7 @@ pub enum Refusal {
     ZeroAmountIn,
     /// `InvalidFeeModel`: a `creator_fee_on` value the program does not know.
     InvalidFeeModel,
-    /// `InsufficientVault`: fees booked to the venue and the creator exceed a vault.
+    /// `InsufficientVault`: fees booked to the venue, the island and the creator exceed a vault.
     InsufficientVault,
     /// `ZeroTradingTokens`, or arithmetic the program aborts on.
     ZeroTradingTokens,
@@ -39,11 +44,14 @@ pub enum Refusal {
 pub struct SwapResult {
     /// What the trader receives.
     pub output_amount: u64,
-    /// The trade fee, in the input token. The venue's cut comes out of it, not on top.
+    /// The trade fee, in the input token. The venue's and the island's shares come out of it,
+    /// not on top.
     pub trade_fee: u64,
-    /// The venue's cut of `trade_fee` (protocol_fee_rate), booked to the venue in the pool.
+    /// The venue's share of `trade_fee` (protocol_fee_rate), booked in the pool until the
+    /// venue's vault collects it.
     pub protocol_fee: u64,
-    /// The venue's second cut of `trade_fee` (fund_fee_rate), booked the same way.
+    /// The island's share of `trade_fee` (fund_fee_rate), booked in the pool until its
+    /// collector (the island's Workshop on the live tiers) collects it.
     pub fund_fee: u64,
     /// The pool creator's cut: in the input token when `creator_fee_on_input`, else the output.
     pub creator_fee: u64,
@@ -158,7 +166,7 @@ pub fn swap_exact_in(
     }
 
     // pool.rs `vault_amount_without_fee`: the curve trades against what is left after the
-    // fees booked to the venue and the creator, which sit in the same token accounts.
+    // fees booked to the venue, the island and the creator, which sit in the same accounts.
     let booked_0 = pool
         .protocol_fees_token_0
         .checked_add(pool.fund_fees_token_0)

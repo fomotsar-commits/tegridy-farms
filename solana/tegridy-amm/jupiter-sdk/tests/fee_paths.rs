@@ -1,9 +1,9 @@
 //! Jupiter's quote parity check on the fee paths the live pools do not take. Both BAYLA pools
-//! charge no creator fee and no fund fee, so `tests/parity.rs` never runs the program's
-//! creator-fee split, its creator fee on the output, or its fund fee. Here the BAYLA/SOL
-//! snapshot is copied with those switched on, and the DEPLOYED program
-//! (`tests/fixtures/memetics.so`) runs each swap in LiteSVM against the copy: the quote must
-//! still equal what it pays out. The kit asks for this ("different fee modes").
+//! charge no creator fee, so `tests/parity.rs` never runs the program's creator-fee split or
+//! its creator fee on the output. Here the BAYLA/SOL snapshot (`common::snapshot`) is copied
+//! with it switched on, and the fixture build (`tests/fixtures/memetics.so`, a program build
+//! read from mainnet) runs each swap in LiteSVM against the copy: the quote must still equal
+//! what it pays out. The kit asks for this ("different fee modes").
 //!
 //!   cargo test --test fee_paths
 //!
@@ -31,10 +31,9 @@ const BAYLA: Pubkey = pubkey!("7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump");
 const SWAPS: [(Pubkey, Pubkey, u64); 2] =
     [(WSOL, BAYLA, 123_456_789), (BAYLA, WSOL, 987_654_321_123)];
 
-/// 0.5% creator fee and a fund fee of 4% of the trade fee, on top of the tier's own rates.
+/// A 0.5% creator fee, on top of the tier's own rates.
 const CREATOR_FEE_RATE: u64 = 5_000;
-const FUND_FEE_RATE: u64 = 40_000;
-/// Fees already booked in the pool to the venue's fund (SOL) and to the creator (BAYLA):
+/// Fees already booked in the pool to the island's share (SOL) and to the creator (BAYLA):
 /// the curve must trade against the vaults less these.
 const BOOKED_FUND_FEES_TOKEN_0: u64 = 1_000_000;
 const BOOKED_CREATOR_FEES_TOKEN_1: u64 = 1_000_000_000;
@@ -45,8 +44,8 @@ fn set(data: &mut [u8], f: Field, bytes: &[u8]) {
 }
 
 /// The BAYLA/SOL snapshot with the pool's `creator_fee_on` and `enable_creator_fee` set,
-/// written to its own directory. Every copy also turns on the tier's creator and fund rates
-/// and books fund and creator fees in the pool.
+/// written to its own directory. Every copy also turns on the tier's creator rate and books
+/// fund and creator fees in the pool.
 fn copy_with(name: &str, creator_fee_on: u8, enable_creator_fee: bool) -> PathBuf {
     let pool_key = common::BAYLA_SOL_POOL;
     let snapshot = common::snapshot(&pool_key);
@@ -85,11 +84,6 @@ fn copy_with(name: &str, creator_fee_on: u8, enable_creator_fee: bool) -> PathBu
         config,
         config_fields::CREATOR_FEE_RATE,
         &CREATOR_FEE_RATE.to_le_bytes(),
-    );
-    set(
-        config,
-        config_fields::FUND_FEE_RATE,
-        &FUND_FEE_RATE.to_le_bytes(),
     );
 
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("fee-paths/{name}"));
@@ -130,7 +124,7 @@ fn quotes_on(dir: &PathBuf, enable_creator_fee: bool) -> Vec<u64> {
         .collect()
 }
 
-/// Each of `SWAPS` on the copy: the quote equals what the deployed program pays. Returns the
+/// Each of `SWAPS` on the copy: the quote equals what the fixture build pays. Returns the
 /// amounts out.
 fn assert_parity(name: &str, creator_fee_on: u8, enable_creator_fee: bool) -> Vec<u64> {
     let dir = copy_with(name, creator_fee_on, enable_creator_fee);
@@ -153,8 +147,8 @@ fn creator_fee_on_both_tokens() {
 /// `OnlyToken0`: on the input when SOL goes in, off the output when SOL comes out.
 ///
 /// The two `quote_vectors.json` cases named "fee_paths token-0 copy" are these swaps, so the
-/// site's own quote (jupiterSdkParity.test.ts) meets the deployed program on the fund fee,
-/// the creator fee and fees booked to both.
+/// site's own quote (jupiterSdkParity.test.ts) meets the fixture build on the fund fee, the
+/// creator fee and fees booked to both.
 #[test]
 fn creator_fee_on_token_0() {
     let paid = assert_parity("token-0", 1, true);
