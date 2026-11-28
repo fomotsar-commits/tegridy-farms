@@ -8,6 +8,8 @@ import { toast } from 'sonner';
 import { PublicKey, VersionedTransaction, type Connection, type Transaction } from '@solana/web3.js';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { usePageTitle } from '../hooks/usePageTitle';
+import { momentWanted } from '../hooks/useMomentShare';
+import { askMoment, momentClip } from '../lib/momentShare';
 import { trackPageView } from '../lib/analytics';
 import { ArtImg } from '../components/ArtImg';
 import { PageArtBackdrop } from '../components/PageArtBackdrop';
@@ -114,7 +116,7 @@ import { browserRpc } from '../lib/launcher/solana/curve/rpc';
 import { withReadCommitment } from '../components/solana/curve/confirmedRpc';
 import { applySlippage } from '../lib/launcher/solana/curve/math';
 import { tradeCostText } from '../lib/solana/lp/format';
-import { siteNamed } from '../lib/solana/lp/identity';
+import { ownTickerOf, siteNamed } from '../lib/solana/lp/identity';
 import { perMillionPercent } from '../lib/solana/clmm/feeText';
 import { isFeeOnInput } from '../lib/solana/clmm/program';
 import { quietEnding } from '../components/swap/quietSwap';
@@ -304,6 +306,8 @@ function raiseSwapReceipt(
     action,
     coin: { symbol: coin.symbol, mint: coin.mint },
     island,
+    // The moment for every coin: a ticker that is not the coin's own ("fake BAYLA", none) is no name to post it under.
+    unnamed: ownTickerOf(coin.mint, coin.symbol) === null,
     title: null,
     under: null,
     fee: { kind: 'reading' },
@@ -1789,6 +1793,15 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
   const inFlightTx = flowState.step === 'review' || flowState.step === 'submitting' || flowState.step === 'sent' ? flowState.prepared : null;
   const inFlight = inFlightTx ? ownSwapView(inFlightTx.summary) : null;
 
+  // The moment for every coin (the island, 11-19): the review signed in our own pool, the buy's clip is asked of the island.
+  useEffect(() => {
+    if (flowState.step !== 'submitting') return;
+    const t = ownTrade.current;
+    if (t?.done === 'Bought' && momentWanted()) {
+      askMoment(momentClip({ action: 'bought', coin: { symbol: t.buyCoin.symbol, mint: t.buyCoin.mint }, island: bungalowByAddress('solana', t.buyCoin.mint) !== null, unnamed: ownTickerOf(t.buyCoin.mint, t.buyCoin.symbol) === null }));
+    }
+  }, [flowState.step]);
+
   const { reset: resetOwn } = venueSwap.flow;
   useEffect(() => {
     if (flowState.step !== 'outcome') return;
@@ -2377,6 +2390,11 @@ export function SolanaSwapInner({ home = false, sheet = false }: { home?: boolea
       const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
       const tx = VersionedTransaction.deserialize(bytes);
       const tradeWords = `≈${prettyAmount(fromBaseUnits(sent.outAmount, buyToken.decimals))} ${buyToken.symbol} with ${prettyAmount(tokenAmount)} ${payToken.symbol}${feeWaivedOnSend ? ' (no site fee on this route)' : ''}`;
+      // The moment for every coin (the island, 11-19): a buy's clip is asked of the island as the wallet opens,
+      // so the receipt's first tap carries the GIF even when the island is making it for the first time.
+      if (sideWords(payToken, buyToken).done === 'Bought' && momentWanted()) {
+        askMoment(momentClip({ action: 'bought', coin: { symbol: buyToken.symbol, mint: buyToken.mint }, island: bungalowByAddress('solana', buyToken.mint) !== null, unnamed: ownTickerOf(buyToken.mint, buyToken.symbol) === null }));
+      }
       // The wallet signs; this page sends, sends again until the chain answers, and says
       // a refusal in the network's words with nothing spent (lib/solana/swap/walletSwapSend.ts).
       // A signature's note holds Buy for this wallet, in every tab of this site, until the

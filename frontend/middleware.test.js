@@ -89,9 +89,9 @@ describe('the card carries the number', () => {
     expect(html).toContain('1,693 days held');
   });
 
-  it('points og:url at the read link itself', async () => {
-    const html = await (await middleware(req(`/read/${ADDR}`))).text();
-    expect(html).toContain(`<meta property="og:url" content="${ORIGIN}/read/${ADDR}">`);
+  it('points og:url at the read link itself, with the heat it was drawn at', async () => {
+    const html = await (await middleware(req(`/read/${ADDR}?h=1785.14`))).text();
+    expect(html).toContain(`<meta property="og:url" content="${ORIGIN}/read/${ADDR}?h=1785.14">`);
   });
 
   it('asks a large-image card, so the number is legible in the feed', async () => {
@@ -117,9 +117,11 @@ describe('the card carries the number', () => {
 // "DAY 0" and the venue never posts a zero.
 describe('the picture is the island’s painted card, for a wallet it reads', () => {
   const VENUE_CARD = `${ORIGIN}/og.jpg`;
-  const painted = (address) => `https://memetics.wtf/api/card?w=${address}`;
+  // The heat rides the picture's address, so X fetches the picture again when the number moves.
+  const painted = (address) => `https://memetics.wtf/api/card?w=${address}&h=1785.14`;
+  // Each value as a crawler reads the attribute: its &amp; is &.
   const images = (html) =>
-    [...html.matchAll(/<meta (?:property|name)="(og:image|twitter:image)" content="([^"]*)">/g)].map((m) => [m[1], m[2]]);
+    [...html.matchAll(/<meta (?:property|name)="(og:image|twitter:image)" content="([^"]*)">/g)].map((m) => [m[1], m[2].replaceAll('&amp;', '&')]);
 
   it('carries the painted card on both image tags of a warm read', async () => {
     const html = await (await middleware(req(`/read/${ADDR}`))).text();

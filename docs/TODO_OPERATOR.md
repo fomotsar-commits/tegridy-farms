@@ -29,6 +29,106 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🔴 2026-11-28: community pairing coins, phase 1 (draft PR #1245): five answers from you, then your merge word
+
+On 2026-11-14 you said "Build phase 1". It is draft PR #1245, and on 2026-11-28 it merges cleanly
+with trunk. On 2026-11-28 you asked for everything it needs from you on this list. Nothing in it
+sends money or touches a vault. Each answer below is one word, and each is easy to change later.
+
+**Money leak, live and tiny.** Our SOL/GROYPER pool `9wNsvpuV94Jc8BaSk25SHahzmrDs8DKqgVMm1AjeGVnQ`
+holds GROYPER `7QAn5wqkBcGuvfLLC16iLvX8fPyqXrzkMqnzHLS9NNna`, a coin that takes 3% of every transfer.
+Its fee authority `5KXDF6QnqhBj72hDtJNkkpFaQVUfbFXNybMsp3DiK6tD` can raise that to 100% at any time.
+The venue's cut of each trade is paid in the coin the trader pays in, so sells of GROYPER pay it in
+GROYPER, and collecting that cut pays GROYPER's fee to its authority. Read on mainnet 2026-11-28
+07:42 UTC: 663.96 GROYPER waits for the vault and 357.52 for the Workshop, about $0.37 together at
+Jupiter's $0.000359, so 3% is about 1 cent. The SOL side of the cut pays no such fee.
+
+1. **Taxed coins: block new pools again, or keep them open?** On 2026-10-29 you said "remove" the
+   block on pools for coins with a transfer tax, and #1053 did that. #1245 puts the block back for
+   new pools: the form, the builder and the independent checker all refuse a coin with a transfer
+   fee, at any rate including 0%. Pools already open keep Add, Remove, Collect and Swap (on
+   2026-11-14 the only one was SOL/GROYPER). The reason is the leak above: an issuer can take up to
+   all of the venue's cut in its coin. I didn't name this in the PR as going against your 10-29 word,
+   and should have. If you keep them open, that part comes out of #1245 and the rest stands.
+   **Your answer:** "block" or "keep open".
+2. **Depth bar: $5,000.** An island coin's pools count toward the site's total value only while
+   Jupiter reports at least $5,000 of trading liquidity for that coin, so a thin market anywhere
+   can't set the price our total uses. (Before #1245 the price came from our own deepest pool of the
+   coin, which one lopsided pool could set.) Read 2026-11-28 07:41 UTC: BOBO $138,789, BAYLA $21,911,
+   BRAINLET $10,543, RIZZ $7,757, SOY $6,916. All five clear it; SOY is closest. A coin that drops
+   under has its pools left out, and the total says it is partial. **Your answer:** "$5,000" or
+   another figure.
+3. **Pool lookups per visitor: 120 scans a minute, or 60.** 120 is a fifth of the site's 600-a-minute
+   budget, about 17 lookups that miss the cache (each costs 7 scans). Before #1245 the limit was 30
+   requests a minute, whatever they cost. 60 halves what one visitor can use. **Your answer:** "120"
+   or "60".
+4. **The leak line on /pools: in the closed Details, or bold and visible?** The Rates card's Details
+   say that a taxed coin's issuer takes its fee as the venue's cut is collected. Visible would add
+   words to /pools, which is near its word cap. **Your answer:** "Details" or "visible".
+5. **Ask the island first?** The spec said to ask before "Priced in X" goes on island pages. #1245
+   puts it only on `/pools?priced=<coin>` links (USDC and the five island coins), but those are the
+   links a community would share. **Your answer:** "ask first" or "no need". If "ask first", this
+   is the message to send:
+
+   ```text
+   A question before we ship one small thing on the venue.
+
+   We built a "Priced in X" view on the Pools page. A link like memetics.finance/pools?priced=<coin address> opens a card listing every pool on the venue priced in that coin, oldest first, with the coin's ticker and whole address. It works for USDC and for BAYLA, BOBO, SOY, BRAINLET and RIZZ. No island page changes, and the normal Pools page stays as it is.
+
+   Because a community might share those links, we're asking first: are you happy for links like that to exist for your coins? If you'd rather we leave a coin out, or word the card differently, say which.
+   ```
+
+**Then:** say "ready" to take #1245 out of draft, and "merge" to merge it. Each is your word, given
+for that PR. At the merge, a session moves #1245's three changelog lines to that day and reads the
+merge commit's Vercel status. PR #1360 (only BAYLA/SOL counts toward her bar) edits the same lines
+of the total-value reader, so whichever of the two lands second is merged by hand.
+
+**Later, not now:** phase 2 adds up to three outside coins as pairing coins, each only with its own
+ruling from you, and only after #1245 is merged.
+
+## 🔴 2026-11-28: our two Solana programs' names on Solscan (one sitting, about 10 minutes; the pack is ready, nothing sent)
+
+On 2026-11-27 you asked for our pool swaps to stop showing up with no name on Solscan. On
+2026-11-28 you asked for it on this list. Your paper is `START-HERE.md` in
+`C:\Users\jimbo\OneDrive\Desktop\tegriddy farms\IDL-PUBLISH-2026-11-27` (on this PC only, not in
+git).
+
+**Not done yet (read on mainnet 2026-11-28 07:09 UTC).** Both programs' list spots are still empty,
+and the paying wallet holds 0.057 SOL.
+
+**What it is.** Solscan can't read our pool program, so it names our swaps after something else in
+the same transaction: "Raydium", pump.fun's "AMM", or the price robot's safety check. The pack
+publishes each program's instruction list (its "IDL") at the one address Solscan reads it from: the
+pool program `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT` as `memetics_amm`, and the launch
+program `64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2` as `memetics_launch`. Each list is read
+back, then handed to the vault `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`, which already
+controls both programs. No vault proposal and no 48-hour wait. Nothing about swaps, prices, fees or
+pools changes: the programs never read these lists.
+
+**Why it is red.** Until it runs, anyone can claim either spot first and then decide what Solscan
+shows for our swaps. A simulation on real mainnet state (2026-11-27, nothing sent) showed an outside
+arbitrage wallet could do it.
+
+**The SOL.** The BAYLA deployer `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6` pays about 0.18 SOL.
+About 0.179 SOL of it is rent that stays inside the two list accounts (it comes back only if the
+vault ever closes a list); network fees come to under 0.001 SOL. **Send it 0.2 SOL.** No venue,
+treasury or pool money is touched.
+
+1. From Phantom, send 0.2 SOL to `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6`. Paste it from this
+   page, never from a wallet's history, and compare the whole address.
+2. Double-click `1-DRYRUN.cmd`. It sends nothing, and must end with `PREFLIGHT PASS`.
+3. Double-click `2-SEND.cmd` and type `SEND`. It takes a few minutes and ends with `ALL DONE.`
+   Every stop starts with `STOP:` and says what to do; the paper's table covers each one. If it says
+   **someone else holds this list's spot**, send nothing more and tell a session.
+4. A session reads both lists back from the chain and checks Solscan.
+5. Send the note in `SOLSCAN-MESSAGE.md` to Solscan, through the X, Telegram or Discord links on
+   solscan.io itself, so their team puts "Memetics AMM" in front of our swaps. 🚨 Anyone in a DM who
+   asks for SOL or a "listing fee" for this is a scammer.
+
+**After the fee-sweep upgrade below executes**, the pool list needs one refresh to name
+`sweep_fees` and the other new instructions. Because the vault holds the list, that refresh is a
+vault proposal.
+
 ## 🔴 2026-11-26: the fee sweep, so the venue's fees reach the vault by themselves (two sittings; the pack is ready, nothing sent)
 
 Your word on 2026-11-15: "all funds for the venue land in the treasury". On 2026-11-24 and again
