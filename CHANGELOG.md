@@ -7,6 +7,10 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-28
+
+- BAYLA's room: a Liberation bar now heads her market. It fills with the BAYLA in all our Solana pools, measured against the BAYLA in her pump.fun pool on PumpSwap, and says Liberated the day ours hold more (32% on 2026-11-26). It counts BAYLA, not dollars, so no price move shifts it, and it is read from Solana when the page opens; when either side cannot be read it says so instead of showing an empty bar. Its link opens her Add SOL + BAYLA form.
+
 ### 2026-11-27
 
 - HyperEVM pools: anyone can open a pool, for any coin paired with HYPE, USDC or USD₮0, once the opener contract is deployed (until then nothing changes and only the venue opens pools). Opening pays the venue 0.23 HYPE, sent to the treasury Safe in the same transaction that opens the pool and switches the venue's cut on; a pool someone opened straight on Uniswap's factory can be listed for the same fee. Buying such a coin with USDC or USD₮0 pays the 0.5% site fee in the coin you pay with. A coin off the site's list shows its own ticker and its whole address; a copy of HYPE, USDC or USD₮0 reads "fake USDC". The wallet needs Hyperliquid's big-block setting on, which the site reads and explains.

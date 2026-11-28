@@ -2,8 +2,8 @@
 
 DefiLlama lists a protocol through pull requests on two of its GitHub repositories. Both are
 free. Neither has a minimum size or asks for an audit (its docs and both repositories' rules,
-read 2026-11-27). This folder holds everything for both. Nothing here has been sent: the owner
-opens each pull request.
+read 2026-11-27). This folder holds everything for both. Both were sent on 2026-11-28: see
+"Sent" below, and do not open either again.
 
 | What it shows | Their repository | Our file | The text to paste |
 |---|---|---|---|
@@ -13,6 +13,27 @@ opens each pull request.
 Both read program `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT` straight from the chain. Each
 passed DefiLlama's own test command in a local copy of their repository on 2026-11-27; the
 output is in each `PR.md`.
+
+## Sent
+
+Both pull requests were opened on 2026-11-28 from the owner's GitHub account, on the owner's
+word. Each holds the one file named above:
+
+- Value locked: https://github.com/DefiLlama/DefiLlama-Adapters/pull/22424
+- Volume, fees and revenue: https://github.com/DefiLlama/dimension-adapters/pull/11422
+
+Each adapter was tested again that day on DefiLlama's current code before it went. Value locked
+read $19.43k over 34 pools. Volume read $398.65 for the 24 hours to 2026-11-27 23:00 UTC (the
+first test, a day earlier, read $124.73: the figure moves that much from day to day).
+
+- One pull request per repository: do not open either again. A reviewer's change goes into
+  the same pull request, on the branch `add-memetics-finance` of the owner's fork of that
+  repository.
+- The logo is in each body as a link to `https://memetics.finance/icons/a5bed999/icon-512.png`:
+  a pull request opened from the command line cannot attach a file.
+- A commit made through GitHub's file API is stamped with the account's primary email address,
+  not the no-reply address our own commits carry. For a commit that goes to someone else's
+  repository, set its author and committer to the no-reply address when the commit is made.
 
 ## What the listing will show
 
@@ -47,7 +68,7 @@ output is in each `PR.md`.
    protocol's token (the text says "None on Solana"), the CoinGecko and CoinMarketCap ids (left
    empty) and the referral answer (the text says "Not on these Solana pools").
 
-## Steps
+## Steps (done on 2026-11-28; kept for the record)
 
 1. On GitHub, fork `DefiLlama/DefiLlama-Adapters`. In the fork, add
    `projects/memetics-finance/index.js` with the contents of our file. Change nothing else.
