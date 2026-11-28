@@ -60,6 +60,33 @@ describe('the range strip’s labels stay whole on the strip', () => {
     expect(left + drawn('market')).toBeLessThanOrEqual(Math.min(line - 6, 280 - 4) + 1e-9);
   });
 
+  // A pool's price is usually near the market's, so the two lines sit close: the market label
+  // used to take the right of its line whatever stood there, and the pool's green line ran
+  // through "MARKET" (the read at 390, 2026-11-25). Each label now keeps clear of the other line.
+  it('no label is crossed by the other price’s line, whichever side of it that line is', () => {
+    for (const width of [280, 342]) {
+      for (let m = 0.8; m <= 1.25; m += 0.01) {
+        boxesAre(width);
+        const o = { lo: 0.5, hi: 2, market: m };
+        const { unmount } = render(
+          <RangeStrip now={1} market={m} lo={0.5} hi={2} nowName="This pool’s price" nowMark="this pool" words={{ now: '1', market: m.toFixed(2), lo: '0.5', hi: '2', unit: 'SOL' }} />,
+        );
+        for (const [id, text, other] of [
+          ['range-strip-label-market', 'market', lineAt(width, 'now', o)],
+          ['range-strip-label-now', 'this pool', lineAt(width, 'market', o)],
+        ] as const) {
+          const left = leftOf(id);
+          const clear = other < left - 1 || other > left + drawn(text) + 1;
+          expect(clear, `${id} at ${width} px, market ${m.toFixed(2)}: its label runs ${left.toFixed(1)} to ${(left + drawn(text)).toFixed(1)}, the other line is at ${other.toFixed(1)}`).toBe(true);
+          expect(left).toBeGreaterThanOrEqual(4);
+          expect(left + drawn(text)).toBeLessThanOrEqual(width - 4 + 1e-9);
+        }
+        unmount();
+        vi.restoreAllMocks();
+      }
+    }
+  });
+
   it('across every range on a phone, no label leaves the strip', () => {
     for (const lo of [0.5, 0.3, 0.2, 0.15, 0.127, 0.1, 0.07, 0.05]) {
       boxesAre(280);

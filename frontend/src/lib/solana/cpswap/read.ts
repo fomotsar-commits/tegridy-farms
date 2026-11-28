@@ -221,13 +221,13 @@ export async function readPoolAt(
   if (v0.kind !== 'ok') return v0;
   if (v1.kind !== 'ok') return v1;
   if (v0.value.owner.toBase58() !== pool.token0Program || v1.value.owner.toBase58() !== pool.token1Program) {
-    return { kind: 'unreadable', detail: 'a pool vault is not owned by the token program the pool names' };
+    return { kind: 'unreadable', detail: 'the pool’s own account for one of its coins is not owned by the token program the pool names' };
   }
 
   const vault0Amount = decodeTokenAccountAmount(v0.value.data);
   const vault1Amount = decodeTokenAccountAmount(v1.value.data);
   if (vault0Amount === null || vault1Amount === null) {
-    return { kind: 'unreadable', detail: 'a pool vault did not decode as a token account' };
+    return { kind: 'unreadable', detail: 'the pool’s own account for one of its coins did not decode as a token account' };
   }
 
   const reserve0 = vaultAmountWithoutFee(
@@ -239,7 +239,7 @@ export async function readPoolAt(
   if (reserve0 === null || reserve1 === null) {
     // The program's own `InsufficientVault`. Refuse rather than quote a pool
     // whose books do not balance.
-    return { kind: 'unreadable', detail: 'accrued fees exceed a pool vault balance' };
+    return { kind: 'unreadable', detail: 'the fees the pool owes are more than it holds of a coin' };
   }
 
   return { kind: 'ok', value: { pool, vault0Amount, vault1Amount, reserve0, reserve1 } };

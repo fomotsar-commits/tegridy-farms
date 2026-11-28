@@ -776,9 +776,9 @@ const COPY_DEPOSIT =
 const COPY_POOL =
   'It calls itself by a well-known token’s name but has a different mint, so it is not that token. If the copy turns out to be worth nothing, so is your share of the pool you open.';
 const FREEZE_DEPOSIT =
-  'Its creator can freeze the vault of this pool, and while it is frozen nobody can take liquidity out, you included. They can also freeze your own account for the token.';
+  'Its creator can freeze it inside this pool, and while it is frozen nobody can take liquidity out, you included. They can also freeze your own account for the token.';
 const FREEZE_POOL =
-  'Its creator can freeze the vault of the pool you open, and while it is frozen nobody can take liquidity out, you included. They can also freeze your own account for the token.';
+  'Its creator can freeze it inside the pool you open, and while it is frozen nobody can take liquidity out, you included. They can also freeze your own account for the token.';
 const AMOUNTS =
   'The amount a wallet displays for this token changes over time. This site shows and moves raw token units, so check the amounts against your wallet before you sign.';
 
@@ -816,7 +816,7 @@ describe('assessPool: token warnings that a deposit must carry', () => {
     expect(assessPool({ ...base, safety: safetyWith('freeze-authority-accepted'), view: view(), outside: outside(0.01) }).deposits).toEqual({
       verdict: 'allowed',
       reasons: [],
-      warnings: ['Its issuer can freeze the vault of this pool, and while it is frozen nobody can take liquidity out, you included. They can also freeze your own account for the token.'],
+      warnings: ['Its issuer can freeze it inside this pool, and while it is frozen nobody can take liquidity out, you included. They can also freeze your own account for the token.'],
     });
   });
 

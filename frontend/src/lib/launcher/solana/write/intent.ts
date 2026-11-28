@@ -433,8 +433,8 @@ function venueSwap(ix: TransactionInstruction, ctx: SwapIntent): IntentStep {
     [3, p.address, 'the swap is against a different pool than the one checked'],
     [4, associatedTokenAddress(input.mint, ctx.signer, input.program), 'the swap spends from an account that is not yours'],
     [5, associatedTokenAddress(output.mint, ctx.signer, output.program), 'the swap pays out to an account that is not yours'],
-    [6, input.vault, 'the swap names the wrong pool vault'],
-    [7, output.vault, 'the swap names the wrong pool vault'],
+    [6, input.vault, 'the swap names an account that is not the pool’s own'],
+    [7, output.vault, 'the swap names an account that is not the pool’s own'],
     [8, input.program, 'the swap names the wrong token program'],
     [9, output.program, 'the swap names the wrong token program'],
     [10, input.mint, 'the swap names the wrong token'],
@@ -602,8 +602,8 @@ function cpswap(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
     [3, pool, 'the swap is against a different pool than this launch graduated into'],
     [4, associatedTokenAddress(inMint, ctx.signer), 'the swap spends from an account that is not yours'],
     [5, associatedTokenAddress(outMint, ctx.signer), 'the swap pays out to an account that is not yours'],
-    [6, deriveVault(cp, pool, inMint), 'the swap names the wrong pool vault'],
-    [7, deriveVault(cp, pool, outMint), 'the swap names the wrong pool vault'],
+    [6, deriveVault(cp, pool, inMint), 'the swap names an account that is not the pool’s own'],
+    [7, deriveVault(cp, pool, outMint), 'the swap names an account that is not the pool’s own'],
     [8, TOKEN_PROGRAM_ID, 'the swap names the wrong token program'],
     [9, TOKEN_PROGRAM_ID, 'the swap names the wrong token program'],
     [12, deriveObservation(cp, pool), 'the swap names the wrong price record'],
@@ -635,8 +635,8 @@ function poolSlots(ctx: PoolIntent, what: 'deposit' | 'withdrawal'): Array<[numb
     [2, p.address, what === 'deposit' ? 'the deposit goes into a different pool than the one checked' : 'the withdrawal comes out of a different pool than the one checked'],
     [4, mine(p.token0Mint, p.token0Program), own],
     [5, mine(p.token1Mint, p.token1Program), own],
-    [6, p.vault0, `the ${what} names the wrong pool vault`],
-    [7, p.vault1, `the ${what} names the wrong pool vault`],
+    [6, p.vault0, `the ${what} names an account that is not the pool’s own`],
+    [7, p.vault1, `the ${what} names an account that is not the pool’s own`],
     [8, TOKEN_PROGRAM_ID, `the ${what} names the wrong token program`],
     [9, TOKEN_2022_PROGRAM_ID, `the ${what} names the wrong token program`],
     [10, p.token0Mint, `the ${what} names the wrong token`],
@@ -705,7 +705,7 @@ function poolTopUp(ix: TransactionInstruction, ctx: PoolIntent): IntentStep {
   if (!ix.programId.equals(program)) refuse('the top-up runs under another token program than its coin’s');
   if (!key(ix, 0).equals(associatedTokenAddress(mint, ctx.signer, program))) refuse('the top-up spends from an account that is not yours');
   const vault = side === 0 ? p.vault0 : p.vault1;
-  if (!key(ix, 2).equals(vault)) refuse('the top-up goes somewhere other than this pool’s own vault for that coin');
+  if (!key(ix, 2).equals(vault)) refuse('the top-up goes somewhere other than this pool’s own account for that coin');
   if (!key(ix, 3).equals(ctx.signer)) refuse('the top-up is signed for by someone else');
   const amount = u64(d, 1);
   if (amount === 0n) refuse('the top-up moves nothing');
@@ -761,8 +761,8 @@ function poolInitialize(ix: TransactionInstruction, ctx: PoolIntent): IntentStep
     [7, associatedTokenAddress(t0, ctx.signer, prog(t0)), 'the opening spends from an account that is not yours'],
     [8, associatedTokenAddress(t1, ctx.signer, prog(t1)), 'the opening spends from an account that is not yours'],
     [9, associatedTokenAddress(lpMint, ctx.signer, TOKEN_PROGRAM_ID), 'the pool shares go to an account that is not yours'],
-    [10, deriveVault(cp, p.address, t0), 'the opening names the wrong pool vault'],
-    [11, deriveVault(cp, p.address, t1), 'the opening names the wrong pool vault'],
+    [10, deriveVault(cp, p.address, t0), 'the opening names an account that is not the pool’s own'],
+    [11, deriveVault(cp, p.address, t1), 'the opening names an account that is not the pool’s own'],
     [12, CP_CREATE_POOL_FEE_RECEIVER, "the fee to open a pool goes somewhere other than the pool program's fee account"],
     [13, deriveObservation(cp, p.address), 'the opening names the wrong price record'],
     [14, TOKEN_PROGRAM_ID, 'the opening names the wrong token program'],
@@ -1207,7 +1207,7 @@ function restartShape(steps: readonly IntentStep[]): void {
   if (checks.length !== 1) refuse('a restart does not take exactly one check-back out of the pool');
   if (checks[0]! < deposit) refuse('it takes the check-back out before the deposit goes in');
   const ups = steps.flatMap((s, i) => (s.kind === 'pool-topup' ? [{ s, i }] : []));
-  if (new Set(ups.map((u) => u.s.vault.toBase58())).size !== ups.length) refuse('it tops up one of the pool’s vaults more than once');
+  if (new Set(ups.map((u) => u.s.vault.toBase58())).size !== ups.length) refuse('it tops up the pool’s account for one coin more than once');
   if (ups.some((u) => u.i > deposit)) refuse('it tops up the pool after the deposit');
 }
 

@@ -22,16 +22,15 @@ const BUILD_JUPITER_FEE: JupiterFee | null =
 /**
  * Rates: what a trade pays in each kind of pool, what stays in the pool for the people in
  * it, and what the venue takes. ONE card for both Pools tabs (owner, 2026-10-14: "drop the
- * duplicate fee cards ... the rates and routes getting the attention, not the word
- * jargon"). It replaces four: How you earn, How the venue earns, Fee tiers, and /pools'
- * fee sheet, which all printed the same split from the same chain read. Every sentence
- * they carried is in its Details, word for word.
- *
+ * duplicate fee cards"), in place of four that printed the same split from the same read.
+ * The table says the split; its Details say it once more, in words, and the rest.
  * Every number is the tier as the section's one read returned it; with no read, none.
  */
 export function Rates({ read, jupiterFee = BUILD_JUPITER_FEE }: { read: FeeTierRead | null; jupiterFee?: JupiterFee | null }) {
   const publicTier = read?.kind === 'ok' ? read.tiers.find((t) => t.index === PUBLIC_TIER_INDEX && t.state === 'live')?.config ?? null : null;
   const venue = howVenueEarns(publicTier, jupiterFee);
+  // The launch pools' cut, as the table's row has it: "The venue earns:" lists every way it does.
+  const launchTier = read?.kind === 'ok' ? read.tiers.find((t) => t.index === 0 && t.state === 'live')?.config ?? null : null;
   const explorer = explorerOf(useLpWrites());
   // The public tier first: every pool opened from this site is on it.
   const tiers = read?.kind === 'ok' ? [...read.tiers].sort((a, b) => rank(a.index) - rank(b.index)) : [];
@@ -92,7 +91,19 @@ export function Rates({ read, jupiterFee = BUILD_JUPITER_FEE }: { read: FeeTierR
         )}
         <FinePrint summary="Details">
           <p>Read from the chain when this page loads.</p>
-          {publicTier && <p>{earnSentence(publicTier)}</p>}
+          {/* The split is the table's: here it is said once, the pool's part and then the venue's. */}
+          {howYouEarn(publicTier).map((line) => (
+            <p key={line}>{line}</p>
+          ))}
+          <p>The venue earns:</p>
+          <ul className="list-disc pl-4 space-y-1" data-testid="lp-venue-sources">
+            {venue.sources.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+            {launchTier && <li>{`${pctText(feeSplit(launchTier).venueTakesPct)} of each trade in a launch pool.`}</li>}
+          </ul>
+          {!venue.elsewhere && venue.where && <p>{venue.where}</p>}
+          {!venue.elsewhere && wallets}
           {/* True of the pool program since its keeper-fee upgrade (states/config.rs swap_fee_rates);
               proposal #34 names the price robot keeper of both tiers. poolProgramCopy.test.ts ties it to the pin. */}
           <p data-testid="lp-keeper-fee">
@@ -100,16 +111,6 @@ export function Rates({ read, jupiterFee = BUILD_JUPITER_FEE }: { read: FeeTierR
             <span className="font-mono [overflow-wrap:anywhere]">9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz</span>), pays no trade fee and no creator fee
             on its own swaps, so those swaps pay nothing to LPs, the venue or the island. Everyone else pays as before.
           </p>
-          {howYouEarn(publicTier).map((line) => (
-            <p key={line}>{line}</p>
-          ))}
-          <ul className="list-disc pl-4 space-y-1" data-testid="lp-venue-sources">
-            {venue.sources.map((line) => (
-              <li key={line}>{line}</li>
-            ))}
-          </ul>
-          {!venue.elsewhere && venue.where && <p>{venue.where}</p>}
-          {!venue.elsewhere && wallets}
           {read?.kind === 'ok' &&
             tiers.map((t) =>
               t.state === 'live' && t.config ? (
@@ -117,11 +118,6 @@ export function Rates({ read, jupiterFee = BUILD_JUPITER_FEE }: { read: FeeTierR
                   <Row
                     label={`Tier ${t.index}${t.index === 0 ? ' (graduated launches)' : t.index === PUBLIC_TIER_INDEX ? ' (public pools)' : ''}`}
                     value={tierCostText(t.config)}
-                    mono={false}
-                  />
-                  <Row
-                    label="Split"
-                    value={`LPs ${feeSplit(t.config).lpKeepsPct.toFixed(3)}%, venue ${feeSplit(t.config).venueTakesPct.toFixed(3)}% of each trade`}
                     mono={false}
                   />
                   {t.config.creatorFeeRate > 0n && (
@@ -223,12 +219,6 @@ function openLine(config: AmmConfigView, deposits: bigint | null): string {
   const fee = config.createPoolFee > 0n ? solText(config.createPoolFee) : 'no fee';
   const setup = deposits === null ? 'setup (not read)' : `${solText(deposits, true)} setup`;
   return `Open a pool: ${fee} + ${setup} + the share's name record, not refunded.`;
-}
-
-/** The split as a sentence, in the small print. */
-function earnSentence(tier: AmmConfigView): string {
-  const split = feeSplit(tier);
-  return `In a public pool, each trade pays ${feeRateText(tier.tradeFeeRate)}: ${pctText(split.lpKeepsPct)} stays with LPs, ${pctText(split.venueTakesPct)} goes to the venue.`;
 }
 
 /**

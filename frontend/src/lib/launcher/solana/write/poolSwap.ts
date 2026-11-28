@@ -76,7 +76,7 @@ export async function preparePoolSwap(
     return notSent('build', 'Could not read the network clock to check the pool is open.');
   }
   const quote = quoteOwnPool(pool.snapshot, pool.ammConfig, inputMint.toBase58(), a.amountIn, nowSecs ?? 0);
-  if (!quote) return notSent('build', 'The pool cannot price this trade right now.');
+  if (!quote) return notSent('build', 'This pool gives no price for this trade right now.');
   const minimumAmountOut = applySlippage(quote.outAmount, a.slippageBps);
   if (minimumAmountOut === null || minimumAmountOut <= 0n) {
     return notSent('build', 'That amount is too small to protect with a price limit.');

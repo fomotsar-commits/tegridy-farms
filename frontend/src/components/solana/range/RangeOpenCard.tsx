@@ -103,7 +103,7 @@ export function RangeOpenCard(p: {
         </Notice>
       )}
       {gap?.state === 'no-market' && (
-        <Notice tone="warn">Jupiter has no route for this pair, so this pool’s price cannot be checked against a market price. Anyone can open a range pool at any price.</Notice>
+        <Notice tone="warn">Jupiter has no route for this pair, so there is no market price to check this pool’s price against. Anyone can open a range pool at any price.</Notice>
       )}
       <RangePickFields
         pair={pair}

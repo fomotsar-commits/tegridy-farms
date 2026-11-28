@@ -1458,7 +1458,7 @@ describe('built again at the press: what shuts the wallet and what only moved', 
     expect(api.submitPrepared).not.toHaveBeenCalled();
     expect(state).toMatchObject({ step: 'review', prepared: fresh, replaced: { n: 1 } });
     const now = state.step === 'review' ? (state.replaced?.now ?? []) : [];
-    expect(now.some((l) => /holds less than the position is owed, so it pays 50/.test(l))).toBe(true);
+    expect(now.some((l) => /holds less of this reward than the position is owed, so it pays 50/.test(l))).toBe(true);
   });
 
   // Only the price gap differs here, over the same bytes: what the gap check alone decides.
@@ -2040,7 +2040,7 @@ describe('opening a pool: the review', () => {
       `0.15 SOL, paid to the team's vault (into ${KEY(8).toBase58()}, the account the pool program fixes); not refundable`,
     );
     expect(value('Account deposits that never come back')).toBe(
-      '0.04 SOL (the pool, its price record, its share token and its two vaults; none can be closed)',
+      '0.04 SOL (the pool, its price record, its share token and the two accounts that hold its coins; none can be closed)',
     );
     // How the money moves: Metaplex's fee and the record's own deposit, both the opener's, none to the team.
     expect(value('Name record of the pool share')).toBe(

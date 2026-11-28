@@ -103,7 +103,7 @@ const NO_MARKET_DEPOSIT =
 const COPY_DEPOSIT =
   'It calls itself by a well-known token’s name but has a different mint, so it is not that token. If the copy turns out to be worth nothing, so is your share of this pool.';
 const FREEZE_DEPOSIT =
-  'Its creator can freeze the vault of this pool, and while it is frozen nobody can take liquidity out, you included. They can also freeze your own account for the token.';
+  'Its creator can freeze it inside this pool, and while it is frozen nobody can take liquidity out, you included. They can also freeze your own account for the token.';
 const AMOUNTS =
   'The amount a wallet displays for this token changes over time. This site shows and moves raw token units, so check the amounts against your wallet before you sign.';
 
@@ -617,12 +617,12 @@ describe('prepareLpDeposit', () => {
     expect(s.priceGap).toBeNull();
     const own = s.tokenWarnings.find((x) => x.code === 'freeze-authority')!;
     expect(own.text).toContain(STRANGER.toBase58());
-    expect(own.text).toMatch(/While a pool’s vault is frozen, nobody can take liquidity out of that pool\./);
+    expect(own.text).toMatch(/While a pool’s account for it is frozen, nobody can take liquidity out of that pool\./);
   });
 
   it('a freezable token whose pool vault IS frozen right now is still refused: the warning lifts nothing about the pool', async () => {
     const msg = refused(await deposit(world({ freezeAuthority: STRANGER, frozenTokenVault: true })));
-    expect(msg).toMatch(/^We did not build this deposit: One of this pool’s vaults is frozen by the token’s issuer/);
+    expect(msg).toMatch(/^We did not build this deposit: This pool’s own account for one of its coins is frozen by the token’s issuer/);
   });
 
   it('a copy of a well-known name builds, and the copy warning is on the summary', async () => {
@@ -1212,11 +1212,11 @@ describe('prepareLpWithdraw: what may refuse it', () => {
     expect(refused(await withdraw(holding({ status: POOL_STATUS_DISABLE_WITHDRAW })))).toBe(LP_COPY.withdrawBit);
     // A SOL pool has one vault anyone can freeze, the token's: the words are as they were.
     expect(refused(await withdraw(holding({ frozenTokenVault: true })))).toBe(
-      "The token's issuer has frozen one of this pool's vaults, so nothing can move in or out, for anyone. That is the issuer's doing, not the pool program's.",
+      "The token's issuer has frozen this pool's own account for one of its coins, so nothing can move in or out, for anyone. That is the issuer's doing, not the pool program's.",
     );
     // On a pool paired with a coin whose issuer can freeze, the frozen vault may be the coin's.
     expect(LP_COPY.vaultFrozen("The token's issuer, or USDC's,")).toBe(
-      "The token's issuer, or USDC's, has frozen one of this pool's vaults, so nothing can move in or out, for anyone. That is the issuer's doing, not the pool program's.",
+      "The token's issuer, or USDC's, has frozen this pool's own account for one of its coins, so nothing can move in or out, for anyone. That is the issuer's doing, not the pool program's.",
     );
   });
 

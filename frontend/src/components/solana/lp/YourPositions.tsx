@@ -85,7 +85,7 @@ function usePositions(readers: LpReaders, owner: PublicKey | null, nonce: number
 const VERDICT_WORD = { blocked: 'this site does not open or add to pools for it', warn: 'allowed, with warnings', ok: 'no problems found' } as const;
 const withdrawalsWord = (view: PoolView): string => {
   const state = withdrawalsState(view);
-  return state === 'open' ? 'open' : state === 'switched-off' ? 'switched off' : `blocked: a pool vault is frozen by ${vaultFreezer(view.quote)}`;
+  return state === 'open' ? 'open' : state === 'switched-off' ? 'switched off' : `blocked: the pool’s own account for a coin is frozen by ${vaultFreezer(view.quote)}`;
 };
 
 /**
@@ -1014,7 +1014,7 @@ function RemoveBlock({
       const who = view ? vaultFreezer(view.quote).replace(/’/g, "'") : 'an issuer';
       line = (
         <Notice tone="warn">
-          {who.charAt(0).toUpperCase() + who.slice(1)} has frozen one of this pool&apos;s vaults, so nothing can move in or out, for anyone. That is the
+          {who.charAt(0).toUpperCase() + who.slice(1)} has frozen this pool&apos;s own account for one of its coins, so nothing can move in or out, for anyone. That is the
           issuer&apos;s doing, not the pool program&apos;s. Your pool shares stay in your wallet.
         </Notice>
       );

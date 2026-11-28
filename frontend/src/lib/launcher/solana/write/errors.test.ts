@@ -140,7 +140,7 @@ describe('liquidity failures, in the words of what the person was doing', () => 
   // on a USDC pool it may be USDC's issuer that froze it. The words cover both sides.
   it('a frozen account (either token program, 17) and a reassigned account (associated-token program, 0), for both kinds', () => {
     const frozen =
-      "The issuer of the token, or of what it is paired with, has frozen an account this needs (one of the pool's vaults, or your own account for either), so nothing can move. That is the issuer's doing, not the pool program's.";
+      "The issuer of the token, or of what it is paired with, has frozen an account this needs (the pool's own account for either coin, or yours), so nothing can move. That is the issuer's doing, not the pool program's.";
     const reassigned = 'One of your token accounts now belongs to another wallet, so this was stopped before anything moved.';
     for (const kind of ['lp-deposit', 'lp-withdraw'] as const) {
       expect(say('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', 17, kind)).toBe(frozen);

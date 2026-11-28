@@ -166,7 +166,7 @@ function PositionRow(p: {
       <Row label="Position" value={id} />
       {w.nftProgram === 'token' ? (
         <Notice>
-          This position’s NFT is a classic SPL token, and this site takes out only positions whose NFT is a Token-2022 one, so it cannot collect from, remove or close this one yet. It is still yours: the range program takes it out for whoever holds the NFT.
+          This position’s NFT is a classic SPL token, and this site takes out only positions whose NFT is a Token-2022 one, so it does not collect from, remove or close this one yet. It is still yours: the range program takes it out for whoever holds the NFT.
         </Notice>
       ) : p.action ? (
         <ActionPanel

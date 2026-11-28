@@ -194,7 +194,7 @@ describe('the LP section', () => {
       ['unchecked', 'open'],
       ['refused', 'vault-frozen'],
     ]);
-    expect(within(cards[2]!).getAllByText(/vaults is frozen by the token’s issuer/).length).toBeGreaterThan(0);
+    expect(within(cards[2]!).getAllByText(/own account for one of its coins is frozen by the token’s issuer/).length).toBeGreaterThan(0);
     for (const c of cards) expect(within(c).queryByText('Deposits: the checks pass')).not.toBeInTheDocument();
   });
 
@@ -275,10 +275,11 @@ describe('what a trade costs, on the tiers mainnet holds (recorded)', () => {
     // The sentences, one press away, in the same order.
     const [t1, t0] = screen.getAllByTestId('fee-tier-detail') as [HTMLElement, HTMLElement];
     expect(rowValue(t0, 'Tier 0 (graduated launches)')).toBe('0.3% a trade in launch pools (0.25% trade fee, 0.05% creator fee); 0.25% in a pool anyone opens');
-    expect(rowValue(t0, 'Split')).toBe('LPs 0.200%, venue 0.050% of each trade');
+    // The split is the table's, said there once: no row repeats it.
+    expect(within(t0).queryByText('Split', { exact: true })).toBeNull();
     expect(rowValue(t0, 'Creator fee')).toBe("0.05% a trade on top of the trade fee, in launch pools only; it goes to the token's creator, not to LPs");
     expect(rowValue(t1, 'Tier 1 (public pools)')).toBe('1% a trade');
-    expect(rowValue(t1, 'Split')).toBe('LPs 0.840%, venue 0.160% of each trade');
+    expect(within(t1).queryByText('Split', { exact: true })).toBeNull();
     expect(t1).not.toHaveTextContent(/creator/i);
   });
 
@@ -607,17 +608,22 @@ describe('the rates: what a trade pays, what stays in the pool, what the venue t
     );
     expect(detail(0)).not.toHaveTextContent(/name record/);
     // What How you earn and How the venue earns said, word for word, one press away.
-    const sentence = within(rates).getByText('In a public pool, each trade pays 1%: 0.84% stays with LPs, 0.16% goes to the venue.');
-    expect(sentence.closest('details')).not.toBeNull();
     expect(rates).toHaveTextContent('Each trade in a public pool pays a 1% fee. 0.84% of the trade stays in the pool, and your part is added to your position automatically.');
     expect(rates).toHaveTextContent('You receive it when you remove liquidity.');
     expect(rates).toHaveTextContent('Few trades means small fees.');
     const sources = within(rates).getByTestId('lp-venue-sources');
     expect(within(sources).getAllByRole('listitem').slice(0, 2).map((li) => li.textContent)).toEqual(['0.16% of each trade in a public pool.', '0.15 SOL when a public pool is opened.']);
     expect(within(sources).getAllByRole('listitem')[2]).toHaveTextContent(/a swap sent through Jupiter/);
+    // Under "The venue earns:" every way it does, the launch pools' cut in the table included.
+    expect(within(sources).getAllByRole('listitem')[3]).toHaveTextContent(/^0\.05% of each trade in a launch pool\.$/);
     expect(rates).toHaveTextContent(
-      'Of each trade’s fee, 10.4% (0.104% of the trade) goes to the team’s vault, which can change fee rates if both keys approve, and 5.6% (0.056% of the trade) to the island’s Workshop, the island’s agreed share.',
+      'Of the fee on each public-pool trade, 10.4% (0.104% of the trade) goes to the team’s vault, which can change fee rates if both keys approve, and 5.6% (0.056% of the trade) to the island’s Workshop, the island’s agreed share.',
     );
+    // The venue's ways of earning, introduced as such; the split said once in the small print.
+    expect(sources.previousElementSibling).toHaveTextContent(/^The venue earns:$/);
+    const details = sources.closest('details')!;
+    expect(details.textContent!.match(/0\.84/g)).toHaveLength(1);
+    expect(details.textContent!.match(/0\.16/g)).toHaveLength(1);
     // The cut follows the agreed split, so both wallets are one press away: short, the whole address a press further.
     expect(within(rates).queryByTestId('lp-venue-elsewhere')).toBeNull();
     expect(within(rates).getByRole('group', { name: 'Island’s Workshop' }).closest('details')).not.toBeNull();

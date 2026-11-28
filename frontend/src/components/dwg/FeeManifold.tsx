@@ -16,7 +16,11 @@ export function FeeManifold({ tier }: { tier: TierRates | null }) {
   if (!widths) return null;
   const s = manifoldShape(widths);
   const [x0, cy, xs] = s.inPipe;
-  const at = ([x, y]: readonly [number, number]) => ({ left: `${x * 100}%`, top: `${y * 100}%` });
+  // A caption ends at its point (above it) or starts there (below it), as manifoldShape lays it.
+  const at = ([x, y, side]: readonly [number, number, 'above' | 'below']) => ({
+    style: { left: `${x * 100}%`, top: `${y * 100}%` },
+    'data-below': side === 'below' ? '' : undefined,
+  });
   return (
     <div ref={ref} className="p01-manifold" aria-hidden="true" data-dwg-paused={paused ? '' : undefined}>
       <svg className="dwg-fig" viewBox={`0 0 ${MANIFOLD_BOX.w} ${MANIFOLD_BOX.h}`} focusable="false">
@@ -27,9 +31,9 @@ export function FeeManifold({ tier }: { tier: TierRates | null }) {
         {s.pool && <path className="p01-flow dwg-ripple" d={s.pool} />}
         <rect className="p01-valve" x={s.valve.x} y={s.valve.y} width={s.valve.w} height={s.valve.h} />
       </svg>
-      <span className="p01-mcap" data-t="A TRADE’S FEE" style={at(s.captions.fee)} />
-      {s.pool && <span className="p01-mcap" data-end="" data-t="TO THE POOL" style={at(s.captions.pool)} />}
-      {s.venue && <span className="p01-mcap" data-end="" data-t="TO THE VENUE" style={at(s.captions.venue)} />}
+      <span className="p01-mcap" data-t="A TRADE’S FEE" {...at(s.captions.fee)} />
+      {s.pool && <span className="p01-mcap" data-end="" data-t="TO THE POOL" {...at(s.captions.pool)} />}
+      {s.venue && <span className="p01-mcap" data-end="" data-t="TO THE VENUE" {...at(s.captions.venue)} />}
     </div>
   );
 }

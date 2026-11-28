@@ -85,7 +85,7 @@ const okToken: TokenSafety = {
 // What the token check says of a token that can be frozen and that copies a name: its own
 // sentences, with the codes the deposit check reads (poolHealth.ts `tokenReasons`).
 const FREEZE_TOKEN_LINE =
-  'Its creator can freeze any account that holds it (freeze authority 9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin), a pool’s own vault and your own account included. While a pool’s vault is frozen, nobody can take liquidity out of that pool.';
+  'Its creator can freeze any account that holds it (freeze authority 9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin), a pool’s own and yours included. While a pool’s account for it is frozen, nobody can take liquidity out of that pool.';
 const COPY_TOKEN_LINE = 'It calls itself USDC, but it is NOT the real USDC (whose mint is EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v). It is a different token that copied the name.';
 const freezableCopy: TokenSafety = {
   ...okToken,
@@ -507,7 +507,7 @@ describe('a USDC pool 10% off the market whose token is a freezable copy', () =>
     expect(health.deposits.warnings).toHaveLength(3);
     const [copy, freeze, gap] = health.deposits.warnings as [string, string, string];
     expect(copy).toMatch(/well-known token’s name but has a different mint/);
-    expect(freeze).toMatch(/freeze the vault of this pool/);
+    expect(freeze).toMatch(/freeze it inside this pool/);
     expect(gap).toBe(PRICE_10_ABOVE);
     const cost = LP_COPY.priceGapLoss('0.214427 USDC', 'the outside price');
     const summary = lpDepositSummary(new PublicKey(v.address), MINT, {
@@ -572,7 +572,7 @@ describe('a USDC pool 10% off the market whose token is a freezable copy', () =>
     expect(within(deposits).getByText('Deposits: refused here')).toHaveClass('text-rose-300/90');
     expect(deposits).not.toHaveTextContent('with warnings');
     // The reason that refuses it is said as a refusal, and the warnings as warnings, set apart.
-    expect(within(deposits).getByText('One of this pool’s vaults is frozen by the token’s issuer or USDC’s, so nothing can move in or out of it.')).toHaveClass('text-rose-300/90');
+    expect(within(deposits).getByText('This pool’s own account for one of its coins is frozen by the token’s issuer or USDC’s, so nothing can move in or out of the pool.')).toHaveClass('text-rose-300/90');
     const warnings = within(c).getByTestId('lp-pool-warnings');
     expect(warnings).toHaveTextContent('Warnings about this pool, apart from that:');
     expect(Array.from(warnings.querySelectorAll('p')).slice(1).map((p) => p.textContent)).toEqual(healthOf(v, o).deposits.warnings);
@@ -966,11 +966,11 @@ describe('a frozen vault: who can have frozen it', () => {
     expect(c).toHaveAttribute('data-deposits', 'refused');
     expect(c).toHaveAttribute('data-withdrawals', 'vault-frozen');
     // Each is the whole sentence: nothing after "issuer" on a pool whose coin nobody can freeze.
-    expect(within(within(c).getByTestId('lp-pool-deposits')).getByText(`One of this pool’s vaults is frozen by ${who}, so nothing can move in or out of it.`)).toHaveClass('text-rose-300/90');
-    expect(cardRow(c, 'Withdrawals')).toBe(`Blocked: one of the pool’s vaults is frozen by ${who}`);
+    expect(within(within(c).getByTestId('lp-pool-deposits')).getByText(`This pool’s own account for one of its coins is frozen by ${who}, so nothing can move in or out of the pool.`)).toHaveClass('text-rose-300/90');
+    expect(cardRow(c, 'Withdrawals')).toBe(`Blocked: the pool’s own account for a coin is frozen by ${who}`);
     const row = await screen.findByTestId('lp-position');
     await waitFor(() => expect(row).toHaveAttribute('data-remove', 'vault-frozen'));
-    expect(within(row).getByText('Withdrawals').nextElementSibling?.textContent).toBe(`blocked: a pool vault is frozen by ${who}`);
+    expect(within(row).getByText('Withdrawals').nextElementSibling?.textContent).toBe(`blocked: the pool’s own account for a coin is frozen by ${who}`);
     // The coin is named as a possible freezer on the USDC pool only.
     for (const el of [c, row]) expect(/issuer or (SOL|USDC|BAYLA)’s/.test(el.textContent ?? '')).toBe(coin === USDC_QUOTE);
     // The notice right under that row says the same thing as the row. It was a fixed
@@ -978,8 +978,8 @@ describe('a frozen vault: who can have frozen it', () => {
     // contradicted the row one line above it (whole-change review, 2026-10-04). On a SOL
     // or a BAYLA pool it reads, to the letter, as it always did.
     const freezer = coin === USDC_QUOTE ? "The token's issuer or USDC's" : "The token's issuer";
-    expect(within(row).getByText(/has frozen one of this pool/).textContent).toBe(
-      `${freezer} has frozen one of this pool's vaults, so nothing can move in or out, for anyone. That is the issuer's doing, not the pool program's. Your pool shares stay in your wallet.`,
+    expect(within(row).getByText(/has frozen this pool/).textContent).toBe(
+      `${freezer} has frozen this pool's own account for one of its coins, so nothing can move in or out, for anyone. That is the issuer's doing, not the pool program's. Your pool shares stay in your wallet.`,
     );
   }, 20_000);
 });

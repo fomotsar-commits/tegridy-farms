@@ -174,6 +174,8 @@ describe('reading range pools for a swap', () => {
     for (const o of [{ transferFee: true }, { frozenVault: 0 as const }, { frozenVault: 1 as const }]) {
       const read = await readRangeRoutePools(chain(o).rpc, WSOL_MINT, BAYLA_MINT, { programId: PROG, visible: true });
       expect(quoteRangePools(read, WSOL_MINT, 1_000_000n), JSON.stringify(o)).toEqual({ state: 'unquotable', candidates: [] });
+      // Its reason names the pool's own account, as every pool and range string does (never "vault").
+      if ('frozenVault' in o && read.kind === 'ok') expect(read.pools[0]!.blocked).toBe('the pool’s own account for a coin is frozen');
     }
     // The mints and vaults are read with the clock, in one call.
     const c = chain();

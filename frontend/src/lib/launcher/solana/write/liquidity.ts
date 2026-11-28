@@ -130,7 +130,7 @@ export const LP_COPY = {
     "Withdrawals are switched off on this pool by the pool program's admin (the team's vault). Only the vault can switch them back on. Your pool shares stay in your wallet.",
   // `who`: on a pool paired with a coin whose issuer can freeze (USDC), the frozen vault may be the coin's.
   vaultFrozen: (who = "The token's issuer") =>
-    `${who} has frozen one of this pool's vaults, so nothing can move in or out, for anyone. That is the issuer's doing, not the pool program's.`,
+    `${who} has frozen this pool's own account for one of its coins, so nothing can move in or out, for anyone. That is the issuer's doing, not the pool program's.`,
   cannotBuild: (why: string) =>
     `This site cannot build a withdrawal for this token yet (${why}). The pool program still lets you withdraw with any other tool that can build its withdrawals. Your pool shares stay in your wallet.`,
   shareChanged: 'Your pool-share account now holds fewer shares than this would take out, or is no longer yours. Read your positions again.',
@@ -263,8 +263,8 @@ function poolProblem(cp: PublicKey, address: PublicKey, pool: PoolStateView, tok
     return LP_COPY.poolChanged('its token sits under a program this site does not know');
   }
   const derived: Array<[string, PublicKey, string]> = [
-    [pool.token0Vault, deriveVault(cp, address, new PublicKey(pool.token0Mint)), 'a pool vault'],
-    [pool.token1Vault, deriveVault(cp, address, new PublicKey(pool.token1Mint)), 'a pool vault'],
+    [pool.token0Vault, deriveVault(cp, address, new PublicKey(pool.token0Mint)), 'its own account for one of its coins'],
+    [pool.token1Vault, deriveVault(cp, address, new PublicKey(pool.token1Mint)), 'its own account for one of its coins'],
     [pool.lpMint, deriveLpMint(cp, address), 'its pool-share token'],
     [pool.observationKey, deriveObservation(cp, address), 'its price record'],
   ];

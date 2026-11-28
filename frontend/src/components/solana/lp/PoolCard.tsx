@@ -77,7 +77,7 @@ const withdrawalsText = (state: WithdrawalsState, quote: QuoteCoin): string =>
     ? 'Open'
     : state === 'switched-off'
       ? 'Switched off by the pool program’s admin'
-      : `Blocked: one of the pool’s vaults is frozen by ${vaultFreezer(quote)}`;
+      : `Blocked: the pool’s own account for a coin is frozen by ${vaultFreezer(quote)}`;
 
 function swapsText(h: PoolHealth): { text: string; tone: 'good' | 'warn' | 'bad' } {
   switch (h.swaps.state) {

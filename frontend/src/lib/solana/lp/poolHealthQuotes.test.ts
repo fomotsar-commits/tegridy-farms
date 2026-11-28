@@ -284,6 +284,6 @@ describe('a frozen vault: who can have frozen it', () => {
     const h = assessPool({ ...base, view: v, outside: NO_ROUTE });
     expect(h.withdrawals).toBe('vault-frozen');
     expect(h.deposits.verdict).toBe('refused');
-    expect(h.deposits.reasons).toEqual([`One of this pool’s vaults is frozen by ${who}, so nothing can move in or out of it.`]);
+    expect(h.deposits.reasons).toEqual([`This pool’s own account for one of its coins is frozen by ${who}, so nothing can move in or out of the pool.`]);
   });
 });

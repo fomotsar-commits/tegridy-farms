@@ -35,7 +35,7 @@ export const VENUE_SWAP_COPY = {
     `This token uses ${what}, so this site cannot work out exactly what a swap in this pool pays. Nothing was built.`,
   feesUnread: 'This pool’s fee settings could not be read, so the swap could not be priced. Nothing was built.',
   noClock: 'Could not read the network clock to check the pool is open.',
-  cannotPrice: 'The pool cannot price this trade right now.',
+  cannotPrice: 'This pool gives no price for this trade right now.',
   tooSmall: 'That amount is too small to protect with a price limit.',
   routeMoved: OWN_ROUTE_COPY.routeMoved,
   underLastQuote: OWN_ROUTE_COPY.underLastQuote,

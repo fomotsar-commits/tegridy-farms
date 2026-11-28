@@ -349,7 +349,7 @@ export function launchReference(check: PriceCheck | null | undefined): number | 
  * an absent token and a blocked one are refused.
  *
  * `warned` is what the person must be told before they put money beside this token, and
- * may still go on: it copies a well-known name, its creator can freeze the pool's vault,
+ * may still go on: it copies a well-known name, its creator can freeze it inside the pool,
  * or a wallet displays a changing amount for it. Only the token warnings that change what
  * a deposit or an opening risks are repeated here; the rest stay on the token itself.
  * `action` names the pool in those sentences: the one being added to, or the one opened.
@@ -375,7 +375,7 @@ export function tokenReasons(safety: TokenSafety | null, action: 'deposits' | 'p
     // USDC and USDT as the TOKEN are freezable like any other: the same line, said of their issuer.
     if (has('freeze-authority') || has('freeze-authority-accepted')) {
       warned.push(
-        `Its ${has('freeze-authority') ? 'creator' : 'issuer'} can freeze the vault of ${pool}, and while it is frozen nobody can take liquidity out, you included. They can also freeze your own account for the token.`,
+        `Its ${has('freeze-authority') ? 'creator' : 'issuer'} can freeze it inside ${pool}, and while it is frozen nobody can take liquidity out, you included. They can also freeze your own account for the token.`,
       );
     }
     if (has('interest-bearing') || has('scaled-amount')) {
@@ -438,7 +438,7 @@ export function assessPool(input: {
   // it by name (opening.ts); so does a deposit into a pool someone opened with another
   // tool, whatever its price check says (review, 2026-10-04).
   if (view.tokenMint === TOKEN_2022_NATIVE_MINT) refused.push('This is SOL under the newer token program. This site does not add to a pool for it.');
-  if (view.vaultsFrozen) refused.push(`One of this pool’s vaults is frozen by ${vaultFreezer(view.quote)}, so nothing can move in or out of it.`);
+  if (view.vaultsFrozen) refused.push(`This pool’s own account for one of its coins is frozen by ${vaultFreezer(view.quote)}, so nothing can move in or out of the pool.`);
   if (view.launchTierWithoutLaunch) refused.push(LAUNCH_TIER_POOL);
   if (swaps.state === 'not-open-yet') {
     refused.push(

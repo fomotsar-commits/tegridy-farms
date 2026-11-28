@@ -105,7 +105,7 @@ const NO_MARKET_OPENING =
 const COPY_OPENING =
   'It calls itself by a well-known token’s name but has a different mint, so it is not that token. If the copy turns out to be worth nothing, so is your share of the pool you open.';
 const FREEZE_OPENING =
-  'Its creator can freeze the vault of the pool you open, and while it is frozen nobody can take liquidity out, you included. They can also freeze your own account for the token.';
+  'Its creator can freeze it inside the pool you open, and while it is frozen nobody can take liquidity out, you included. They can also freeze your own account for the token.';
 const AMOUNTS =
   'The amount a wallet displays for this token changes over time. This site shows and moves raw token units, so check the amounts against your wallet before you sign.';
 
@@ -499,7 +499,7 @@ describe('prepareLpCreate: what refuses it, each in its own words', () => {
     expect(s.priceGap).toBeNull();
     const own = s.tokenWarnings.find((x) => x.code === 'freeze-authority')!;
     expect(own.text).toContain(STRANGER.toBase58());
-    expect(own.text).toMatch(/a pool’s own vault and your own account included/);
+    expect(own.text).toMatch(/a pool’s own and yours included/);
   });
 
   it('a copy of a well-known name opens a pool, and the copy warning is on the summary', async () => {
