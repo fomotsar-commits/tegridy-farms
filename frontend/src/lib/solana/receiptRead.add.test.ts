@@ -22,6 +22,7 @@ const ADDS = [
     logs: solAdd.tx.meta.logMessages,
     ask: { pool: 'ErvzV1NMZmcfAqZtGH4AQhYAjn77nJEworKK1mYPz5w4', quote: SOL, token: BAYLA, quoteIsToken0: true },
     title: 'Added 0.514851486 SOL + 108,697 BAYLA',
+    deposit: { quote: 514_851_486n, quoteDecimals: 9, token: 108_697_908_234n, tokenDecimals: 6 },
     under: 'to the SOL + BAYLA pool',
   },
   {
@@ -31,6 +32,7 @@ const ADDS = [
     logs: ['Program data: eaPNyTnadTz9HzpLvGLckblBbVMHCtvXzSKJrnp+e7uSd+OTAcSUelpJ8QQGAAAAGP/zMeQAAACbRcMoAAAAAFGGnIgRAAAAaM4hAwAAAAAAAAAAAAAAAAAAAAAAAAAAAA=='],
     ask: { pool: 'J35mQ6UF9PpB6bQMes2TRVUMbJVPwMYjcfapbkdm8mYm', quote: USDC, token: BAYLA, quoteIsToken0: false },
     title: 'Added 52.5471 USDC + 75,306 BAYLA',
+    deposit: { quote: 52_547_176n, quoteDecimals: 6, token: 75_306_403_409n, tokenDecimals: 6 },
     under: 'to the USDC + BAYLA pool',
   },
   {
@@ -39,16 +41,18 @@ const ADDS = [
     logs: ['Program data: eaPNyTnadTxLUMNVksBsVXaH4vmu1LjmyEORj9wtxZMmqhqETVCPmifaVwgBAAAAtYscaAEAAACsJQvCAAAAAJGiWGIAAAAAiED+NAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=='],
     ask: { pool: '6511GLnToAGtwVREnLXVJ5rgat4cm2Uvgvyoj5oaLoLD', quote: BAYLA, token: TBB, quoteIsToken0: false },
     title: 'Added 889.0778 BAYLA + 1,649 TBB',
+    deposit: { quote: 889_077_896n, quoteDecimals: 6, token: 1_649_975_953n, tokenDecimals: 6 },
     under: 'to the BAYLA + TBB pool',
   },
 ];
 
 describe('an add’s card, read from its transaction', () => {
-  it.each(ADDS)('$name: the title and the line under it name the pool’s own pairing coin', async ({ signature, logs, ask, title, under }) => {
+  // What went in, as base units, is kept too: the add's GIF says it (lib/momentAmounts.ts).
+  it.each(ADDS)('$name: the title and the line under it name the pool’s own pairing coin', async ({ signature, logs, ask, title, under, deposit }) => {
     const rpc = { getTransaction: vi.fn(async () => ({ meta: { err: null, fee: 5000, logMessages: logs } })) } as unknown as Parameters<typeof settleAddReceipt>[0];
     vi.mocked(settleReceipt).mockClear();
     await settleAddReceipt(rpc, signature, { ...ask, leg: null });
     expect(settleReceipt).toHaveBeenCalledOnce();
-    expect(vi.mocked(settleReceipt).mock.calls[0]).toEqual([signature, { title, under, fee: { kind: 'add', network: '0.000005 SOL' } }]);
+    expect(vi.mocked(settleReceipt).mock.calls[0]).toEqual([signature, { title, under, fee: { kind: 'add', network: '0.000005 SOL' }, deposit }]);
   });
 });

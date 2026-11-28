@@ -60,6 +60,11 @@ export interface Receipt {
    * thirty-two). Null until read, when the read fails, and for a swap.
    */
   lps: number | null;
+  /**
+   * On an add: what went into the pool, as read from its transaction (the deposit event), in each coin's base units.
+   * Absent until read, and when it could not be read. The add's GIF says it (lib/momentAmounts.ts).
+   */
+  deposit?: { quote: bigint; quoteDecimals: number; token: bigint; tokenDecimals: number };
 }
 
 let current: Receipt | null = null;
@@ -86,7 +91,7 @@ export function raiseReceipt(r: Receipt): void {
 }
 
 /** What the transaction was read to have done, for the receipt it belongs to (a later receipt is not touched). */
-export function settleReceipt(signature: string, patch: Partial<Pick<Receipt, 'title' | 'under' | 'fee' | 'lps'>>): void {
+export function settleReceipt(signature: string, patch: Partial<Pick<Receipt, 'title' | 'under' | 'fee' | 'lps' | 'deposit'>>): void {
   if (!current || current.signature !== signature) return;
   current = { ...current, ...patch };
   emit();

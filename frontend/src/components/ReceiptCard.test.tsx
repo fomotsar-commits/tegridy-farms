@@ -7,6 +7,11 @@ import { clearScreenMoves, useCurrentScreenMove } from '../lib/screenMove';
 import { clearLanded, lastLanded } from '../lib/landed';
 import type { HeatReading } from '../lib/heat/heatOracle';
 import { startShoreMoment } from '../lib/shoreMoment';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { readGif } from '../lib/gifBand';
+import { fakeCanvas } from '../test/fakeCanvas';
+import { AMOUNTS_WAIT_MS } from '../hooks/useMomentShare';
 
 const confetti = vi.hoisted(() => ({ fire: vi.fn() }));
 // The venue's confetti, as the provider gives it. The card never calls it (island answer
@@ -396,6 +401,107 @@ describe('the moment travels', () => {
     expect(fetchClip).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('link', { name: 'Share on X' }));
     expect(screen.queryByTestId('receipt-moment-note')).toBeNull();
+  });
+
+  // The owner's word, 11-28: the add's GIF says how much of each coin went in, read from the add's own transaction.
+  // No wallet on it. The island's GIF is a Pillow-made one here (lib/__fixtures__/gifBand), 72 x 100.
+  describe('an add’s GIF says what went in', () => {
+    const ISLAND = new Uint8Array(readFileSync(join(process.cwd(), 'src/lib/__fixtures__/gifBand/pillow-noise.gif')));
+    const island = () => new Response(ISLAND.slice(), { status: 200, headers: { 'content-type': 'image/gif' } });
+    // Just landed: the fee and what went in are still being read.
+    const landed = () => receipt({ action: 'added', clock: 'double', under: 'to the SOL + BAYLA pool', pairing: 'SOL' });
+    const DEPOSIT = { quote: 500_000_000n, quoteDecimals: 9, token: 1_234_567_890_000n, tokenDecimals: 6 };
+    const shareLink = () => screen.getByRole('link', { name: 'Share on X' });
+    const note = () => screen.queryByTestId('receipt-moment-note');
+    const bytesOf = async (f: File | undefined) => new Uint8Array(await f!.arrayBuffer());
+    let canvas: ReturnType<typeof fakeCanvas>;
+    beforeEach(() => {
+      // Only the band's canvas is drawn on here: the pool's moment keeps jsdom's none.
+      canvas = fakeCanvas({ only: (c) => c.height === Math.round(c.width / 10) });
+    });
+    afterEach(() => canvas.restore());
+
+    it('a phone tapped while the add is read waits for it, then shares the GIF with both figures across its top', async () => {
+      const share = phone();
+      fetchClip.mockImplementation(async () => island());
+      act(() => raiseReceipt(landed()));
+      await flush();
+      fireEvent.click(shareLink());
+      expect(note()).toHaveTextContent('Getting your GIF…');
+      await act(async () => {
+        settleReceipt(SIG, { fee: { kind: 'add', network: '0.000005 SOL' }, deposit: DEPOSIT });
+        await vi.advanceTimersByTimeAsync(50);
+      });
+      expect(note()).toHaveTextContent('Your GIF is ready. Tap Share on X.');
+      fireEvent.click(shareLink());
+      await flush();
+      expect(share).toHaveBeenCalledTimes(1);
+      const data = share.mock.calls[0]![0];
+      expect(data.text).toBe(ADD_POST);
+      expect(data.files?.[0]?.name).toBe('memetics-finance-flash-bayla.gif');
+      const gif = readGif(await bytesOf(data.files?.[0]))!;
+      expect([gif.width, gif.height, gif.frames.length]).toEqual([72, 107, 3]);
+      expect(canvas.drawn.map((d) => d.text)).toEqual(['0.5 SOL', '  +  ', '1.23M $BAYLA']);
+    });
+
+    it('a computer: the GIF saved to drop into the post is the one with the figures', async () => {
+      fetchClip.mockImplementation(async () => island());
+      const had = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
+      const saved: Blob[] = [];
+      URL.createObjectURL = vi.fn((b: Blob) => {
+        saved.push(b);
+        return 'blob:moment';
+      }) as typeof URL.createObjectURL;
+      URL.revokeObjectURL = vi.fn();
+      const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+      try {
+        act(() => raiseReceipt(landed()));
+        await act(async () => {
+          settleReceipt(SIG, { fee: { kind: 'add', network: '0.000005 SOL' }, deposit: DEPOSIT });
+          await vi.advanceTimersByTimeAsync(50);
+        });
+        fireEvent.click(shareLink());
+        expect(note()).toHaveTextContent('Your GIF is saved. Add it to the post.');
+        expect(readGif(new Uint8Array(await saved[0]!.arrayBuffer()))!.height).toBe(107);
+      } finally {
+        click.mockRestore();
+        URL.createObjectURL = had.create;
+        URL.revokeObjectURL = had.revoke;
+      }
+    });
+
+    it('an add whose transaction could not be read: the island’s GIF, as it came', async () => {
+      const share = phone();
+      fetchClip.mockImplementation(async () => island());
+      act(() => raiseReceipt(landed()));
+      await act(async () => {
+        settleReceipt(SIG, { fee: { kind: 'unread' } });
+        await vi.advanceTimersByTimeAsync(50);
+      });
+      fireEvent.click(shareLink());
+      await flush();
+      expect(await bytesOf(share.mock.calls[0]![0].files?.[0])).toEqual(ISLAND);
+      expect(canvas.drawn).toEqual([]);
+    });
+
+    it('a read that never ends: the GIF in hand goes as the island made it once the wait is over', async () => {
+      const share = phone();
+      fetchClip.mockImplementation(async () => island());
+      act(() => raiseReceipt(landed()));
+      await flush();
+      fireEvent.click(shareLink());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(AMOUNTS_WAIT_MS - 100);
+      });
+      expect(note()).toHaveTextContent('Getting your GIF…');
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(200);
+      });
+      expect(note()).toHaveTextContent('Your GIF is ready. Tap Share on X.');
+      fireEvent.click(shareLink());
+      await flush();
+      expect(await bytesOf(share.mock.calls[0]![0].files?.[0])).toEqual(ISLAND);
+    });
   });
 });
 

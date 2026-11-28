@@ -11,7 +11,8 @@ import { FlameCatch, type FlameState } from './FlameCatch';
 import { FloorHead } from './FloorHead';
 import { hueOf, type FloorState } from '../lib/floorMoment';
 import { momentClip } from '../lib/momentShare';
-import { useMomentShare } from '../hooks/useMomentShare';
+import { useMomentShare, type MomentAmounts } from '../hooks/useMomentShare';
+import { amountsLine } from '../lib/momentAmounts';
 
 /** The veil first, then the card rises (its 300 ms transition). */
 const RISE_AFTER_MS = 250;
@@ -122,7 +123,9 @@ function OpenReceipt({ receipt }: { receipt: Receipt }) {
   const lpTarget = receipt.action === 'added' ? (sheetRoom(receipt.coin.mint)?.id ?? receipt.coin.mint) : null;
   // A buy or an add in a room shares its moment as a GIF with the post (island answer thirty-six, the owner's word 11-14).
   const clip = momentClip(receipt);
-  const moment = useMomentShare(clip);
+  // An add's GIF says what went in, once its transaction is read (the owner's word, 11-28): no wallet, the two figures.
+  const amounts: MomentAmounts = clip?.kind !== 'flash' ? null : receipt.fee.kind === 'reading' ? 'reading' : amountsLine(receipt);
+  const moment = useMomentShare(clip, amounts);
 
   return createPortal(
     <div ref={layerRef} className="fixed inset-0 z-[85] flex items-start justify-center overflow-y-auto px-4" data-testid="receipt-layer">
