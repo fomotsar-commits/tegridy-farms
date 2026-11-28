@@ -161,7 +161,7 @@ same steps, same script. That script now also refuses a factory without the 0.00
 
 Your word 2026-11-07: "Add Base + Robinhood too", and the fee goes to the **treasury Safe
 `0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0`** (the same address on both chains), not to the
-fee-remittance Safe the old factories there pay.
+fee-remittance Safe the old factories there paid then.
 
 **Why it needs new contracts there too.** Base's factory `0x12a249A027AA7DdF184E824b4bb63ba031A39fEC`
 (7 pools, read 2026-11-07) and Robinhood's `0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3` (0 pools)
@@ -174,12 +174,12 @@ the coin you pay gas in on all three.
 | | When the pool is opened | On every trade afterwards |
 |---|---|---|
 | The opener pays | 0.006 ETH, on top of their deposit | nothing extra |
-| The treasury Safe `0x796c…38C0` gets | the 0.006 ETH, straight away | 1/6 of the 0.3% pool fee (0.05% of the trade), as LP tokens |
-| The venue gets | | 0.5% of each trade made on the site, through the new SwapFeeRouter, which sends it to the fee-remittance Safe `0xfc5D5018E557941A3BB7Ff057d1B0c2eCC09fbf1`, queued to be bridged to mainnet stakers, exactly as today's Base and Robinhood pools do |
+| The treasury Safe `0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0` gets | the 0.006 ETH, straight away | 1/6 of the 0.3% pool fee (0.05% of the trade), as LP tokens |
+| The venue gets | | 0.5% of each trade made on the site, through the new SwapFeeRouter, which pays it to the same treasury Safe |
 | The liquidity providers get | their whole deposit goes in the pool | 5/6 of the 0.3% pool fee (0.25% of the trade) |
 
 The treasury takes the 1/6 share because the factory pays its fees to one address: the one you
-picked for the opening fee. On the old factories that share goes to the remittance Safe.
+picked for the opening fee. The old factories pay it to the same treasury Safe (owner ruling 2026-11-15).
 
 **Who holds the roles there (copied from the live contracts on each chain, read 2026-11-07):**
 `FEE_TO_SETTER` = the multisig `0xBC4E8abe4b0F16FC65c5bCADd018b3C44c47Be5B` (it holds Base's factory

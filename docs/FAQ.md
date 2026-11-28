@@ -29,8 +29,8 @@ wrapped version on any other chain, and none is planned. It is the input to stak
 farming, the boost curve, NFT-lending collateral and (once un-gated) gauge voting.
 
 Note what that means on the other three chains: **the Base, Robinhood and Solana surfaces do
-not pay TOWELI and do not stake it.** They earn fees, and those fees land in a remittance
-Safe or a fee account, not in a staker's balance.
+not pay TOWELI and do not stake it.** They earn fees, and those fees land in the treasury
+Safe (Base and Robinhood) or the Squads vault's fee accounts (Solana), not in a staker's balance.
 
 ## How do I get it?
 
@@ -63,31 +63,35 @@ an audit that is still pending.
 
 ## How are fees distributed?
 
-Aimed at veTOWELI stakers — but **not the whole fee, and not yet.**
+To the treasury, not to stakers. Stakers earn TOWELI only (owner ruling 2026-11-15).
 
-On the live `SwapFeeRouter`, `stakerShareBps` is `10000` and `polShareBps` is `0`, so nothing
-is split off to the treasury or to protocol-owned liquidity *at that step*. Those levers are
-timelocked, and the floor is `MIN_STAKER_SHARE_BPS = 5000`.
+How the venue earns on Ethereum, Base and Robinhood Chain, and where each part lands:
 
-**The step before it is the one that matters.** `_recordReferralFee` hands the entire fee to
-`ReferralSplitter` at swap time, and the splitter keeps `referralFeeBps` — **20% today** — for
-the swapper's referrer, or for the treasury when there is no qualified referrer. Either way
-that slice is not staker yield, and it cannot be turned off: `proposeReferralFee` rejects `0`,
-and `applyReferralSplitter(address(0))` reverts while the share is above zero, so the splitter
-cannot be unwired either. The remaining ~80% is credited back to the router as `callerCredit`
-and moves only when someone calls the **permissionless** `recoverCallerCredit()`.
+- **Swap fee:** 0.5% of each swap made through the site's own fee router (`SwapFeeRouter`). On
+  Ethereum a 20% referral share comes off first, to the trader's referrer or, when there is none,
+  to the treasury. It cannot be turned off. The rest goes to the chain's treasury Safe.
+- **Pool cut:** one sixth of the 0.3% pool fee (0.05% of the volume) on our own pools where it is
+  switched on, minted to the treasury Safe as LP tokens.
+- **Opening fee:** 0.006 ETH to open a pool on the paid factories, paid straight to the treasury
+  Safe.
 
-Two things to be clear about:
+| Chain | Treasury Safe |
+|---|---|
+| Ethereum | `0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d` |
+| Base and Robinhood Chain | `0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0` |
 
-1. **The rail has collected and has still paid nobody.** Fees have accrued; the balance sits in
-   `ReferralSplitter` because `recoverCallerCredit()` has never been called; and
-   `RevenueDistributor.totalDistributed()` reads `0`. No epoch has ever opened. (That is a
-   statement about the mechanism on purpose — a wei figure is stale after the next swap.)
-2. **The protocol burns nothing** — but the live token *can* be burned: `burn(uint256)` and
-   `burnFrom(address,uint256)` are both in the deployed bytecode, so any holder may destroy
-   their own TOWELI. One billion is the ceiling, not a constant.
+The swap fee does not move by itself. On Ethereum the 80% after the referral share waits in
+`ReferralSplitter` until anyone calls `recoverCallerCredit()`. On every chain it then waits in the
+router until anyone calls `distributeFeesToStakers()`, which, despite its name, pays the treasury
+Safe. Nothing reaches the stakers' payout contract `RevenueDistributor`
+`0xF993316E2fC079de4358c489A935E01e03E23E17` or the fee-remittance Safe
+`0xfc5D5018E557941A3BB7Ff057d1B0c2eCC09fbf1`.
 
-See [TOKENOMICS.md](TOKENOMICS.md) for where each fee surface routes.
+**The protocol burns nothing**, but the live token *can* be burned: `burn(uint256)` and
+`burnFrom(address,uint256)` are both in the deployed bytecode, so any holder may destroy their own
+TOWELI. One billion is the ceiling, not a constant.
+
+See [TOKENOMICS.md](TOKENOMICS.md) for the router's split levers.
 
 ## What's the boost?
 
@@ -132,9 +136,9 @@ Four, and they do different jobs:
 
 | Chain | What runs there | Where fees land |
 |---|---|---|
-| **Ethereum** | Everything — staking, the DEX, revenue distribution, NFT finance, both launchers | The staker rail (which has never paid) and the treasury Safe |
-| **Base 8453** | The DEX + fee stack + curve launcher, live 2026-08-25 | A **remittance** Safe — queued for the bridge, *not* staker yield |
-| **Robinhood 4663** | The same stack, live 2026-08-25 | The same remittance Safe |
+| **Ethereum** | Everything: staking, the DEX, NFT finance, both launchers | Swap and pool fees: the treasury Safe `0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d` |
+| **Base 8453** | The DEX + fee stack + curve launcher, live 2026-08-25 | Swap and pool fees: the L2 treasury Safe `0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0` |
+| **Robinhood 4663** | The same stack, live 2026-08-25 | The same L2 treasury Safe |
 | **Solana** | The Jupiter-routed swap (Instant / Limit / DCA) and five Streamflow lighthouses | A Solana fee account |
 
 *(This answer used to read "Nothing is deployed on Base today… no dated commitment to build

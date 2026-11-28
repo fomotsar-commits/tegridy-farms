@@ -76,7 +76,7 @@ surfaces them through `<LegacyStakingExit />` for affected wallets only.
 | **TegridyFactory** — Uniswap V2-compatible pair factory for TOWELI markets. | [`0xa24C7287eC56A7DEFDc70033803451240e267a52`](https://etherscan.io/address/0xa24C7287eC56A7DEFDc70033803451240e267a52) | `contracts/src/TegridyFactory.sol` | Live (relaunch 2026-06-06) |
 | **TegridyRouter** — Swap/add/remove liquidity router with fee-on-transfer support. | [`0xE9F83A07b071748E795d2489651d5310fA098Db8`](https://etherscan.io/address/0xE9F83A07b071748E795d2489651d5310fA098Db8) | `contracts/src/TegridyRouter.sol` | Live (relaunch 2026-06-06) |
 | **TegridyLP (TOWELI/WETH pair)** — Native DEX LP token. | [`0x55875887B43C2E23aE424AF0FC8606Fdb058a481`](https://etherscan.io/address/0x55875887B43C2E23aE424AF0FC8606Fdb058a481) | `contracts/src/TegridyPair.sol` | Live — read back: `token0()` = TOWELI, `token1()` = WETH, `factory()` = `0xa24C…7a52` |
-| **SwapFeeRouter** — Routes DEX swap fees to RevenueDistributor + POLAccumulator. | [`0x6d5791A660e79175F74C6D639584C98422d5956E`](https://etherscan.io/address/0x6d5791A660e79175F74C6D639584C98422d5956E) | `contracts/src/SwapFeeRouter.sol` | Live (relaunch 2026-06-06) — `feeBps() == 50`, `stakerShareBps() == 10000`, `polShareBps() == 0`. **Has collected fee ETH; has distributed none.** `accumulatedETHFees()` and `totalPendingDistribution()` are both `0` because the whole take is still parked in `ReferralSplitter` — see the revenue note below. |
+| **SwapFeeRouter**: the venue's 0.5% on site swaps; pays it to the treasury Safe. | [`0x6d5791A660e79175F74C6D639584C98422d5956E`](https://etherscan.io/address/0x6d5791A660e79175F74C6D639584C98422d5956E) | `contracts/src/SwapFeeRouter.sol` | Live (relaunch 2026-06-06): `feeBps() == 50`; `revenueDistributor()` is the treasury Safe `0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d`. See the revenue note below. |
 | **SwapFeeRouterAdmin** — EIP-170 admin sister of the fee router. | [`0xa517A1cEfd961c0DDE8155a0Fa870aEE5bb0D060`](https://etherscan.io/address/0xa517A1cEfd961c0DDE8155a0Fa870aEE5bb0D060) | `contracts/src/SwapFeeRouterAdmin.sol` | Live (relaunch 2026-06-06) |
 | **POLAccumulator** — Protocol-owned-liquidity sink; buys TOWELI and LPs it. | [`0x2A5f65f4C74b1e49e77aE9A57e20fBDb0cED11D2`](https://etherscan.io/address/0x2A5f65f4C74b1e49e77aE9A57e20fBDb0cED11D2) | `contracts/src/POLAccumulator.sol` | Deployed 2026-06-06 but **not wired** — `SwapFeeRouter.polAccumulator()` reads `0x0…0`, so no fee value can reach it today. |
 | **TegridyTWAP** — Time-weighted average price oracle over native pairs. | [`0xdFdd6D72539A425dC917F49FB834901105cA98c9`](https://etherscan.io/address/0xdFdd6D72539A425dC917F49FB834901105cA98c9) | `contracts/src/TegridyTWAP.sol` | Live (relaunch 2026-06-06) — needs 4× `update()` bootstrap after LP seed (audit H-18) |
@@ -84,7 +84,7 @@ surfaces them through `<LegacyStakingExit />` for affected wallets only.
 | **TegridyLPFarming** — Boosted LP farming rewards vault. | [`0x1171268AE5B69791c47Fd589b7825932c957e149`](https://etherscan.io/address/0x1171268AE5B69791c47Fd589b7825932c957e149) | `contracts/src/TegridyLPFarming.sol` | Live (2026-06-08, `DeployTegridyLPFarming`) — `stakingToken()` = `0x5587…a481`, `rewardToken()` = TOWELI, `MAX_BOOST_BPS_CEILING() == 45000` |
 | **TegridyFactory (opening fee)** — new coin pools open here for 0.006 ETH, paid to the treasury Safe in the same transaction (owner ruling 2026-10-25). | [`0xf73C993A1303Fe3612c5F878783CEf63D080834E`](https://etherscan.io/address/0xf73C993A1303Fe3612c5F878783CEf63D080834E) | `contracts/src/TegridyFactory.sol` | Live (2026-11-08, `DeployPoolOpeningFeeAMM`) — `POOL_OPENING_FEE() == 6e15`, `feeTo()` = `feeToSetter()` = treasury Safe `0x7D26…Bd7d`, `guardian()` = pause-guardian Safe `0xCDCA…F354` |
 | **TegridyRouter (opening fee)** — bound to the factory above; pays the opening fee out of `msg.value` when an add opens a pool. | [`0xf7F2bc4e7F3Abc0208f0dECc90bF828Bf2deFe22`](https://etherscan.io/address/0xf7F2bc4e7F3Abc0208f0dECc90bF828Bf2deFe22) | `contracts/src/TegridyRouter.sol` | Live (2026-11-08) |
-| **SwapFeeRouter (opening-fee pools)** — the venue's 0.5% on site swaps through pools on the factory above. | [`0x15F3fF295DDE3D18CbB2b694E8aE197Be5013Df4`](https://etherscan.io/address/0x15F3fF295DDE3D18CbB2b694E8aE197Be5013Df4) | `contracts/src/SwapFeeRouter.sol` | Live (2026-11-08) — `feeBps() == 50`, same treasury, RevenueDistributor, ReferralSplitter and pause guardian as the one above; offered to the treasury Safe (accept by 2026-11-22) |
+| **SwapFeeRouter (opening-fee pools)**: the venue's 0.5% on site swaps through pools on the factory above. | [`0x15F3fF295DDE3D18CbB2b694E8aE197Be5013Df4`](https://etherscan.io/address/0x15F3fF295DDE3D18CbB2b694E8aE197Be5013Df4) | `contracts/src/SwapFeeRouter.sol` | Live (2026-11-08): `feeBps() == 50`, same treasury, payee (the treasury Safe), ReferralSplitter and pause guardian as the one above; offered to the treasury Safe (accept by 2026-11-22) |
 | **SwapFeeRouterAdmin (opening-fee pools)** | [`0x5c109a51B786473DCDE2De41a133d42515f60590`](https://etherscan.io/address/0x5c109a51B786473DCDE2De41a133d42515f60590) | `contracts/src/SwapFeeRouterAdmin.sol` | Live (2026-11-08) — offered to the treasury Safe (accept by 2026-11-22) |
 
 ---
@@ -93,8 +93,8 @@ surfaces them through `<LegacyStakingExit />` for affected wallets only.
 
 | Contract | Address | Source | Status |
 |---|---|---|---|
-| **RevenueDistributor** — Streams protocol revenue pro-rata to veTOWELI stakers. | [`0xF993316E2fC079de4358c489A935E01e03E23E17`](https://etherscan.io/address/0xF993316E2fC079de4358c489A935E01e03E23E17) | `contracts/src/RevenueDistributor.sol` | Live (relaunch 2026-06-06) |
-| **ReferralSplitter** — Sits between `SwapFeeRouter` and the staker rail: takes the referral share off the top, credits the remainder back. | [`0x6B3442dAcB62d40BA39fCe9b3CDa350FEa6f7e4c`](https://etherscan.io/address/0x6B3442dAcB62d40BA39fCe9b3CDa350FEa6f7e4c) | `contracts/src/ReferralSplitter.sol` | Live (relaunch 2026-06-06) — `referralFeeBps() == 2000`, `MAX_REFERRAL_FEE() == 3000`. **Holds the protocol's entire swap-fee take.** |
+| **RevenueDistributor**: the stakers' payout contract. It pays what it receives pro-rata to veTOWELI stakers. No swap fee reaches it (owner ruling 2026-11-15); LockerClaimer below still names it. | [`0xF993316E2fC079de4358c489A935E01e03E23E17`](https://etherscan.io/address/0xF993316E2fC079de4358c489A935E01e03E23E17) | `contracts/src/RevenueDistributor.sol` | Live (relaunch 2026-06-06) |
+| **ReferralSplitter**: sits between `SwapFeeRouter` and the treasury Safe: takes the referral share off the top, credits the remainder back. | [`0x6B3442dAcB62d40BA39fCe9b3CDa350FEa6f7e4c`](https://etherscan.io/address/0x6B3442dAcB62d40BA39fCe9b3CDa350FEa6f7e4c) | `contracts/src/ReferralSplitter.sol` | Live (relaunch 2026-06-06): `referralFeeBps() == 2000`, `MAX_REFERRAL_FEE() == 3000`. The router's 80% waits here until anyone calls `recoverCallerCredit()`. |
 | **LockerClaimer** — Permissionless `claim(tokenId)` puller for the Doppler fee locker; forwards the ETH leg to RevenueDistributor, ERC20 leg to Treasury. | [`0xD2Ac3dC13c6fd09855F0e4a077826983Aa66E6C7`](https://etherscan.io/address/0xD2Ac3dC13c6fd09855F0e4a077826983Aa66E6C7) | `contracts/src/LockerClaimer.sol` | Live (2026-08-01) — no admin surface; destinations immutable |
 
 ---
@@ -203,7 +203,7 @@ Full MVP + curve stack, every slot read back on-chain before wiring. Explorer: B
 | SwapFeeRouter | `0xa24C7287eC56A7DEFDc70033803451240e267a52` |
 | SwapFeeRouterAdmin | `0xcb03207ae13076F520b8c81Ea4FE6F08F8bC63b2` |
 | TegridyCurveLauncher | `0xa517A1cEfd961c0DDE8155a0Fa870aEE5bb0D060` |
-| Fee sink — FEE_REMITTANCE Safe | `0xfc5D5018E557941A3BB7Ff057d1B0c2eCC09fbf1` |
+| FEE_REMITTANCE Safe (no longer a fee sink: every fee router and factory pays the treasury Safe below) | `0xfc5D5018E557941A3BB7Ff057d1B0c2eCC09fbf1` |
 | Treasury Safe | `0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0` |
 | TegridyFactory (0.006 ETH to open a pool, to the treasury Safe; 2026-11-08) | `0x09E1B43f90cb6488063BB91310FD40c4339027e6` |
 | TegridyRouter (opening fee) | `0x7D7DA5d6335efdCdd510C439cB7948b31562847f` |
@@ -222,7 +222,7 @@ Arbitrum Orbit L2, ETH gas, Blockscout explorer.
 | SwapFeeRouter | `0xE9F83A07b071748E795d2489651d5310fA098Db8` |
 | SwapFeeRouterAdmin | `0xdFdd6D72539A425dC917F49FB834901105cA98c9` |
 | TegridyCurveLauncher | `0xA2e7E7Fae91846E4c92af7f4b43b24CDd9aBF4F5` |
-| Fee sink / Treasury | the same FEE_REMITTANCE / TREASURY Safes as Base (CREATE2, both chains) |
+| Treasury Safe (every swap and pool fee) | `0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0`, the same as Base (CREATE2, both chains) |
 | TegridyFactory (0.006 ETH to open a pool, to the treasury Safe; 2026-11-08) | `0xB62BaD165997E95C503044787b2Dcc85DC6D83F1` |
 | TegridyRouter (opening fee) | `0xA0D43eF39C4940e68b2f81d51E6316a45C136D93` |
 | SwapFeeRouter (opening-fee pools) | `0x85AB297793e14283b54347C92C6AEFBaa20d1492` |
@@ -232,11 +232,11 @@ Arbitrum Orbit L2, ETH gas, Blockscout explorer.
 for 4663, and `SequencerCheck` reverts off-mainnet on a zero feed — so the deploy scripts
 structurally refuse to ship the contracts without one.
 
-> ⚠️ **Neither L2 pays staker yield, by design.** Both fee sinks are **remittance** Safes: a
-> fee captured on Base or Robinhood is *queued for the bridge*, not credited to a veTOWELI
-> staker. There is no TOWELI on either chain and there never will be. Ownership handoffs to
-> the multisig await the **2-of-2 accept ceremony** on each chain — both role Safes are at
-> `nonce() == 0`, and an N-of-M is unproven until something has executed at the new threshold.
+> ⚠️ **Neither L2 pays staker yield.** Every swap and pool fee on Base and Robinhood lands in the
+> L2 treasury Safe `0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0`. There is no TOWELI on either chain
+> and there never will be. Ownership handoffs to the multisig await the **2-of-2 accept ceremony**
+> on each chain: both role Safes are at `nonce() == 0`, and an N-of-M is unproven until something
+> has executed at the new threshold.
 
 ### HyperEVM 999 — deployed 2026-11-25
 Our own Uniswap V3 venue: Uniswap's code unchanged, deployed with Uniswap's own HyperEVM kit
@@ -324,17 +324,14 @@ new `declare_id!`, and re-derivation of every PDA.
 - The broadcast JSON committed to this branch is **stale for the 2026-07-16 batch** — the refreshed
   `run-latest.json` files exist only in the operator's working checkout. Verify with `cast code`
   before acting on any address, in this file or any other.
-- **The swap-fee rail has earned and has never distributed.** Do not describe staker yield in the past
-  tense, and do not describe the rail as unused either — both were published here before. The
-  mechanism, which does not go stale: `SwapFeeRouter._recordReferralFee` forwards the **whole** fee to
-  `ReferralSplitter` at swap time; the splitter keeps `referralFeeBps` (2000) for the referrer or, with
-  no qualified referrer, for the treasury — that slice is never staker yield — and credits the
-  remaining ~80% back as `callerCredit`, which only moves on a **permissionless**
-  `SwapFeeRouter.recoverCallerCredit()` call that has never been made. `RevenueDistributor` therefore
-  holds `0` and `totalDistributed()` reads `0`: **zero epochs, zero claims, ever.** The splitter is also
-  not removable — `proposeReferralFee` rejects `0` and `applyReferralSplitter(address(0))` reverts
-  `ReferralFeeNonZero()` while the share is above zero. Quote the mechanism; a wei figure is stale after
-  the next swap.
+- **Where the swap fee goes.** `SwapFeeRouter._recordReferralFee` forwards the whole fee to
+  `ReferralSplitter` at swap time. The splitter keeps `referralFeeBps` (2000) for the referrer or, with
+  no qualified referrer, for the treasury, and credits the other 80% back as `callerCredit`, which moves
+  on a permissionless `SwapFeeRouter.recoverCallerCredit()` call. The router pays it out on
+  `distributeFeesToStakers()` to its `revenueDistributor` address, which is the treasury Safe (owner
+  ruling 2026-11-15) despite the names. The splitter is not removable: `proposeReferralFee` rejects `0`
+  and `applyReferralSplitter(address(0))` reverts `ReferralFeeNonZero()` while the share is above zero.
+  Quote the mechanism; a wei figure is stale after the next swap.
 - The regression guard for this file lives at `frontend/src/lib/docsAddressTruth.test.ts`.
 
 *Last verified: 2026-08-06 (broadcast + on-chain read-back).*

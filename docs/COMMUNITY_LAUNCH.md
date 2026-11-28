@@ -83,18 +83,14 @@ Desired handles in priority order (grab the first one available):
 
 ### Bio draft (under 160 chars)
 
-> DeFi yield protocol on Ethereum. Lock TOWELI, earn a share of swap fees in ETH. Fixed supply. Self-audited, no firm review yet. tegridyfarms.vercel.app
+> DeFi yield protocol on Ethereum. Lock TOWELI, earn TOWELI. Fixed supply. Self-audited, no firm review yet. tegridyfarms.vercel.app
 
 > ⚠️ **Everything in this section is copy a stranger will post under their own name**, which is why it
-> is held to the same standard as the app. Two claims were corrected here on 2026-08-12 and must not
-> come back. **(1)** any totality claim about the swap fee reaching lockers — false: `ReferralSplitter`
-> takes `referralFeeBps` (20%) off every fee before the staker rail sees it, and that share cannot be
-> set to zero or unwired. **(2)** "Audited" — false as an unqualified word: the reviews are internal, and
+> is held to the same standard as the app. Two claims must not come back. **(1)** Any claim that
+> lockers earn the swap fee: since the owner's ruling of 2026-11-15 it goes to the treasury Safe, and
+> lockers earn TOWELI only. **(2)** "Audited", which is false as an unqualified word: the reviews are internal, and
 > [FAQ.md](FAQ.md) says plainly that no third-party audit has been commissioned. Say
 > "self-audited, findings published" or say nothing.
->
-> A third rule, for anything written from here on: **the staker rail has collected fees and has never
-> paid a staker.** Do not write a launch tweet in the present tense about yield that has not happened.
 
 Pinned bio fields:
 - **Location:** `onchain`
@@ -108,7 +104,7 @@ Pinned bio fields:
 **Tweet 1 — launch**
 > We're live.
 >
-> Tegridy Farms: a DeFi yield protocol on Ethereum. Swap fees are collected in ETH and routed to lockers — a 20% referral share comes off the top first, and nothing has been distributed yet. Fixed-supply TOWELI.
+> Tegridy Farms: a DeFi yield protocol on Ethereum. Swap fees are collected in ETH and go to the treasury. Lockers earn TOWELI. Fixed-supply TOWELI.
 >
 > No inflation. No emissions tricks.
 >
@@ -125,15 +121,14 @@ Pinned bio fields:
 > github.com/fomotsar-commits/tegridy-farms/blob/main/AUDITS.md
 
 **Tweet 3 — mechanic**
-> Here's how the yield loop is wired, and where it currently stops:
+> Here's where a swap fee goes:
 >
-> 1. User swaps through the front-door
+> 1. You swap through the site's own router
 > 2. SwapFeeRouter takes 0.5% in ETH
-> 3. ReferralSplitter keeps 20% — unremovable
-> 4. The rest waits on a permissionless recoverCallerCredit()
-> 5. Then, and only then, stakers accrue
+> 3. ReferralSplitter sends 20% to your referrer, or to the treasury if you have none
+> 4. The rest goes to the treasury Safe
 >
-> Step 4 has never been called. 0 epochs paid. Fees never dilute — 1B TOWELI, no mint.
+> Lockers earn TOWELI, not swap fees. 1B TOWELI, no mint.
 
 **Tweet 4 — boost**
 > Lock TOWELI longer → get boosted LP farming rewards.

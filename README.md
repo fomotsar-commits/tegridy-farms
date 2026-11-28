@@ -103,9 +103,8 @@ The contracts stay live and usable.
   0.05% goes to the treasury Safe** as LP tokens. That 0.05% cut was switched on 2026-10-16.
   Most TOWELI liquidity sits in the Uniswap V2 pool, where Uniswap's LPs keep the fee.
 - **Swaps through our fee router** pay a 0.5% venue fee. A 20% referral share comes off first
-  (to the referrer, or the treasury if there is none) and the rest is set aside for TOWELI
-  stakers, to be paid out through `RevenueDistributor`. **None of it has been distributed to
-  stakers yet.**
+  (to the trader's referrer, or the treasury if there is none) and the rest goes to the
+  treasury Safe. Stakers earn TOWELI only: no swap fee reaches them.
 - **Also on Ethereum:** NFT loans and NFT pools ([/nft-finance](https://memetics.finance/nft-finance)),
   an NFT marketplace, the Doppler token launcher ([/launch](https://memetics.finance/launch)) and
   our own EVM bonding curve ([/eth-curve](https://memetics.finance/eth-curve), zero launches on
@@ -115,8 +114,9 @@ The contracts stay live and usable.
 ### Base and Robinhood Chain
 
 Both run our DEX (factory, router, price oracle, fee router) and our bonding curve, deployed
-2026-08-25. **Both have zero pools and zero launches.** Pool fees on either chain would go to
-our fee Safe. There is no TOWELI staking on either chain.
+2026-08-25. The curve has had zero launches on either. Every swap and pool fee there lands in the
+treasury Safe, the same address on both chains: the 0.5% on site swaps, one sixth of the 0.3%
+pool fee on our pools, and 0.006 ETH to open a pool. There is no TOWELI staking on either chain.
 
 ---
 
@@ -167,8 +167,7 @@ the chain. In the app: [memetics.finance/contracts](https://memetics.finance/con
 | TOWELI staking | [`0xcaDc93E96De58EA554c71ca609974625615E046D`](https://etherscan.io/address/0xcaDc93E96De58EA554c71ca609974625615E046D) |
 | Our TOWELI/WETH pair | [`0x55875887B43C2E23aE424AF0FC8606Fdb058a481`](https://etherscan.io/address/0x55875887B43C2E23aE424AF0FC8606Fdb058a481) |
 | Fee router | [`0x6d5791A660e79175F74C6D639584C98422d5956E`](https://etherscan.io/address/0x6d5791A660e79175F74C6D639584C98422d5956E) |
-| RevenueDistributor | [`0xF993316E2fC079de4358c489A935E01e03E23E17`](https://etherscan.io/address/0xF993316E2fC079de4358c489A935E01e03E23E17) |
-| Treasury Safe (2 of 2) | [`0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d`](https://etherscan.io/address/0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d) |
+| Treasury Safe (2 of 2): swap and pool fees | [`0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d`](https://etherscan.io/address/0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d) |
 | EVM bonding curve | [`0xF4Dfa741aD63B3D95dC3Fc10D311caE507CE34dE`](https://etherscan.io/address/0xF4Dfa741aD63B3D95dC3Fc10D311caE507CE34dE) |
 
 **Base and Robinhood Chain**
@@ -177,7 +176,7 @@ the chain. In the app: [memetics.finance/contracts](https://memetics.finance/con
 |---|---|---|
 | DEX factory | [`0x12a249A027AA7DdF184E824b4bb63ba031A39fEC`](https://basescan.org/address/0x12a249A027AA7DdF184E824b4bb63ba031A39fEC) | `0x4B134C08aAF86B6e2A8E097D1039C4e7638806f3` |
 | Bonding curve | [`0xa517A1cEfd961c0DDE8155a0Fa870aEE5bb0D060`](https://basescan.org/address/0xa517A1cEfd961c0DDE8155a0Fa870aEE5bb0D060) | `0xA2e7E7Fae91846E4c92af7f4b43b24CDd9aBF4F5` |
-| Fee Safe (pool fees) | [`0xfc5D5018E557941A3BB7Ff057d1B0c2eCC09fbf1`](https://basescan.org/address/0xfc5D5018E557941A3BB7Ff057d1B0c2eCC09fbf1) | `0xfc5D5018E557941A3BB7Ff057d1B0c2eCC09fbf1` |
+| Treasury Safe (2 of 2): swap and pool fees | [`0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0`](https://basescan.org/address/0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0) | `0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0` |
 
 ---
 
