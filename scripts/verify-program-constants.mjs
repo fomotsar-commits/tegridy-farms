@@ -79,7 +79,7 @@
  *   # CI — prove the matcher can still both pass and fail.
  *   node scripts/verify-program-constants.mjs --self-test
  *
- * Flags: --roster <cp-swap|tegridy-launch>  (inferred where possible; required when not)
+ * Flags: --roster <cp-swap|tegridy-launch|bayla-ladder>  (inferred where possible; required when not)
  *        --json                             (machine-readable report on stdout)
  *
  * Exits non-zero on any REQUIRED-absent, FORBIDDEN-present, or inconclusive read.
@@ -330,6 +330,54 @@ const ROSTERS = {
       },
     ],
   },
+
+  // Live since 2026-09-20. Its committed declare_id! is a placeholder and solana-deploy-artifact.yml
+  // writes the id and deployer in from typed text, so this roster holds the values the live build carries.
+  'bayla-ladder': {
+    programId: 'EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ',
+    artifact: 'bayla_ladder.so',
+    source: 'solana/tegridy-amm/programs/bayla-ladder/src/lib.rs',
+    keys: [
+      {
+        id: 'declare_id',
+        address: 'EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ',
+        expect: 'required',
+        why: 'The live program id, written in at build time. A binary built for any other id refuses every instruction at this address, emergency exit included, until a corrected upgrade passes the vault (48 hours at least).',
+      },
+      {
+        id: 'deployer::ID',
+        address: 'Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6',
+        expect: 'required',
+        why:
+          'lib.rs `mod deployer` as the live build carries it: the only wallet that may call initialize_pool. The committed non-devnet arm is the System Program, which nobody ' +
+          'can sign for; ABSENT means a build that can open no pool, or one that names another deployer. A build meant to name another one changes this row with it.',
+      },
+      {
+        id: 'committed placeholder id',
+        address: 'GKwgTQtVyPGxspxvciDAStY4Jq7rB1STuVvXic7EG6E4',
+        expect: 'forbidden',
+        why: 'The declare_id! in the committed source. Present => the id was never written in, and the build refuses every instruction at the live address.',
+      },
+      {
+        id: 'devnet program id',
+        address: 'HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK',
+        expect: 'forbidden',
+        why: 'The superseded devnet deployment. Present => a build for devnet, which refuses every instruction at the live address.',
+      },
+      {
+        id: 'devnet deployer',
+        address: 'ASLXdST48ivBZ4xV7VjgD51FJ6rHH5CN5s8XS5TLwygP',
+        expect: 'forbidden',
+        why: 'The `--features devnet` arm of deployer::ID. Present => a devnet build, whose initialize_pool only that devnet key could call.',
+      },
+      {
+        id: 'retired pool authority',
+        address: 'GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9',
+        expect: 'forbidden',
+        why: 'Compiled in only by the superseded fada8148 build, and not a venue key (it is the devnet faucet bot\'s wallet). Present => that build or its source.',
+      },
+    ],
+  },
 };
 
 // ── the matcher ──────────────────────────────────────────────────────────────
@@ -550,10 +598,11 @@ function selfTest() {
     check(`base58 round-trips ${a.slice(0, 8)}...`, base58Encode(pubkeyBytes(a, a)), a);
   }
 
-  // 9b. THE RESTART RULES, per program. Each program requires its new ids and forbids
+  // 9b. THE RESTART RULES, per restart program. Each requires its new ids and forbids
   //     both spent ids, the old cp-swap admin and the old placeholder. A binary built
   //     with the pre-restart constants must FAIL on the rows that name them.
-  for (const [name, r] of Object.entries(ROSTERS)) {
+  for (const name of ['cp-swap', 'tegridy-launch']) {
+    const r = ROSTERS[name];
     const forbidden = new Set(r.keys.filter((k) => k.expect === 'forbidden').map((k) => k.address));
     for (const a of [
       '3ZvZXEBr21Kz7JeWFCeKv8Hyy8AzHqCSXNjif8QHPM9y',
@@ -582,6 +631,29 @@ function selfTest() {
     evaluate(cps, preRestart).failures.map((f) => f.id).sort(),
     ['admin::ID', 'declare_id', 'old cp-swap admin / old deploy authority', 'spent cp-swap id (closed 2026-08-13)', 'squads multisig ACCOUNT'].sort(),
   );
+
+  // 9c. THE LADDER. Its live id and deployer are required; a build for the placeholder, the
+  //     devnet program, the devnet deployer or the retired key fails, each one on its own.
+  const lad = ROSTERS['bayla-ladder'];
+  check('there is a bayla-ladder roster', Boolean(lad), true);
+  if (lad) {
+    const want = (id) => lad.keys.find((k) => k.id === id && k.expect === 'required')?.address;
+    check('bayla-ladder requires its live id EJLP5GEJ... as declare_id', want('declare_id'), 'EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ');
+    check('bayla-ladder requires the deployer its live build names', want('deployer::ID'), 'Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6');
+    const forbidden = lad.keys.filter((k) => k.expect === 'forbidden').map((k) => k.address).sort();
+    check('bayla-ladder forbids the placeholder, the devnet program and deployer, and the retired key', forbidden, [
+      'ASLXdST48ivBZ4xV7VjgD51FJ6rHH5CN5s8XS5TLwygP',
+      'GCCSLE7dBPMijj5F4pDxe592mcGAK83N84R2w5HPauV9',
+      'GKwgTQtVyPGxspxvciDAStY4Jq7rB1STuVvXic7EG6E4',
+      'HzxzfSQzJ9WQKe6xBoP5AgHFP8a84CgLB8dovdtDrtMK',
+    ]);
+    const ladReq = lad.keys.filter((k) => k.expect === 'required').map((k) => k.address);
+    check('bayla-ladder: a binary with its id and deployer passes', evaluate(lad, build(ladReq).body).ok, true);
+    const oneByte = build(ladReq).body;
+    oneByte[oneByte.indexOf(Buffer.from(pubkeyBytes(lad.programId, 'id'))) + 7] ^= 1;
+    check('bayla-ladder: ...and fails with one byte of its id changed, naming declare_id', evaluate(lad, oneByte).failures.map((f) => f.id), ['declare_id']);
+    for (const a of forbidden) check(`bayla-ladder: ...and fails with ${a.slice(0, 8)}... added`, evaluate(lad, build([...ladReq, a]).body).ok, false);
+  }
 
   // 10. DRIFT: every roster address must also be in the canonical registry, so this
   //     file and frontend/scripts/addresses.json cannot disagree about what a key is.
