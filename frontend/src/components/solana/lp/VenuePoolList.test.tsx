@@ -844,3 +844,45 @@ describe("All pools feeds the sheet's drawing (P-01) from its own read, and says
     expect(result.current?.map((p) => p.usd === null)).toEqual([false, true]);
   });
 });
+
+describe('An empty pool beside one of its pair with money in is left off (owner, 2026-11-28: "hide the empty bigbrain/bayla pool")', () => {
+  // The locked 100 shares alone (nobody holds any) and dust in both vaults.
+  const emptyView = (mint: PublicKey) => viewOf(buildPool({ plain: true, mint, configIndex: 1, quoteReserve: 1n, tokenReserve: 3n, lpSupply: 100n }), { sol: 1n, tok: 3n });
+  const cards = () => screen.getAllByTestId('lp-pool').map((c) => c.getAttribute('data-pool'));
+
+  it('off All pools and its drawing, and off the token’s search that View opens', async () => {
+    const live = view(CORN);
+    const empty = emptyView(CORN);
+    const bayla = view(BAYLA, 30n * 10n ** 9n);
+    mount(readers({ listPools: vi.fn(async () => ok([bayla, live, empty])), findPools: vi.fn(async () => search(C, [live, empty])) }));
+    const rows = await screen.findAllByTestId('lp-all-pools-row');
+    expect(rows.map((row) => row.getAttribute('data-pool'))).toEqual([bayla.address, live.address]);
+    const { result } = renderHook(() => useFieldPools());
+    await waitFor(() => expect(result.current?.map((p) => p.address)).toEqual([bayla.address, live.address]));
+    fireEvent.click(within(rows[1]!).getByRole('button', { name: /^View / }));
+    await screen.findByTestId('lp-pool');
+    expect(cards()).toEqual([live.address]);
+    expect(screen.getByTestId('lp-status')).toHaveTextContent(/^One pool found for this token\./);
+    expect(screen.getByTestId('lp-all-pools')).toHaveTextContent('An empty pool, one nobody holds a share of, is left off when the same pair has a pool with money in it.');
+  });
+
+  it('with no twin it stays on the list', async () => {
+    const empty = emptyView(CORN);
+    mount(readers({ listPools: vi.fn(async () => ok([view(BAYLA, 30n * 10n ** 9n), empty])) }));
+    const rows = await screen.findAllByTestId('lp-all-pools-row');
+    expect(rows.map((row) => row.getAttribute('data-pool'))).toContain(empty.address);
+  });
+
+  it('a link that names the empty pool still opens it, and the count says what is shown', async () => {
+    const live = view(CORN);
+    const empty = emptyView(CORN);
+    render(
+      <MemoryRouter initialEntries={[`/pools?mint=${C}&task=add&pool=${empty.address}`]}>
+        <LpInner readers={readers({ findPools: vi.fn(async () => search(C, [live, empty])) })} writes={{ mode: 'off' }} />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(cards()).toContain(empty.address));
+    expect(cards()).toEqual([live.address, empty.address]);
+    expect(screen.getByTestId('lp-status')).toHaveTextContent(/^2 pools found for this token\./);
+  });
+});

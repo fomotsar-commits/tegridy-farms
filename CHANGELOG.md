@@ -9,6 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-28
 
+- Solana pools: an empty pool (nobody holds a share, only its 100 locked shares are left) is no longer listed when the same pair has a pool with money in it. All pools, Every position and a token's search each showed BIG BRAIN / BAYLA twice, once at about $3,000 and once at under a cent; now they show it once. An empty pool with no such twin stays listed with its Restart, and a link to the empty pool still opens it.
 - BAYLA's room: a Liberation bar now heads her market. It fills with the BAYLA in our BAYLA/SOL pools, measured against the BAYLA in her pump.fun pool on PumpSwap (also BAYLA/SOL), and says Liberated the day ours hold more (20% on 2026-11-28). BAYLA in our pools with USDC or other coins is not counted. It counts BAYLA, not dollars, so no price move shifts it, and it is read from Solana when the page opens; when either side cannot be read it says so instead of showing an empty bar. Its link opens her Add SOL + BAYLA form.
 
 ### 2026-11-27
