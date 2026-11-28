@@ -35,4 +35,10 @@ describe('the HyperEVM pools section, when the chain does not answer', () => {
     expect(screen.getByText('Your positions could not be read just now.')).toBeTruthy();
     expect(screen.queryByText(/Reading your positions/)).toBeNull();
   });
+
+  it('shows no open form while no pool opener is deployed, and still says only the venue opens pools', () => {
+    render(<HyperEvmPoolsSection />);
+    expect(screen.queryByTestId('hyperevm-open')).toBeNull();
+    expect(screen.getByText('Why only the venue opens pools')).toBeTruthy();
+  });
 });

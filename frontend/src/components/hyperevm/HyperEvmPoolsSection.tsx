@@ -11,6 +11,7 @@ import { CardArt } from '../ui/CardArt';
 import { FinePrint } from '../ui/FinePrint';
 import { asReader, useBalance, useHyperEvmClient, useHyperEvmSend, usePools } from './useHyperEvm';
 import { CoinLine, Line, SendStatus } from './parts';
+import { OpenPoolCard } from './OpenPoolCard';
 import { PRIMARY_BTN, PRIMARY_STYLE, QUIET_BTN, deadlineIn } from './styles';
 
 const SLIPPAGE_BPS = 50;
@@ -19,8 +20,8 @@ const pairName = (p: V3Pool) => `${p.token0.symbol} / ${p.token1.symbol}`;
 
 /**
  * Our HyperEVM pools: each pool with its price, holdings and how its fee is split, your
- * positions (collect fees, take out), and add. No "open a pool": opening one needs ~4.6M gas,
- * more than a fast block holds, so only the venue opens pools, from an account on big blocks.
+ * positions (collect fees, take out), and add. Once our opener is deployed, anyone opens a pool
+ * for its fee (OpenPoolCard); until then only the venue does, from an account on big blocks.
  * `pageHeading`: on /hyperevm-pools its first title is the page's h1; in the sheet it stays an h2.
  */
 export default function HyperEvmPoolsSection({ pageHeading = false }: { pageHeading?: boolean } = {}) {
@@ -65,14 +66,22 @@ function Pools({ venue, pageHeading }: { venue: HyperEvmVenue; pageHeading: bool
           <p className="text-white/75 text-[12px]">LPs earn each pool's fee on every trade while the price is in their range. The venue keeps a fixed share of it, read from each pool below.</p>
           {state.status === 'loading' && <p role="status" className="text-white/70 text-[12px]">Reading our pools…</p>}
           {state.status === 'unread' && <p role="status" className="text-amber-300/90 text-[12px]">Our pools could not be read just now.</p>}
-          {pools && pools.length === 0 && <p className="text-white/75 text-[12px]">No pools are open yet. Only the venue opens pools on HyperEVM.</p>}
+          {pools && pools.length === 0 && <p className="text-white/75 text-[12px]">{venue.poolOpener ? 'No pools are open yet.' : 'No pools are open yet. Only the venue opens pools on HyperEVM.'}</p>}
           {pools?.map((p) => <PoolRow key={p.address} pool={p} onAdd={() => setAdding({ pool: p })} />)}
-          <FinePrint summary="Why only the venue opens pools">
-            <p>Opening a Uniswap V3 pool costs about 4.6 million gas. HyperEVM's fast blocks hold 3 million, so an opening only fits in a big block, which an account gets only after a Hyperliquid setting is switched on. The venue opens each pool from such an account and switches its cut on in the same run.</p>
-            <p>A pool shows here only when both its coins are on the site's list, read from our factory, so a pool of a copy-coin never does.</p>
-          </FinePrint>
+          {venue.poolOpener ? (
+            <FinePrint summary="Which pools show here">
+              <p>Every pool of two coins on the site's list, read from our factory, and every pool someone opened here and paid the opening fee for, newest first. A coin off the list shows the ticker it gives itself and its whole address; a ticker copying HYPE, USDC or USD₮0 reads "fake USDC".</p>
+            </FinePrint>
+          ) : (
+            <FinePrint summary="Why only the venue opens pools">
+              <p>Opening a Uniswap V3 pool costs about 4.6 million gas. HyperEVM's fast blocks hold 3 million, so an opening only fits in a big block, which an account gets only after a Hyperliquid setting is switched on. The venue opens each pool from such an account and switches its cut on in the same run.</p>
+              <p>A pool shows here only when both its coins are on the site's list, read from our factory, so a pool of a copy-coin never does.</p>
+            </FinePrint>
+          )}
         </div>
       </section>
+
+      {venue.poolOpener && <OpenPoolCard venue={venue} opener={venue.poolOpener} pools={pools} send={send} onAdd={(pool) => setAdding({ pool })} onDone={after} />}
 
       {adding && <AddCard key={`${adding.pool.address}:${adding.position?.tokenId ?? 'new'}`} venue={venue} pool={adding.pool} position={adding.position} send={send} onClose={() => setAdding(null)} onDone={after} />}
 

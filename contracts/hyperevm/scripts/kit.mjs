@@ -3,7 +3,7 @@
 //
 //   node contracts/hyperevm/scripts/kit.mjs task   --run A|B --uniswap <checkout> --chain 999|998 --rpc <url>
 //                                                  [--admin-safe 0x…] [--unsupported 0x…]
-//   node contracts/hyperevm/scripts/kit.mjs record --run A|B|adapter --broadcast <run-*.json> --chain 999|998
+//   node contracts/hyperevm/scripts/kit.mjs record --run A|B|adapter|opener --broadcast <run-*.json> --chain 999|998
 //   node contracts/hyperevm/scripts/kit.mjs check  --chain 999|998 --rpc <url> [--reference-rpc <url>]
 //   node contracts/hyperevm/scripts/kit.mjs sqrt-price --rpc <url> --a 0x… --b 0x… --price <B per 1 A>
 //   node contracts/hyperevm/scripts/kit.mjs fee-job --chain 999 --rpc <url> [--min-block-span 1000]
@@ -47,8 +47,10 @@ const UNISWAP_999 = {
 const SEL = {
   owner: '0x8da5cb5b', feeAmountTickSpacing: '0x22afcccb', feeSetter: '0x87cf3ef4', TOKEN_JAR: '0xe0ef2b4b',
   FACTORY: '0x2dd31000', getFee: '0xb88c9148', slot0: '0x3850c7bd', protocolFees: '0x1ad8b03b', factory: '0xc45a0155',
-  WETH9: '0x4aa4a4fc',
+  WETH9: '0x4aa4a4fc', FEE_SWITCH: '0x18f0bf58', TREASURY: '0x2d2c5565', POOL_OPENING_FEE: '0x24511c26',
+  poolCount: '0xf525cb68',
 };
+const OPENING_FEE_WEI = 230_000_000_000_000_000n; // HyperEVMPoolOpener.POOL_OPENING_FEE: 0.23 HYPE (owner 2026-11-26)
 const POOL_CREATED = '0x783cca1c0412dd0d695e784568c96da2e9c22ff989357a2e8b1d9b2b4e6b7118';
 const EIP1967_IMPL = '0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc';
 const EIP1967_ADMIN = '0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103';
@@ -199,7 +201,11 @@ function record() {
     const ad = (dep.additionalContracts || []).find((c) => c.contractName === 'V3OpenFeeAdapter') || dep.additionalContracts?.[0];
     if (!ad) die('the broadcast does not show the adapter the deployer created');
     d.V3OpenFeeAdapter = ad.address;
-  } else die('--run must be A, B or adapter');
+  } else if (run === 'opener') {
+    const op = creates.filter((t) => t.contractName === 'HyperEVMPoolOpener');
+    if (op.length !== 1) die(`the broadcast should create exactly 1 HyperEVMPoolOpener, found ${op.length}`);
+    d.HyperEVMPoolOpener = op[0].contractAddress;
+  } else die('--run must be A, B, adapter or opener');
   d.deployers = Array.from(new Set([...(d.deployers || []), deployer].filter(Boolean)));
   d.chainId = Number(chain);
   fs.mkdirSync(path.dirname(deploymentsPath(chain)), { recursive: true });
@@ -353,6 +359,37 @@ async function check() {
     else if (eq(factoryOwner, owner)) console.log('⏳ factory still owned by the admin Safe: its setOwner(adapter) step is still to do');
     else fail('factory owner is neither the adapter nor the admin Safe');
   } else console.log('⏳ no V3OpenFeeAdapter recorded yet');
+  // 4. The pool opener: no owner, so all that matters is where it points and what it charges.
+  if (isAddr(d.HyperEVMPoolOpener || '')) {
+    const o = d.HyperEVMPoolOpener;
+    const onChain = await code(url, o);
+    if (onChain.length < 4) fail('the recorded HyperEVMPoolOpener has no code');
+    else {
+      // Its code must be exactly this kit's build: the three immutables (factory, fee switch,
+      // treasury) are blanked on both sides, and checked one by one below.
+      const art = path.join(KIT, 'out', 'HyperEVMPoolOpener.sol', 'HyperEVMPoolOpener.json');
+      const built = readJsonOr(art, null);
+      if (!built) fail(`no build of HyperEVMPoolOpener at ${art}: run forge build in contracts/hyperevm first`);
+      else {
+        const blank = (hex) => {
+          const b = Buffer.from(hex.replace(/^0x/, ''), 'hex');
+          for (const refs of Object.values(built.deployedBytecode.immutableReferences || {})) for (const r of refs) b.fill(0, r.start, r.start + r.length);
+          return b;
+        };
+        blank(onChain).equals(blank(built.deployedBytecode.object))
+          ? pass("opener code = this kit's compiled HyperEVMPoolOpener (immutables blanked)")
+          : fail("the opener's code differs from this kit's HyperEVMPoolOpener");
+      }
+      const jar = isAddr(d.V3OpenFeeAdapter || '') ? await callAddr(url, d.V3OpenFeeAdapter, SEL.TOKEN_JAR) : null;
+      const paidTo = await callAddr(url, o, SEL.TREASURY);
+      const fee = BigInt(await rpc(url, 'eth_call', [{ to: o, data: SEL.POOL_OPENING_FEE }, 'latest']));
+      console.log(`   opener ${o}: fee ${fee} wei, paid to ${paidTo}`);
+      eq(await callAddr(url, o, SEL.FACTORY), f) ? pass('opener.FACTORY() = our factory') : fail('the opener points at another factory');
+      eq(await callAddr(url, o, SEL.FEE_SWITCH), d.V3OpenFeeAdapter || '') ? pass('opener.FEE_SWITCH() = our fee switch') : fail('the opener points at another fee switch');
+      jar && eq(paidTo, jar) ? pass('the opening fee goes to the same treasury Safe as the venue cut') : fail('the opening fee goes somewhere other than the treasury Safe');
+      fee === OPENING_FEE_WEI ? pass('opening fee = 0.23 HYPE') : fail(`opening fee is ${fee} wei, not 0.23 HYPE`);
+    }
+  } else console.log('⏳ no HyperEVMPoolOpener recorded yet');
   if (!ok) {
     process.exitCode = 1; // not process.exit: Windows Node can crash exiting with sockets still open
     return console.log('\nSOME CHECKS FAILED');

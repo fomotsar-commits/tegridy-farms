@@ -16,9 +16,16 @@ not committed).
   Uniswap's own V3 factory on Ethereum today. Anyone can press its two buttons, "switch the cut on
   for this pool" and "collect", but the money can only go to one address, fixed at deploy: **our
   treasury Safe**.
-- **The only new contract we wrote** is `src/HyperEVMFeeAdapterDeployer.sol`. It is step 7 of
+- **We wrote two small contracts.** `src/HyperEVMFeeAdapterDeployer.sol` is step 7 of
   Uniswap's own `OPStackDeployer`, copied line for line. It sets the fee switch up in one
   transaction, then hands every role to our admin Safe.
+- `src/HyperEVMPoolOpener.sol` (2026-11-26, owner: anyone may open a pool for 0.23 HYPE) lets anyone
+  open a pool through the site. In one transaction it takes exactly 0.23 HYPE, opens the pool at the
+  opener's price, switches the venue's cut on, pays the 0.23 HYPE to the treasury Safe, and adds the
+  pool to the list the site shows. It has no owner and no settings, and it keeps nothing. Uniswap's
+  contracts are unchanged, so a pool can still be opened for free straight on the factory. Such a pool
+  is not on the opener's list until someone lists it (`list`), for the same fee and at the price it
+  already has. So nobody can keep a coin off the site by opening its pools first.
 
 ### How money moves
 
@@ -27,7 +34,7 @@ not committed).
 | LPs | the pool's swap fee (0.01%, 0.05%, 0.3% or 1%) on every trade while the price is inside their range | every trade through that pool, from any app or bot |
 | Venue, pool cut | a share of each pool's fee: **1/4 on the 0.01% and 0.05% pools, 1/6 on the 0.3% and 1% pools** (Uniswap's own mainnet schedule, unchanged). On a 0.3% pool that is 0.05% of each trade | every trade through our pools, from any app or bot |
 | Venue, site fee | a cut of each swap made on our site, taken by the router in the same transaction (PAY_PORTION). The rate is the owner's decision | swaps made on our site only |
-| Venue, opening fee | none: Uniswap's factory has no opening fee | — |
+| Venue, opening fee | **0.23 HYPE** per pool opened through `HyperEVMPoolOpener`, sent to the treasury Safe in the same transaction (a constant: changing it means a new opener) | pools opened on our site; a pool opened straight on Uniswap's factory pays nothing |
 
 - A new pool pays the venue **nothing until someone presses "switch the cut on"** for it.
   `script/OpenPool.s.sol` presses it straight away, and `kit.mjs fee-job` finds any pool still at 0.
@@ -47,6 +54,7 @@ not committed).
 | B | UniversalRouter 2.2.0 | our factory + position manager; V2/V4/Across slots = UnsupportedProtocol |
 | C | HyperEVMFeeAdapterDeployer → V3OpenFeeAdapter | treasury = treasury Safe; owner + fee setter = admin Safe |
 | Safe | `factory.setOwner(adapter)` | one admin Safe transaction: hands the factory to the fee switch |
+| Opener | HyperEVMPoolOpener (`script/DeployPoolOpener.s.sol`, record with `kit.mjs record --run opener`) | fee switch + treasury Safe, fixed at deploy; fee 0.23 HYPE; no owner |
 
 Not deployed: Uniswap V2, V4, SwapRouter, SwapRouter02, V3Migrator, the interface Multicall
 (viem uses Multicall3, already on HyperEVM).
@@ -65,6 +73,45 @@ Unit tests (`forge test`, 9 tests). They run on Uniswap's exact V3 factory code:
 - **Mutants:** each test was proved to fail against four broken copies, and the restore was
   proved. The four: the cut sent elsewhere, ownership not handed over, a wrong fee schedule, and
   wrong compiler settings.
+
+The pool opener (2026-11-26, `test/HyperEVMPoolOpener.t.sol`, 19 tests, on Uniswap's exact factory
+code and Uniswap's own fee switch):
+- **Money:** an opening pays exactly 0.23 HYPE, and every wei of it lands in the treasury. Any other
+  amount is refused. A treasury that refuses the payment undoes the whole opening.
+- **The pool:** it opens at the opener's price, with the venue's cut already on, on every tier
+  (1/4 or 1/6). It holds no coins, and it is listed once.
+- **Refusals:** a pool that already has a price (opened here or straight on the factory), unsorted or
+  repeated tokens, a token with no code, a tier the factory lacks, a price outside Uniswap's range,
+  a treasury that is a plain wallet, and a fee switch that does not own its factory. A pool made on
+  the factory but never priced opens here like a new one.
+- **Listing** a pool opened straight on the factory: it pays the treasury the same fee and switches the
+  cut on. The pool keeps its own price. Listing is refused for a pool already on the list (either
+  way), one with no price yet, anything the factory did not make (a look-alike contract or a wallet),
+  and any other payment.
+- **Mutants:** 15 broken copies were each caught by at least one test, and the restore was proved
+  by hash. The fifteen:
+  - the fee paid to the sender;
+  - no payment check, on opening and on listing;
+  - no cut;
+  - no already-open check;
+  - no code check;
+  - no sort check;
+  - no owner check;
+  - a plain-wallet treasury allowed;
+  - the pool not listed;
+  - a failed payment ignored;
+  - listing twice;
+  - listing any contract;
+  - listing an unpriced pool;
+  - the listing not recorded.
+- **Fork rehearsal against the real HyperEVM contracts** (pack step `9-deploy-opener.sh`, throwaway
+  deployer). It deployed, and `kit.mjs check` passed all four opener lines. A stranger's WHYPE/USD₮0
+  1% opening then paid the real treasury Safe exactly 230000000000000000 wei, with the price exact
+  and the cut at 102. 0.2 HYPE was refused, the same pool again was refused, and a second deploy
+  stopped with nothing sent.
+  - A WHYPE/USD₮0 0.05% pool opened straight on the factory had its cut at 0. Listed for the fee, it
+    paid the treasury the same amount, and its cut went to 68. Listing it again was refused.
+  - `kit.mjs check` held the opener's code to this kit's build, with the immutables blanked.
 
 `scripts/check-adapter-bytes.mjs`: **our compiled V3OpenFeeAdapter is byte-identical to Uniswap's live
 one on Ethereum** (`0xf2371551Fe3937Db7c750f4DfABe5c2fFFdcBf5A`). Only its two immutables and the
