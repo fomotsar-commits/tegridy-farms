@@ -98,6 +98,18 @@ export const STAKE_PROGRAMS = Object.freeze({
 export const STAKE_MINT_OFFSET = 10;
 
 const BAYLA_MINT = "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump";
+
+/**
+ * BAYLA's liberation bar (owner, 2026-11-26: "a health bar ... as we move to flipping the pump fun
+ * pool for Bayla"): the BAYLA in all our pools against the BAYLA in her graduated pump.fun pool on
+ * PumpSwap, the deepest of her outside pools. Counted in BAYLA on both sides, never in dollars: at one
+ * price, a constant-product pool's worth is twice its BAYLA, so the ratio is the depth ratio with no
+ * price to lean on. The vault is the pool's `pool_base_token_account` (its account at byte 139), read
+ * from mainnet 2026-11-26; every read checks the vault still belongs to the pool and holds BAYLA.
+ */
+export const PUMP_BAYLA_POOL = "8z52phbctYyW8FsMbbz9KeWY2n1W4ucGJc9vCsjYpK2n";
+export const PUMP_BAYLA_VAULT = "aiPsDnrg1yfBAVZQmWgqiRi66kaWaiUFPQNfpjwT76U";
+
 /** Every Solana staking pool, with the coin it takes (src/lib/bungalows.ts; a test pins the list). */
 export const SOLANA_STAKE_POOLS = Object.freeze(
   [
@@ -310,8 +322,10 @@ export async function readSolana({ fetchImpl, priceOf }) {
     }
   });
   const held = wanted.size ? await readVaults(wanted, fetchImpl) : new Map();
+  // Every BAYLA vault of ours is read above: BAYLA is a pairing coin, so each pool of hers is counted.
+  const bayla = [...wanted].reduce((sum, [vault, coin]) => (coin.mint === BAYLA_MINT ? sum + held.get(vault) : sum), 0);
 
-  if (!counted.length) return { usd: 0, pools: 0, unvalued: 0, poolCoins: [] };
+  if (!counted.length) return { usd: 0, pools: 0, unvalued: 0, poolCoins: [], bayla };
   const usd = { [SOL.mint]: await priceOf("SOL"), [USDC.mint]: 1 };
   for (const coin of ISLAND_COINS) usd[coin.mint] = islandUsd(coin, counted, held, usd);
 
@@ -332,7 +346,20 @@ export async function readSolana({ fetchImpl, priceOf }) {
     .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
     .slice(0, MAX_POOL_COINS)
     .map(([mint, worth]) => ({ mint, usd: Math.round(worth * 100) / 100 }));
-  return { usd: total, pools: counted.length - unvalued, unvalued, poolCoins };
+  return { usd: total, pools: counted.length - unvalued, unvalued, poolCoins, bayla };
+}
+
+/** The BAYLA in her pump.fun pool, in whole coins. Throws unless the vault is the pool's own BAYLA account. */
+export async function readPumpBayla(fetchImpl) {
+  const r = await solanaRpc("getMultipleAccounts", [[PUMP_BAYLA_VAULT], { encoding: "jsonParsed", commitment: "confirmed" }], fetchImpl);
+  const acc = r?.value?.[0];
+  const info = acc?.data?.parsed?.info;
+  const amount = info?.tokenAmount?.amount;
+  const decimals = info?.tokenAmount?.decimals;
+  if (!acc || acc.owner !== COIN_BY_MINT.get(BAYLA_MINT).program || info?.mint !== BAYLA_MINT || info?.owner !== PUMP_BAYLA_POOL || typeof amount !== "string" || !/^\d+$/.test(amount) || !Number.isInteger(decimals)) {
+    throw new Error(`vault ${PUMP_BAYLA_VAULT} does not read as the pump.fun pool's BAYLA`);
+  }
+  return Number(amount) / 10 ** decimals;
 }
 
 /**
@@ -594,9 +621,21 @@ export async function readVenueTvl({ fetchImpl = globalThis.fetch, now = Date.no
     );
   // The coins with a $200 pool, beside the total: unset while Solana's pools are not read.
   let poolCoins = null;
+  // BAYLA in our pools and in her pump.fun pool, beside the total: unset unless both were read.
+  // The pump.fun pool is not ours, so its read failing never costs Solana's row.
+  let baylaFlip = null;
   const solana = async () => {
-    const r = await readSolana({ fetchImpl, priceOf });
+    const [r, pump] = await Promise.all([
+      readSolana({ fetchImpl, priceOf }),
+      readPumpBayla(fetchImpl).catch((err) => {
+        console.error("[venue-tvl] pump.fun BAYLA pool not read:", logSafe(err));
+        return null;
+      }),
+    ]);
     poolCoins = r.poolCoins;
+    // Whole coins, each rounded AGAINST us (ours down, hers up), so a fraction of a coin can
+    // never lift the bar's figure or call the flip early.
+    if (pump !== null && pump > 0) baylaFlip = { ours: Math.floor(r.bayla), pump: Math.ceil(pump) };
     return r;
   };
   // A floor read in the last minute is not read again.
@@ -627,6 +666,7 @@ export async function readVenueTvl({ fetchImpl = globalThis.fetch, now = Date.no
     staking,
     nfts,
     ...(poolCoins ? { poolCoins } : {}),
+    ...(baylaFlip ? { baylaFlip } : {}),
     readAt: new Date(now).toISOString(),
   };
 }
