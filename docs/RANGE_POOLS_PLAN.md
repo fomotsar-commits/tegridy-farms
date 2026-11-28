@@ -16,12 +16,16 @@ Raydium, whose open code we copy.
 - **Why that commit.** The rule is "the code that holds the money". Raydium's live program
   (`CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK`) is not a verified build: the public registry
   (verify.osec.io) says `is_verified: false`, and its five attempts all name older commits. So
-  no hash proves it. Every other sign points at this commit: the program was last deployed at
+  no hash proves it. Every other sign points at this commit: the program was then last deployed at
   slot 451,479,902 (2026-09-29 00:27 UTC), two minutes before this commit was merged, and the live
   binary holds an error text ("Lamports calculate error") that first appears in this commit's
   branch. It holds nothing from Raydium's later, unmerged change. **Not proven, very likely.**
+  Raydium deployed it again at slot 459,932,378 (2026-10-22 06:24:28 UTC, read 2026-11-15), after
+  the pin, so the pin was Raydium's live code for 23 days. What that deploy holds cannot be read
+  from outside: it is not a verified build either.
 - **What changed.** Identity, two build guards, and three of the vault's powers cut (the owner's
-  ruling, 2026-10-20). 135 changed lines in 18 files: the roles and names in the next section, a
+  ruling, 2026-10-20). At phase 0, 135 changed lines in 18 files (since the 2026-11-15 round, 2,261
+  in 38: `provenance.mjs` prints the count): the roles and names in the next section, a
   gate that refuses a test-chain build (below), the one line that reads `uint` from our own folder,
   and 24 lines that hold fees to 4% and the venue and island to 16% of each fee, let only the fund
   owner collect the island's share, and keep a reward's take-back with its funder. Every other
@@ -67,11 +71,12 @@ charge more than 4% of a swap, nor give the venue and the island together more t
 fee; both are checked when a tier is made and when it is changed, and since 2026-11-03 no pool can
 carry a dynamic fee at all. Two exceptions: a fee is rounded up to the coin's smallest unit, so a
 very small swap can pay more than 4% (and a Token-2022 coin's own transfer fee comes on top); and
-when a swap fills a limit order where no LP's range is in use, the LPs' share of that fee goes to
-the venue's share. The ceilings bind every tier this build makes; a later upgrade must check any
+when a swap fills a limit order, the LPs' share of that fee goes to the venue's share, whatever
+liquidity is in range (since 2026-11-15; before, only where no LP's range was in use). The
+ceilings bind every tier this build makes; a later upgrade must check any
 tier made before it. Opening a pool costs 0.5 SOL, paid to the vault through `create_pool`, the
-one instruction that opens one (owner, 2026-10-25; "Decided 2026-10-25", below). Until the vault upgrades
-the program on mainnet, the program there charges nothing to open a pool. Spare SOL sent to a
+one instruction that opens one (owner, 2026-10-25; "Decided 2026-10-25", below). The program on
+mainnet charges it too, since the upgrade of 2026-11-04. Spare SOL sent to a
 pool's accounts stays there: the sweep is deleted (2026-11-03). None of these paths can reach a
 Raydium address, because none is in the code. Each path was run on a local chain (below).
 
@@ -97,13 +102,14 @@ hours):
    collecting their shares, nor a limit order's owner taking their coins out. It is the only brake
    there is. The same instruction turns a pool's limit orders on, and it is the rescue when a
    reward coin's vault is frozen ("Fixed in the source 2026-11-03", below). It writes the whole
-   status byte, so every proposal states every bit.
+   status byte, so every proposal states every bit; since 2026-11-15 it refuses bits 64 and 128,
+   which name nothing. Turning limit orders off (32) stops new orders only: resting orders keep
+   filling until swaps are paused too (48), and the vault cannot cancel a resting order.
 2. **Nothing it does is fast**: a pause, like every vault action, takes effect 48 hours after its
    second approval at the earliest. The lock protects everyone from a hasty change, and it also
-   means the brake is slow. One exception would be an operation owner: a key the vault adds
-   (`update_operation_account`) can change any pool's reward window and rate at once, with no
-   proposal, and since 2026-11-03 it is the only key besides the vault that can start a reward. So
-   the vault adds none unless it means to.
+   means the brake is slow. An operation owner, a key the vault may add
+   (`update_operation_account`), could once change any pool's reward at once; since 2026-11-15 it
+   can neither start nor change one, so no key acts faster than the vault.
 3. Change a tier's fee within the 4% and 16% ceilings, on every pool of that tier at once.
 4. Move a reward's window before it opens, or change its rate, paying for what it adds. After the
    end the unpaid rest goes back to whoever started the reward, with anything the vault paid in, so
@@ -122,7 +128,7 @@ from fresh clones by `node solana/guards/provenance.mjs --regenerate <scratch fo
 can re-run it, and `git diff solana/guards/upstream` must then show no change.
 
 1. **Same code as Raydium's, plus only the reviewed patch** (`solana/guards/provenance.mjs`, in
-   `diff-guard` and `clmm-guards`). Range pools: 79 upstream files, 32 patched. cp-swap: its
+   `diff-guard` and `clmm-guards`). Range pools: 79 upstream files, 38 patched (2026-11-15). cp-swap: its
    whole package, 37 files, 8 patched (2026-11-03; the `patched` lists in `provenance.mjs` are the
    record). `vendor/uint`: 16 files, none patched. Undoing the patch
    on our file must give back Raydium's exact file. No file may be added anywhere in either
@@ -167,12 +173,12 @@ where a unit test now names them to prove they meet the same check as every coin
 The audit of 2026-11-03 found no critical bug in this program. Each finding below is fixed in the
 source, or routed, with a test seen failing on the code before the fix: the unit tests run in CI,
 the local chain's checks are in [RESULTS.md](../solana/clmm-localnet/RESULTS.md). **None of it is on
-chain yet.** It rides the program upgrade after #22, which itself upgrades to the source before this
-round. The release build is 1,374,528 bytes, 152,176 fewer than before.
+chain yet.** It rides the program upgrade after #22, which itself upgraded to the source before this
+round (on chain since 2026-11-04). Its release build is 1,375,384 bytes, measured (RESULTS.md).
 
-Until that upgrade, the program on chain (today's, and #22's after it) still lets anyone open a
-range pool with `create_customizable_pool` and its fee coin of choice, with limit orders on;
-today's also charges nothing to open one (#22 adds the 0.5 SOL). A pool opened that way holds its
+Until that upgrade, the program on chain (#22's, of 2026-11-04) still lets anyone open a range
+pool with `create_customizable_pool` and its fee coin of choice, and every pool it opens, through
+`create_pool` too, is born with limit orders on; it charges the 0.5 SOL. A pool opened that way holds its
 pair's one `create_pool` address on its tier for good, with the fee coin it chose. No dynamic-fee
 setting exists, and only the vault could make one, so no pool can get a dynamic fee meanwhile (read
 2026-11-03 at slot 465,158,817: the program's only accounts are its two fee tiers). The upgrade
@@ -191,16 +197,16 @@ changes no pool already open: such a pool keeps limit orders on (status 0) until
 | PARI-4 (round 1) | The vault could point a tier's island share at any account, itself included, collect it and point it back, in one proposal | `update_amm_config`'s param 4 works only while the vault still holds the share (the owner's ruling, 2026-11-03), as in swap pools | V6 |
 | ME-2 | Just-in-time liquidity takes most of the LP fee on a big swap | **An owner-approved exception, 2026-11-03**: left as every major exchange leaves it. No code | |
 
-**Who can start a reward now.** Only the vault, or an operation owner the vault names. A pool's
-opener still becomes its owner, but no instruction reads a pool's owner any more. Nothing was exposed
-before the ruling either: every reward needs the operation account, which does not exist and only the
-vault can make (slot 465,158,817). An operation owner can also change any pool's reward window and
-rate with no proposal ("What else the vault can still do", 2), so a reward someone else pays for now
-takes a vault proposal, or an operator the vault trusts with every pool.
+**Who can start a reward now.** Only the vault (since 2026-11-15; from 2026-11-03 an operation
+owner the vault named could too). A pool's opener still becomes its owner, but no instruction reads
+a pool's owner any more. Nothing was exposed before the ruling either: every reward needs the
+operation account, which does not exist and only the vault can make (slot 465,158,817). Only the
+vault changes a reward too, so a reward someone else pays for takes a vault proposal.
 
 **The status byte is written whole.** `update_pool_status` sets all six bits at once: open or add
 (1), withdraw (2), collect fees (4), collect rewards (8), swap (16), new limit orders (32); a set bit
-turns that action off. A pool born on this build reads 32. Lifting a pause with 0, as Raydium's own
+turns that action off, and since 2026-11-15 a byte with 64 or 128 set is refused. A pool born on
+this build reads 32. Lifting a pause with 0, as Raydium's own
 tools do, would turn limit orders on too, so on such a pool a swap pause is 48 and lifting it is 32.
 
 **The rescue for a frozen reward coin (CL-07).** If a reward coin's issuer freezes or pauses a
@@ -208,6 +214,54 @@ pool's reward vault, every withdrawal that would pay that reward fails, principa
 vault then proposes `update_pool_status` with 8 added to the pool's status (40 on a pool at 32). Once it executes, 48 hours later, LPs withdraw as usual: they are paid no reward, and what each
 position earned stays owed to it. When the coin moves again, the vault sets the byte back. The site
 already leaves the reward accounts out while collection is off. Measured on the local chain: check A4.
+While the coin stays frozen, a position that withdrew everything cannot be closed: it still owes
+that reward, and closing refuses a position with a reward owed (RNG-06). Fund rewards only in coins
+nobody can freeze.
+
+## Fixed in the source 2026-11-15 (the audit's second range-pool round)
+
+The Solana audit of 2026-11-15 found no critical or high bug in this program. The owner ruled the
+same day that limit orders stay, with their arithmetic patched, and that the LPs' part of the fee on
+a limit-order fill is the venue's. Each change below has a unit test seen failing on the code before
+it; for the two reward handlers that test pins the rule's text, and the local chain's checks R15,
+R16 and X2, not yet run, run them. **None of it is on chain.** It needs its own upgrade, either in place of the pending upgrade's
+build or as a second upgrade after it, and that upgrade must execute before the vault turns limit
+orders on for any pool.
+
+**No roll-back below this build once a limit order exists.** An older build reads a ratio held at
+2^126 as if it were at 2^64, and pays a maker as if the whole order had filled, out of the pool's
+vault. So stage no such roll-back, and never execute one once any limit order has been opened on any
+pool. A swap that fills part of an order can now need one more 256-bit multiply and divide (at most
+once in each pool it passes through). Its compute units are not measured yet: measure one before
+the vault turns limit orders on.
+
+| Finding | What it was | What changed | Proved by |
+|---|---|---|---|
+| RNG-02 | A cohort's unfilled ratio was carried at 2^64 and rounded down at every fill, so a large cohort's makers could be credited more of the paid coin than takers paid in | Carried at 2^126. An older build left `padding[0]` at 0 in a tick or an order; such a ratio is scaled up exactly when read, so an order opened before this build settles, cancels and closes correctly | unit tests |
+| RNG-03 | On a limit-order fill the LPs' 84% went to whatever LP liquidity was in range, however small | It goes to the venue's share (the owner's ruling) | unit test |
+| RNG-04 | An order one unit of which no u64 input could buy at the taker's rounding was accepted | The size check every order passes refuses it | unit test |
+| RNG-05 | An operation owner the vault named could start rewards, change any reward at once, and keep what the vault added to a reward it started | Only the vault starts or changes a reward | unit tests, R15, R16, X2 |
+| RNG-09, XCH-08 | `update_amm_config` param 3 named a second fee collector; the island's hand-over took the all-zero key; a reward's unpaid rest could be paid into the pool's own vault | Param 3 is deleted, the all-zero key and that receiver are refused. The fee collections already refuse a pool vault as receiver: Anchor refuses the same mutable account twice | unit tests |
+| RNG-12 | A deposit of liquidity 0 with a base side was sized from one coin at the price it landed at, with a ceiling on one side only | Refused: a deposit states its liquidity, as the site's always did | unit test |
+| RNG-07 | `update_pool_status` took any byte, bits 64 and 128 included | Those bits are refused; the byte is still written whole | unit test |
+
+**The fee on a limit-order fill.** The taker pays the tier's fee on what they pay in (1% on both
+tiers). Of it, 5.6% is the island's and 94.4% the venue's: its own 10.4%, and the 84% an ordinary
+swap step gives the LPs whose range is in use, since no LP sells on a fill. The maker pays no fee and
+is paid the order's price. An ordinary swap step is unchanged: 84% to in-range LPs, 10.4% to the
+venue, 5.6% to the island.
+
+**What an order's maker should know.**
+
+- Cancelling part of an order that has been partly filled holds back one unit of the coin it sells,
+  which nobody can claim afterwards (RNG-13).
+- Orders on one price that start filling together form one group with no time order inside it,
+  and once one unit of that group is bought it takes no top-ups (RNG-17).
+- Turning limit orders off (status 32) stops new orders and top-ups only; resting orders keep
+  filling until swaps are paused too (48). The vault cannot cancel a resting order: only its owner
+  can (RNG-08).
+- A taker's exact-input swap that reaches an order with less left than one unit costs pays that
+  rest for nothing; a minimum out or a price limit bounds it (RNG-04).
 
 ## What is left, in order
 
@@ -256,7 +310,7 @@ already leaves the reward accounts out while collection is off. Measured on the 
    wallet, on top of the pool pack's if its Day 0 has not run. Risk: the program's upgrade key
    decides who can change it later.
 8. **Our own hard internal review before any mainnet date**: an adversarial review of the
-   111-line diff and of the deploy pack, as its own step. **An outside review after launch**
+   reviewed patch (`solana/guards/upstream/tegridy-clmm.diff`) and of the deploy pack, as its own step. **An outside review after launch**
    (owner decision 2026-10-20).
 
 ## Fee tiers (decided by the owner 2026-10-20; the vault signs them)
@@ -267,14 +321,14 @@ our cp-swap tiers carry since 2026-10-19.
 | Tier | Price steps (tick spacing) | For | LPs keep | The venue's share | The island's share |
 |---|---|---|---|---|---|
 | 1% | 120 | meme coins, BAYLA/SOL | 0.84% of each swap | 0.104% | 0.056% |
-| 0.25% | 60 | SOL against a dollar coin | 0.21% | 0.026% | 0.014% |
+| 1% | 60 | planned at 0.25% for SOL against a dollar coin; made at 1% (read on chain 2026-11-15) | 0.84% | 0.104% | 0.056% |
 
 How LPs earn: each swap through their range pays the tier's fee, and 84% of it stays with the
 positions whose range was in use; each position collects its own. How the venue earns: 10.4% of
 each fee, collected by the vault. How the island earns: 5.6% of each fee, collected by its
 Workshop (`island-workshop-wallet` in `frontend/scripts/addresses.json`). In the program that is
-`trade_fee_rate` 10,000 or 2,500, `protocol_fee_rate` 104,000 and `fund_fee_rate` 56,000 (all per
-million). One vault proposal makes both tiers and points each one's fund owner at the Workshop
+`trade_fee_rate` 10,000 on both tiers, `protocol_fee_rate` 104,000 and `fund_fee_rate` 56,000 (all
+per million). One vault proposal makes both tiers and points each one's fund owner at the Workshop
 (per tier `create_amm_config`, then `update_amm_config` with param 4, as cp-swap's tiers were
 made): one 48-hour wait, and no moment when one tier exists without the other.
 Each tier costs the vault 0.0012 SOL in rent.

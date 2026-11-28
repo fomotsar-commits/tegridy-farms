@@ -209,15 +209,17 @@ export async function phases(c, h) {
   phaseDone('phase6');
 
   // ===========================================================================================
-  // Phase 7: rewards, paid by the vault and by an operator it named; the whole life of one stream.
+  // Phase 7: rewards, paid by the vault alone; the whole life of one stream.
   // ===========================================================================================
   for (const k of [bob, carol, dave, erin]) await must('REWARD account for ' + h.names.get(k.publicKey.toBase58()), [ataIx(k.publicKey, k.publicKey, REWARD)], [k]);
+  await must("the vault's REWARD, for the rewards it funds", [ataIx(K.rewardMintAuthority.publicKey, VAULT, REWARD),
+    spl.createMintToInstruction(REWARD, ata(VAULT, REWARD), K.rewardMintAuthority.publicKey, 400_000_000_000n, [], ADDR.token)], [K.rewardMintAuthority]);
   const op = reg(PDA.operation(), 'operation account');
   if (!mut('R1')) await mustVault('vault creates the operation account', [ix('create_operation_account', { owner: VAULT, operation_state: op })]);
   check('R1', 'create_operation_account', 'the vault creates the operation account rewards need', !!(await conn.getAccountInfo(op)), '');
   await measure('operation account (OperationState)', op, 'vault');
-  // Since 2026-11-03 only the vault or an operator it names can start a reward, so erin, made one
-  // here, funds the rewards a pool's opener used to (audit CL-03/CR-4, the owner's ruling).
+  // Only the vault starts or changes a reward: not a pool's opener (2026-11-03 audit, CL-03/CR-4)
+  // and not an operation owner (2026-11-15 audit, RNG-05). erin is made one to show it.
   await mustVault('vault makes erin an operator', [ix('update_operation_account', { owner: VAULT, operation_state: op }, { param: 0, keys: [erin.publicKey] })]);
   const rv0 = reg(PDA.rewardVault(poolA, BAYLA), 'pool A reward vault BAYLA');
   const rv1 = reg(PDA.rewardVault(poolA, REWARD), 'pool A reward vault REWARD');
@@ -237,14 +239,14 @@ export async function phases(c, h) {
     await measure('reward vault (Token-2022, BAYLA)', rv0, 'reward funder');
   }
   {
-    const who = mut('R3') ? erin : mallory;
     const now = await clockNow();
-    const r = await send('a stranger sets up a reward', [initReward(who.publicKey, REWARD, rv1, now + 30, now + 30 + WEEK, 500_000)], [who], { expectFail: true });
+    const r = mut('R3') ? (await vaultRun('R3 mutant: the vault', [initReward(VAULT, REWARD, rv1, now + LOCAL_TIME_LOCK + 30, now + LOCAL_TIME_LOCK + 30 + WEEK, 500_000)])).execute
+      : await send('a stranger sets up a reward', [initReward(mallory.publicKey, REWARD, rv1, now + 30, now + 30 + WEEK, 500_000)], [mallory], { expectFail: true });
     check('R3', 'initialize_reward', 'a stranger cannot set up a reward on the pool', failedWith(r, 'NotApproved'), `refused: ${errName(r)}`);
   }
   {
     // Pool C exists only for this try, so a build that lets its opener in fills no slot another
-    // check uses. Its broken input sends erin, an operator, instead of the opener.
+    // check uses. Its broken input sends the vault instead of the opener.
     const [C0, C1] = order(WSOL, REWARD);
     const poolC = reg(PDA.pool(c.cfg1, C0, C1), 'pool C (SOL/REWARD, 0.25%)');
     for (const [w, m] of [['vault 0', C0], ['vault 1', C1]]) reg(PDA.vault(poolC, m), 'pool C ' + w);
@@ -256,21 +258,37 @@ export async function phases(c, h) {
       tick_array_bitmap: PDA.bitmap(poolC), token_program_0: prog(C0), token_program_1: prog(C1),
     }, { sqrt_price_x64: 1n << 64n, open_time: 0n })], [alice]);
     const rvC = reg(PDA.rewardVault(poolC, REWARD), 'pool C reward vault REWARD');
-    const who = mut('R4') ? erin : alice;
     const now = await clockNow();
-    const r = await send("pool C's opener tries to start a reward on it", [ix('initialize_reward', {
-      reward_funder: who.publicKey, funder_token_account: ata(who.publicKey, REWARD), amm_config: c.cfg1, pool_state: poolC, operation_state: op,
+    const startC = (who, open) => ix('initialize_reward', {
+      reward_funder: who, funder_token_account: ata(who, REWARD), amm_config: c.cfg1, pool_state: poolC, operation_state: op,
       reward_token_mint: REWARD, reward_token_vault: rvC, reward_token_program: prog(REWARD),
-    }, { param: { open_time: BigInt(now + 20), end_time: BigInt(now + 20 + WEEK), emissions_per_second_x64: 1_000n << 64n } })], [who], { expectFail: !mut('R4') });
-    check('R4', 'initialize_reward', "a pool's opener cannot start a reward on it: only the vault or an operator the vault named can (2026-11-03 audit, CL-03/CR-4)",
+    }, { param: { open_time: BigInt(open), end_time: BigInt(open + WEEK), emissions_per_second_x64: 1_000n << 64n } });
+    const r = mut('R4') ? (await vaultRun('R4 mutant: the vault', [startC(VAULT, now + LOCAL_TIME_LOCK + 20)])).execute
+      : await send("pool C's opener tries to start a reward on it", [startC(alice.publicKey, now + 20)], [alice], { expectFail: true });
+    check('R4', 'initialize_reward', "a pool's opener cannot start a reward on it: only the vault can (2026-11-03 audit, CL-03/CR-4)",
       failedWith(r, 'NotApproved') && !(await conn.getAccountInfo(rvC)), `refused: ${errName(r)}`);
   }
   {
-    const now = await clockNow();
-    const b = await tok(ata(erin.publicKey, REWARD));
-    await must('erin, an operator, sets up a REWARD reward', [initReward(erin.publicKey, REWARD, rv1, now + 20, now + 20 + WEEK, mut('R15') ? 250_000 : 500_000)], [erin]);
-    const paid = b - (await tok(ata(erin.publicKey, REWARD)));
-    check('R15', 'initialize_reward', 'an operator the vault named funds the second reward from its own coins', paid === BigInt(WEEK) * 500_000n && (await tok(rv1)) === paid, `${fmt(paid, 6)} REWARD`);
+    let now = await clockNow();
+    const r = mut('R15') ? (await vaultRun('R15 mutant: the vault', [initReward(VAULT, REWARD, rv1, now + LOCAL_TIME_LOCK + 20, now + LOCAL_TIME_LOCK + 20 + WEEK, 500_000)])).execute
+      : await send('erin, an operator, tries to set up a reward', [initReward(erin.publicKey, REWARD, rv1, now + 20, now + 20 + WEEK, 500_000)], [erin], { expectFail: true });
+    check('R15', 'initialize_reward', 'an operator the vault named cannot start a reward: only the vault can (2026-11-15 audit, RNG-05)',
+      failedWith(r, 'NotApproved') && !(await conn.getAccountInfo(rv1)), `refused: ${errName(r)}`);
+    now = await clockNow();
+    const ri = (await pool()).reward_infos[0];
+    const change = (who) => ix('set_reward_params', { authority: who, amm_config: cfg0, pool_state: poolA, operation_state: op },
+      { reward_index: 0, emissions_per_second_x64: 1n << 64n, open_time: BigInt(now + LOCAL_TIME_LOCK + 60), end_time: BigInt(now + LOCAL_TIME_LOCK + 60 + WEEK) },
+      [{ pubkey: rv0 }, { pubkey: ata(who, BAYLA) }, { pubkey: BAYLA, isWritable: false }]);
+    const c16 = mut('R16') ? (await vaultRun('R16 mutant: the vault', [change(VAULT)])).execute
+      : await send("erin, an operator, tries to change the vault's reward", [change(erin.publicKey)], [erin], { expectFail: true });
+    const after = (await pool()).reward_infos[0];
+    check('R16', 'set_reward_params', "an operator the vault named cannot change a reward the vault started: only the vault can (2026-11-15 audit, RNG-05)",
+      failedWith(c16, 'RequireKeysEqViolated') && after.end_time === ri.end_time && after.emissions_per_second_x64 === ri.emissions_per_second_x64, `refused: ${errName(c16)}`);
+    now = await clockNow();
+    const b = await tok(ata(VAULT, REWARD));
+    await mustVault('vault sets up a REWARD reward', [initReward(VAULT, REWARD, rv1, now + LOCAL_TIME_LOCK + 20, now + LOCAL_TIME_LOCK + 20 + WEEK, 500_000)]);
+    const paid = b - (await tok(ata(VAULT, REWARD)));
+    if (paid !== BigInt(WEEK) * 500_000n || (await tok(rv1)) !== paid) throw new Error(`the vault's REWARD reward took ${paid}`);
     await measure('reward vault (SPL Token, REWARD)', rv1, 'reward funder');
   }
   let window;
@@ -327,17 +345,15 @@ export async function phases(c, h) {
     const tr = (authority, to = bob.publicKey) => ix('transfer_reward_owner', { authority, pool_state: poolB }, { new_owner: to });
     const m = mut('R12') ? (await vaultRun('R12 mutant: vault', [tr(VAULT)])).execute : await send('a stranger takes a pool over', [tr(mallory.publicKey)], [mallory], { expectFail: true });
     check('R12', 'transfer_reward_owner', "a stranger cannot take over a pool's rewards", failedWith(m, 'NotApproved'), `refused: ${errName(m)}`);
-    // A reward on pool B funded by erin, an operator; before it opens the vault moves it to a
-    // short window (paying that window itself), then hands the pool to bob.
+    // A reward on pool B funded by the vault; before it opens the vault moves it to a short
+    // window (paying that window too), then hands the pool to bob.
     const rvB = reg(PDA.rewardVault(poolB, REWARD), 'pool B reward vault REWARD');
     let now = await clockNow();
-    await must('erin funds a REWARD reward on pool B', [ix('initialize_reward', {
-      reward_funder: erin.publicKey, funder_token_account: ata(erin.publicKey, REWARD), amm_config: c.cfg1, pool_state: poolB, operation_state: op,
+    await mustVault('vault funds a REWARD reward on pool B', [ix('initialize_reward', {
+      reward_funder: VAULT, funder_token_account: ata(VAULT, REWARD), amm_config: c.cfg1, pool_state: poolB, operation_state: op,
       reward_token_mint: REWARD, reward_token_vault: rvB, reward_token_program: prog(REWARD),
-    }, { param: { open_time: BigInt(now + 3600), end_time: BigInt(now + 3600 + WEEK), emissions_per_second_x64: 1_000n << 64n } })], [erin]);
+    }, { param: { open_time: BigInt(now + 3600), end_time: BigInt(now + 3600 + WEEK), emissions_per_second_x64: 1_000n << 64n } })]);
     const funderPaid = await tok(rvB);
-    await must("the vault's REWARD, to pay a short window", [ataIx(K.rewardMintAuthority.publicKey, VAULT, REWARD),
-      spl.createMintToInstruction(REWARD, ata(VAULT, REWARD), K.rewardMintAuthority.publicKey, 1_000_000n, [], ADDR.token)], [K.rewardMintAuthority]);
     now = await clockNow();
     const winB = { open: now + LOCAL_TIME_LOCK + 25 }; winB.end = winB.open + 30;
     const vaultBefore = await tok(ata(VAULT, REWARD));
@@ -349,29 +365,30 @@ export async function phases(c, h) {
     await mustVault('vault hands pool B to bob', [tr(VAULT, mut('R11') ? carol.publicKey : bob.publicKey)]);
     const pb = await account('PoolState', poolB);
     check('R11', 'transfer_reward_owner', "the vault can hand a pool to someone else, and each reward's authority stays with whoever funded it",
-      pb.owner.equals(bob.publicKey) && pb.reward_infos[0].authority.equals(erin.publicKey) && pb.reward_infos.every((r, i) => r.authority.toBase58() === before[i]),
+      pb.owner.equals(bob.publicKey) && pb.reward_infos[0].authority.equals(VAULT) && pb.reward_infos.every((r, i) => r.authority.toBase58() === before[i]),
       `pool B owner ${h.names.get(pb.owner.toBase58()) ?? pb.owner.toBase58()}, reward authority ${h.names.get(pb.reward_infos[0].authority.toBase58()) ?? pb.reward_infos[0].authority.toBase58()}`);
     while ((await clockNow()) < winB.end + 3) await wait(1000);
     await must('update pool B reward counters after its end', [ix('update_reward_infos', { pool_state: poolB })], [mallory]);
-    const remB = (k) => ix('collect_remaining_rewards', { reward_funder: k.publicKey, funder_token_account: ata(k.publicKey, REWARD), pool_state: poolB, reward_token_vault: rvB, reward_vault_mint: REWARD }, { reward_index: 0 });
+    const remB = (who) => ix('collect_remaining_rewards', { reward_funder: who, funder_token_account: ata(who, REWARD), pool_state: poolB, reward_token_vault: rvB, reward_vault_mint: REWARD }, { reward_index: 0 });
     {
-      const who = mut('R13') ? erin : bob;
-      const r = await send("pool B's new owner takes back the reward's unpaid rest", [remB(who)], [who], { expectFail: !mut('R13') });
-      // Two key checks can fire there; the authority's logs erin's key as its Right value.
-      const authorityFired = (r.logs ?? []).join(' ').includes(erin.publicKey.toBase58());
+      const r = mut('R13') ? (await vaultRun('R13 mutant: the vault, its funder', [remB(VAULT)])).execute
+        : await send("pool B's new owner takes back the reward's unpaid rest", [remB(bob.publicKey)], [bob], { expectFail: true });
+      // Two key checks can fire there; the authority's logs the vault's key as its Right value.
+      const authorityFired = (r.logs ?? []).join(' ').includes(VAULT.toBase58());
       check('R13', 'collect_remaining_rewards', "a pool's new owner cannot take back the unpaid rest of a reward someone else funded", failedWith(r, 'RequireKeysEqViolated') && authorityFired,
-        `refused: ${errName(r)}${authorityFired ? " (the reward is erin's)" : ''}`);
+        `refused: ${errName(r)}${authorityFired ? " (the reward is the vault's)" : ''}`);
     }
     {
-      const who = mut('R14') ? bob : erin;
       const ri = (await account('PoolState', poolB)).reward_infos[0];
-      const inVault = await tok(rvB); const b0 = await tok(ata(who.publicKey, REWARD));
-      const r = await send("erin takes back the reward's unpaid rest", [remB(who)], [who], { expectFail: mut('R14') });
-      const back = (await tok(ata(who.publicKey, REWARD))) - b0;
+      const who = mut('R14') ? bob.publicKey : VAULT;
+      const inVault = await tok(rvB); const b0 = await tok(ata(who, REWARD));
+      const ok = mut('R14') ? (await send("bob takes back the reward's unpaid rest", [remB(bob.publicKey)], [bob], { expectFail: true })).ok
+        : (await vaultRun("the vault takes back the reward's unpaid rest", [remB(VAULT)])).executed;
+      const back = (await tok(ata(who, REWARD))) - b0;
       const want = inVault - (ri.reward_total_emitted - ri.reward_claimed);
-      check('R14', 'collect_remaining_rewards', "after the end, the funder takes back the unpaid rest of the reward, whoever owns the pool now, and with it what the vault paid in to move the window: a top-up of someone else's reward goes to its funder",
-        r.ok && back === want && back === funderPaid + vaultPaid && vaultPaid > 0n && ri.reward_total_emitted === ri.reward_claimed,
-        r.ok ? `${fmt(back, 6)} REWARD back to ${h.names.get(who.publicKey.toBase58())}: ${fmt(funderPaid, 6)} the funder's, ${fmt(vaultPaid, 6)} the vault's` : `refused: ${errName(r)}`);
+      check('R14', 'collect_remaining_rewards', "after the end, the vault, which funded the reward, takes back its unpaid rest whoever owns the pool now, the window move it paid for included",
+        ok && back === want && back === funderPaid + vaultPaid && vaultPaid > 0n && ri.reward_total_emitted === ri.reward_claimed,
+        ok ? `${fmt(back, 6)} REWARD back to the vault: ${fmt(funderPaid, 6)} at the start, ${fmt(vaultPaid, 6)} for the move` : 'refused');
     }
   }
   phaseDone('phase7');

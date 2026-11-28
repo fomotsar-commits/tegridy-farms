@@ -3,9 +3,9 @@
 // a two-hop route, the old swap, and the Metaplex path a stranger can call.
 import { createHash } from 'node:crypto';
 import { PublicKey, SystemProgram, Keypair, TransactionInstruction, spl } from './lib/deps.mjs';
-import { ADDR } from './lib/config.mjs';
+import { ADDR, LOCAL_TIME_LOCK } from './lib/config.mjs';
 import { conn, send, clockNow } from './lib/chain.mjs';
-import { ix, PDA, account, order, tickAt, alignDown, arrayStart } from './lib/clmm.mjs';
+import { ix, PDA, account, order, tickAt, alignDown, arrayStart, liquidityFor } from './lib/clmm.mjs';
 
 export async function more(c, h, s) {
   const { K, VAULT, BAYLA, WSOL, USD, M0, M1, baylaIs0, poolA, poolB, vA0, vA1, obsA, bitmapA, cfg0, cfg1, arrays, SPACING, BAYLA_UNIT, OPEN_FEE } = c;
@@ -26,18 +26,21 @@ export async function more(c, h, s) {
       : await send('a stranger makes herself an operator', [opIx(mallory.publicKey, 0, [mallory.publicKey])], [mallory], { expectFail: true });
     check('X1', 'update_operation_account', 'a stranger cannot make anyone an operator', failedWith(r, 'NotApproved'), `refused: ${errName(r)}`);
   }
-  if (!mut('X2')) await mustVault('vault makes carol an operator', [opIx(VAULT, 0, [carol.publicKey])]);
+  await mustVault('vault makes carol an operator', [opIx(VAULT, 0, [carol.publicKey])]);
   {
     const rvUsd = reg(PDA.rewardVault(poolA, USD), 'pool A reward vault USD');
-    await must('USD for carol', [ataIx(K.usdMintAuthority.publicKey, carol.publicKey, USD), spl.createMintToInstruction(USD, ata(carol.publicKey, USD), K.usdMintAuthority.publicKey, 1_000_000n, [], ADDR.token)], [K.usdMintAuthority]);
+    const funder = mut('X2') ? VAULT : carol.publicKey;
+    await must(`USD for ${mut('X2') ? 'the vault' : 'carol'}`, [ataIx(K.usdMintAuthority.publicKey, funder, USD), spl.createMintToInstruction(USD, ata(funder, USD), K.usdMintAuthority.publicKey, 1_000_000n, [], ADDR.token)], [K.usdMintAuthority]);
     const now = await clockNow();
-    const r = await send('carol, an operator, sets up the third reward', [ix('initialize_reward', {
-      reward_funder: carol.publicKey, funder_token_account: ata(carol.publicKey, USD), amm_config: cfg0, pool_state: poolA, operation_state: op,
+    const third = (open) => ix('initialize_reward', {
+      reward_funder: funder, funder_token_account: ata(funder, USD), amm_config: cfg0, pool_state: poolA, operation_state: op,
       reward_token_mint: USD, reward_token_vault: rvUsd, reward_token_program: prog(USD),
-    }, { param: { open_time: BigInt(now + 20), end_time: BigInt(now + 20 + WEEK), emissions_per_second_x64: 1n << 64n } })], [carol]);
+    }, { param: { open_time: BigInt(open), end_time: BigInt(open + WEEK), emissions_per_second_x64: 1n << 64n } });
+    const r = mut('X2') ? (await vaultRun('X2 mutant: the vault', [third(now + LOCAL_TIME_LOCK + 20)])).execute
+      : await send('carol, an operator, tries to set up the third reward', [third(now + 20)], [carol], { expectFail: true });
     const ri = (await account('PoolState', poolA)).reward_infos[2];
-    check('X2', 'update_operation_account + initialize_reward', "the third reward may only be set up by the vault or an operator: carol, made an operator by the vault, can", r.ok && ri.authority.equals(carol.publicKey),
-      r.ok ? `${fmt(await tok(rvUsd), 6)} USD funded` : `refused: ${errName(r)}`);
+    check('X2', 'update_operation_account + initialize_reward', 'an operator the vault named cannot set up the third reward either: only the vault can (2026-11-15 audit, RNG-05)',
+      failedWith(r, 'NotApproved') && ri.token_mint.equals(PublicKey.default) && !(await conn.getAccountInfo(rvUsd)), `refused: ${errName(r)}`);
   }
   {
     await mustVault('vault whitelists REWARD and removes carol as operator', [opIx(VAULT, 2, [c.REWARD]), opIx(VAULT, 1, [carol.publicKey])]);
@@ -118,11 +121,12 @@ export async function more(c, h, s) {
     const [tl, tu] = [arrayStart(lo, 60), arrayStart(hi, 60)];
     for (const t of [tl, tu]) { arraysB.add(t); reg(PDA.tickArray(poolB, t), `pool B tick array ${t}`); }
     const [a0, a1] = N0.equals(WSOL) ? [5n * 10n ** 9n, 3_000n * 10n ** 6n] : [3_000n * 10n ** 6n, 5n * 10n ** 9n];
+    const liquidity = liquidityFor((await account('PoolState', poolB)).sqrt_price_x64, lo, hi, a0, a1);
     await must('alice adds SOL and USD to pool B', [ix('open_position_with_token22_nft', {
       payer: alice.publicKey, position_nft_owner: alice.publicKey, position_nft_mint: nft.publicKey, position_nft_account: nftAcc, pool_state: poolB, protocol_position: SystemProgram.programId,
       tick_array_lower: PDA.tickArray(poolB, tl), tick_array_upper: PDA.tickArray(poolB, tu), personal_position: pos,
       token_account_0: ata(alice.publicKey, N0), token_account_1: ata(alice.publicKey, N1), token_vault_0: PDA.vault(poolB, N0), token_vault_1: PDA.vault(poolB, N1), vault_0_mint: N0, vault_1_mint: N1,
-    }, { tick_lower_index: lo, tick_upper_index: hi, tick_array_lower_start_index: tl, tick_array_upper_start_index: tu, liquidity: 0n, amount_0_max: a0, amount_1_max: a1, with_metadata: true, base_flag: N0.equals(WSOL) })], [alice, nft]);
+    }, { tick_lower_index: lo, tick_upper_index: hi, tick_array_lower_start_index: tl, tick_array_upper_start_index: tu, liquidity, amount_0_max: a0, amount_1_max: a1, with_metadata: true, base_flag: null })], [alice, nft]);
   }
   {
     await must('USD account for dave', [ataIx(dave.publicKey, dave.publicKey, USD)], [dave]);
@@ -175,11 +179,12 @@ export async function more(c, h, s) {
     for (const t of [tl, tu]) { arrays.add(t); reg(PDA.tickArray(poolA, t), `pool A tick array ${t}`); }
     const vault0 = await sol(VAULT); const m0 = await sol(mallory.publicKey);
     const [a0, a1] = baylaIs0 ? [10_000n * BAYLA_UNIT, 10n ** 9n] : [10n ** 9n, 10_000n * BAYLA_UNIT];
+    const liquidity = liquidityFor(p.sqrt_price_x64, lo, hi, a0, a1);
     const r = await send('a stranger opens a position the old way, with a Metaplex name record', [ix('open_position_v2', {
       payer: mallory.publicKey, position_nft_owner: mallory.publicKey, position_nft_mint: nft.publicKey, position_nft_account: nftAcc, metadata_account: meta, pool_state: poolA,
       protocol_position: SystemProgram.programId, tick_array_lower: PDA.tickArray(poolA, tl), tick_array_upper: PDA.tickArray(poolA, tu), personal_position: pos,
       token_account_0: ata(mallory.publicKey, M0), token_account_1: ata(mallory.publicKey, M1), token_vault_0: vA0, token_vault_1: vA1, vault_0_mint: M0, vault_1_mint: M1,
-    }, { tick_lower_index: lo, tick_upper_index: hi, tick_array_lower_start_index: tl, tick_array_upper_start_index: tu, liquidity: 0n, amount_0_max: a0, amount_1_max: a1, with_metadata: !mut('X17'), base_flag: baylaIs0 })], [mallory, nft]);
+    }, { tick_lower_index: lo, tick_upper_index: hi, tick_array_lower_start_index: tl, tick_array_upper_start_index: tu, liquidity, amount_0_max: a0, amount_1_max: a1, with_metadata: !mut('X17'), base_flag: null })], [mallory, nft]);
     if (!r.ok) console.log(r.logs.slice(-10).join('\n'));
     const ma = r.ok ? await conn.getAccountInfo(meta) : null;
     const metaplexFee = ma ? BigInt(ma.lamports) - BigInt(await conn.getMinimumBalanceForRentExemption(ma.data.length)) : null;

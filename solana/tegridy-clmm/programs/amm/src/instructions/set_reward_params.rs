@@ -51,11 +51,10 @@ pub fn set_reward_params<'info>(
     );
     require_gt!(end_time, open_time);
     require_gt!(emissions_per_second_x64, 0);
-    let operation_state = ctx.accounts.operation_state.load()?;
-    let admin_keys = operation_state.operation_owners.to_vec();
     require_neq!(ctx.accounts.authority.key(), Pubkey::default());
-    let admin_operator = admin_keys.contains(&ctx.accounts.authority.key())
-        || ctx.accounts.authority.key() == crate::admin::ID;
+    // memetics.finance: only the vault changes a reward as its admin, not an operation owner
+    // (2026-11-15 audit, RNG-05).
+    let admin_operator = ctx.accounts.authority.key() == crate::admin::ID;
 
     let current_timestamp =
         u64::try_from(Clock::get()?.unix_timestamp).map_err(|_| ErrorCode::CalculateOverflow)?;
@@ -288,4 +287,18 @@ fn admin_update(
     }
 
     Ok(reward_amount)
+}
+
+#[cfg(test)]
+mod reward_admin_test {
+    /// memetics.finance (2026-11-15 audit, RNG-05): the handler reads the clock before it asks
+    /// who signed, which no unit test can do here, so this pins the rule's text: the vault alone
+    /// changes a reward as its admin, no operation owner. The local-chain suite runs it (R16).
+    #[test]
+    fn only_the_vault_is_a_reward_admin_test() {
+        let src = include_str!("set_reward_params.rs");
+        let handler = &src[..src.find("#[cfg(test)]").unwrap()];
+        assert!(handler.contains("let admin_operator = ctx.accounts.authority.key() == crate::admin::ID;"));
+        assert!(!handler.contains("operation_owner"));
+    }
 }

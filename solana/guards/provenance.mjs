@@ -37,7 +37,7 @@ export const COPIES = {
     take: (p) => p.startsWith('programs/amm/') || ['Anchor.toml', 'Cargo.toml', 'Cargo.lock', 'LICENSE'].includes(p),
     map: (p) => p,
     delta: 'tegridy-clmm.diff',
-    deltaSha256: '1430f02e3a8164317d811679e9d17110f6772e8fd0534d73276133e78ff3c754',
+    deltaSha256: '23bdc8314741f17f6adce44b851ff29834bed43a33b75ba245cf0e5871c1c35a',
     patched: [
       'Anchor.toml',
       'Cargo.toml',
@@ -54,20 +54,26 @@ export const COPIES = {
       'programs/amm/src/instructions/admin/transfer_reward_owner.rs',
       'programs/amm/src/instructions/admin/update_amm_config.rs',
       'programs/amm/src/instructions/admin/update_dynamic_fee_config.rs',
+      'programs/amm/src/instructions/admin/update_pool_status.rs',
       'programs/amm/src/instructions/collect_remaining_rewards.rs',
       'programs/amm/src/instructions/create_customizable_pool.rs',
       'programs/amm/src/instructions/create_permissioned_pool.rs',
       'programs/amm/src/instructions/create_pool.rs',
       'programs/amm/src/instructions/decrease_liquidity.rs',
       'programs/amm/src/instructions/initialize_reward.rs',
+      'programs/amm/src/instructions/limit_order/open_limit_order.rs',
       'programs/amm/src/instructions/mod.rs',
       'programs/amm/src/instructions/open_position.rs',
+      'programs/amm/src/instructions/set_reward_params.rs',
+      'programs/amm/src/instructions/swap.rs',
       'programs/amm/src/instructions/swap_v2.rs',
       'programs/amm/src/states/config.rs',
+      'programs/amm/src/states/limit_order.rs',
       'programs/amm/src/states/mod.rs',
       'programs/amm/src/states/permission.rs',
       'programs/amm/src/states/pool.rs',
       'programs/amm/src/states/pool_fee.rs',
+      'programs/amm/src/states/tick_array.rs',
       'programs/amm/src/states/tickarray_bitmap_extension.rs',
       'programs/amm/src/util/system.rs',
       'programs/amm/src/util/token.rs',
@@ -147,10 +153,13 @@ export const REPIN_MAY_TOUCH = [
   'frontend/src/test/solanaKeyGuard.test.ts',
   // The site's range client where its tests read the program's source: ix.test.ts holds each
   // account list equal to the program's Accounts struct, and quote.test.ts holds the vectors'
-  // stamp to the source. A patch that changes either moves them in the same pull request.
+  // stamp to the source and the quote's port of the swap to them. A patch that changes either
+  // moves them, the port and the generator of the vectors in the same pull request.
   'frontend/src/lib/solana/clmm/ix.ts',
   'frontend/src/lib/solana/clmm/ix.test.ts',
   'frontend/src/lib/solana/clmm/__fixtures__/program-vectors.json',
+  'frontend/src/lib/solana/clmm/quote.ts',
+  'frontend/scripts/clmm-vectors/vectors.rs',
   // The daily fee sweep, whose test holds its account list equal to cp-swap's SweepFees: a patch
   // that changes the sweep moves the job in the same pull request.
   'frontend/scripts/venue-sweep.mjs',
