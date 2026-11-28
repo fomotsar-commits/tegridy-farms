@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { bungalowLpDoor, type Bungalow } from '../../lib/bungalows';
 import { formatCompactTokens } from '../../lib/bungalowBurn';
-import { fetchBaylaFlip, flipPercent, flipShare, type BaylaFlip } from '../../lib/venueTvl';
+import { fetchBaylaFlip, flipPercent, flipShare, isLiberated, type BaylaFlip } from '../../lib/venueTvl';
 import { CardArt } from '../ui/CardArt';
 import { FinePrint } from '../ui/FinePrint';
 import { HAIR, LEDGER_BG } from './ledger';
@@ -20,7 +20,7 @@ const short = (n: number) => formatCompactTokens(BigInt(n), 0);
 /**
  * BAYLA's liberation bar (owner, 2026-11-26: "a health bar ... that fills as we move to flipping the
  * pump fun pool for Bayla"). It fills with the BAYLA in our pools, against the BAYLA in her graduated
- * pump.fun pool, and is full the day ours holds more. Read once on arrival, from the venue's own
+ * pump.fun pool, and is full the day ours holds more (a tie is not it). Read once on arrival, and says so, from the venue's own
  * count (lib/venueTvl.ts); a side that could not be read shows no bar at all, never an empty one.
  */
 export function BaylaLiberation({ bungalow }: { bungalow: Bungalow }) {
@@ -74,7 +74,7 @@ export function BaylaLiberation({ bungalow }: { bungalow: Bungalow }) {
           The bar fills with every {symbol} in our pools, against any coin, and measures it against the {symbol} in her
           graduated pump.fun pool on PumpSwap, the deepest of her pools outside this venue. It is full the day ours hold
           more: the flip. Counted in {symbol}, not dollars: at one price a pool is worth twice its {symbol}, so the bar is
-          the depth of ours against theirs, and no price can move it. Read from Solana, at most a minute old.{' '}
+          the depth of ours against theirs, and no price can move it. Read from Solana when this page opened.{' '}
           <a
             href={PUMP_POOL_URL}
             target="_blank"
@@ -91,7 +91,7 @@ export function BaylaLiberation({ bungalow }: { bungalow: Bungalow }) {
 }
 
 function Bar({ flip, symbol }: { flip: BaylaFlip; symbol: string }) {
-  const flipped = flip.ours >= flip.pump;
+  const flipped = isLiberated(flip);
   const pct = flipPercent(flip);
   const width = flipShare(flip) * 100;
   return (

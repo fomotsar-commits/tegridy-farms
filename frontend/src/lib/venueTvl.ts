@@ -118,15 +118,20 @@ export async function fetchBaylaFlip(fetchImpl: typeof fetch = fetch): Promise<B
   }
 }
 
-/** How full the bar is: our BAYLA over hers, 0 to 1. Full once ours holds as much as hers. */
-export function flipShare(f: BaylaFlip): number {
-  return Math.min(1, f.ours / f.pump);
+/** The flip: our pools hold MORE of her than pump.fun's does. A tie is not it. */
+export function isLiberated(f: BaylaFlip): boolean {
+  return f.ours > f.pump;
 }
 
-/** The bar's figure, rounded DOWN so it never overstates: "32%", "under 1%", and 100% only once it is flipped. */
+/** How full the bar is: our BAYLA over hers, 0 to 1. Full only once liberated; a tie stops at 0.99. */
+export function flipShare(f: BaylaFlip): number {
+  return isLiberated(f) ? 1 : Math.min(0.99, f.ours / f.pump);
+}
+
+/** The bar's figure, rounded DOWN so it never overstates: "32%", "under 1%", at most "99%" until liberated, then "100%". */
 export function flipPercent(f: BaylaFlip): string {
-  if (f.ours >= f.pump) return '100%';
+  if (isLiberated(f)) return '100%';
   if (f.ours === 0) return '0%';
-  const pct = Math.floor((f.ours * 100) / f.pump);
+  const pct = Math.min(99, Math.floor((f.ours * 100) / f.pump));
   return pct === 0 ? 'under 1%' : `${pct}%`;
 }

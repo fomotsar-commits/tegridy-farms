@@ -318,10 +318,22 @@ describe("BAYLA's liberation bar: the BAYLA in our pools against her pump.fun po
     w.pool(CP, [BAYLA, 40], [BOBO, 400]); // two island coins: her side still counts
     w.pool(RANGE, [SOL, 1], [BAYLA, 50]);
     w.pool(CP, [SOL, 3], [MEME, 9]); // no BAYLA
-    pumpVault(w, 4_000.4);
+    pumpVault(w, 4_000);
     const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
     expect(body.baylaFlip).toEqual({ ours: 1_320, pump: 4_000 });
     expect(chain(body, "solana")).toMatchObject({ read: true });
+  });
+
+  it("rounds each side against us, so a fraction of a coin never lifts the figure or calls the flip", async () => {
+    const w = world();
+    w.pool(CP, [SOL, 10], [BAYLA, 319.6]); // 31.96% of hers: the bar must say 31%, never 32%
+    pumpVault(w, 999.4);
+    expect((await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW })).baylaFlip).toEqual({ ours: 319, pump: 1_000 });
+    __resetVenueTvl();
+    const tie = world();
+    tie.pool(CP, [SOL, 10], [BAYLA, 1_000.6]); // ahead by a fraction: not a whole coin more
+    pumpVault(tie, 1_000.2);
+    expect((await readVenueTvl({ fetchImpl: tie.fetchImpl, now: NOW })).baylaFlip).toEqual({ ours: 1_000, pump: 1_001 });
   });
 
   it("reads her pump.fun pool in BAYLA held, never in dollars: it needs no price and moves no total", async () => {

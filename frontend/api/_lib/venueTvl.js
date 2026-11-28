@@ -633,7 +633,9 @@ export async function readVenueTvl({ fetchImpl = globalThis.fetch, now = Date.no
       }),
     ]);
     poolCoins = r.poolCoins;
-    if (pump !== null && pump > 0) baylaFlip = { ours: Math.round(r.bayla), pump: Math.round(pump) };
+    // Whole coins, each rounded AGAINST us (ours down, hers up), so a fraction of a coin can
+    // never lift the bar's figure or call the flip early.
+    if (pump !== null && pump > 0) baylaFlip = { ours: Math.floor(r.bayla), pump: Math.ceil(pump) };
     return r;
   };
   // A floor read in the last minute is not read again.
