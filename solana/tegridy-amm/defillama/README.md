@@ -34,7 +34,23 @@ first test, a day earlier, read $124.73: the figure moves that much from day to 
 - A commit made through GitHub's file API is stamped with the account's primary email address,
   not the no-reply address our own commits carry. For a commit that goes to someone else's
   repository, set its author and committer to the no-reply address when the commit is made.
-
+- DefiLlama's automated reviewer (CodeRabbit) reviews every pull request there. On the volume
+  one it asked for changes, which shows as a red X beside the pull request. Two more commits
+  answered it, and it approved on 2026-11-28. What changed: a token's own transfer fee is
+  counted in volume (the program's event carries the amount after that fee); the one fee share
+  that existed before the split is rounded once; transactions are read two at a time through
+  their `PromisePool`; and every signature page is asked for at a finalized slot past the
+  window's end, so a node that lags refuses instead of answering short. `dimension-adapters/`
+  here holds the adapter and the description as they stand in the pull request.
+- To clear that reviewer's change request: fix or answer each of its threads in the pull
+  request, then post `@coderabbitai approve` as a comment of its own. It withdrew one request
+  on evidence: a `fees/` copy of the adapter is not needed (`dexs/deepswap.ts` has none, and
+  DefiLlama publishes its fees). Editing the description after it has reviewed makes its
+  checks stale, so edit the description first. Its title format is
+  `[type] protocol-name - description`.
+- On the value-locked pull request the same reviewer left one small suggestion and no change
+  request: read each pool's fee counters and its vault balances in one call. Not done.
+- A maintainer still has to approve and merge each one; the reviewer's approval is not that.
 ## What the listing will show
 
 - **Value locked: $20.03k** (34 pools). Our own site said $20,081 in the same minute. The $50
