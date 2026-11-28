@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { peekHeat } from '../lib/heat/heatClient';
 import { readLastBuy, markLastBuyPosted } from '../lib/heat/lastBuy';
-import { SITE_URL } from '../lib/constants';
+import { readLink } from '../lib/readLink';
 import { CardArt } from './ui/CardArt';
 
 /**
@@ -60,7 +60,7 @@ export function ClockLine() {
   // The number itself lives behind the read link, which unfurls as this
   // buyer's own card (element M). Posting is the buyer's own click, and the
   // link is the only thing in the text besides the sentence.
-  const post = `${sentence} ${SITE_URL}/read/${buy.buyer}`;
+  const post = `${sentence} ${readLink(buy.buyer, reading ? reading.degrees : null)}`;
   const posted = buy.posted || postedNow;
 
   return (
