@@ -90,9 +90,11 @@ export function coinFrom(address: `0x${string}`, symbol: unknown, name: unknown,
 const ok = (r: ReadResult | undefined): r is { status: 'success'; result: unknown } => r?.status === 'success';
 
 /**
- * Every address's ticker, name and decimals; a coin that does not answer maps to null. Each
- * coin's three calls are one unit (reads.ts), so a coin that reverts or burns all the gas spoils
- * only its own answer.
+ * Every address's ticker, name and decimals; a coin that answers, but not as a coin, maps to
+ * null. A coin that could not be read at all (reads.ts: it threw even alone, or the re-read
+ * budget ran out) is left out of the map, so "could not read" is never "not a coin". Each
+ * coin's three calls are one unit, so a coin that reverts or burns all the gas spoils only its
+ * own answer.
  */
 export async function readCoins(reader: HyperEvmReader, addresses: readonly `0x${string}`[]): Promise<Map<string, HyperEvmToken | null>> {
   const out = new Map<string, HyperEvmToken | null>();
@@ -108,7 +110,9 @@ export async function readCoins(reader: HyperEvmReader, addresses: readonly `0x$
     { address, abi: erc20Abi, functionName: 'decimals' },
   ]));
   unknown.forEach((a, i) => {
-    const [s, n, d] = res[i] ?? [];
+    const r = res[i];
+    if (!r) return; // unread: left out
+    const [s, n, d] = r;
     const addr = addresses.find((x) => x.toLowerCase() === a)!;
     out.set(a, ok(d) && ok(s) ? coinFrom(addr, s.result, ok(n) ? n.result : '', Number(d.result)) : null);
   });

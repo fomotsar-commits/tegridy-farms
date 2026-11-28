@@ -17,7 +17,7 @@ const PARTNERS = HYPEREVM_TOKENS.filter((t) => t.isNative || t.symbol !== 'WHYPE
 const HYPE = HYPEREVM_TOKENS.find((t) => t.isNative)!;
 const DUAL_BLOCK_DOCS = 'https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/hyperevm/dual-block-architecture';
 
-type CoinRead = { kind: 'none' } | { kind: 'reading' } | { kind: 'bad' } | { kind: 'read'; coin: HyperEvmToken };
+type CoinRead = { kind: 'none' } | { kind: 'reading' } | { kind: 'bad' } | { kind: 'unread' } | { kind: 'read'; coin: HyperEvmToken };
 type Terms = { fee: bigint; treasury: `0x${string}` };
 type Send = ReturnType<typeof useHyperEvmSend>;
 
@@ -45,6 +45,8 @@ export function OpenPoolCard({ venue, opener, pools, send, onAdd, onDone }: {
   const [bigBlocks, setBigBlocks] = useState<boolean | null | 'reading'>(null);
   const [review, setReview] = useState(false);
   const [refresh, setRefresh] = useState(0);
+  // Bumped by "Check again": the setting is switched outside the site, so nothing here changes when it is.
+  const [bigBlocksAsk, setBigBlocksAsk] = useState(0);
   const hype = useBalance(HYPE, send.address, refresh);
   const coin = read.kind === 'read' ? read.coin : null;
   const sameSide = coin !== null && poolSide(coin).toLowerCase() === poolSide(partner).toLowerCase();
@@ -60,9 +62,16 @@ export function OpenPoolCard({ venue, opener, pools, send, onAdd, onDone }: {
     let live = true;
     setRead({ kind: 'reading' });
     const addr = a as `0x${string}`;
-    void withDeadline(readCoins(asReader(client), [addr]).then((m) => m.get(addr.toLowerCase()) ?? null), null).then((c) => {
-      if (live) setRead(c ? { kind: 'read', coin: c } : { kind: 'bad' });
-    }, () => live && setRead({ kind: 'bad' }));
+    const unread: CoinRead = { kind: 'unread' };
+    // Left out of the map = could not be read (reads.ts), which is not "not a coin".
+    void withDeadline(readCoins(asReader(client), [addr]).then((m): CoinRead => {
+      const k = addr.toLowerCase();
+      if (!m.has(k)) return unread;
+      const c = m.get(k);
+      return c ? { kind: 'read', coin: c } : { kind: 'bad' };
+    }), unread).then((r) => {
+      if (live) setRead(r);
+    });
     return () => {
       live = false;
     };
@@ -117,7 +126,7 @@ export function OpenPoolCard({ venue, opener, pools, send, onAdd, onDone }: {
     return () => {
       live = false;
     };
-  }, [client, send.address, refresh]);
+  }, [client, send.address, refresh, bigBlocksAsk]);
 
   const price = useMemo(() => parsePrice(priceText), [priceText]);
   const sqrt = useMemo(() => (coin && !sameSide ? startSqrtPrice(priceText, coin, partner) : null), [coin, sameSide, priceText, partner]);
@@ -130,7 +139,7 @@ export function OpenPoolCard({ venue, opener, pools, send, onAdd, onDone }: {
   const mode: 'open' | 'list' | 'shown' = !isOpen ? 'open' : onList ? 'shown' : 'list';
 
   let block: string | null = null;
-  if (!coin) block = read.kind === 'reading' ? 'Reading the coin…' : read.kind === 'bad' ? 'This address does not answer as a coin.' : 'Paste the coin’s contract address.';
+  if (!coin) block = read.kind === 'reading' ? 'Reading the coin…' : read.kind === 'bad' ? 'This address does not answer as a coin.' : read.kind === 'unread' ? 'Could not read this coin just now.' : 'Paste the coin’s contract address.';
   else if (sameSide) block = 'Pick two different coins.';
   else if (at === 'reading') block = 'Checking whether this pool is open…';
   else if (at === 'unread') block = 'Could not read whether this pool is open.';
@@ -147,9 +156,11 @@ export function OpenPoolCard({ venue, opener, pools, send, onAdd, onDone }: {
   else if (mode === 'open' && send.isConnected && bigBlocks === false) block = 'Your wallet needs Hyperliquid’s big-block setting on to open a pool.';
   else if (short) block = `It pays ${amountText(t.fee, 18)} HYPE. This wallet holds ${amountText(hype!, 18)}.`;
   const warn = !!block && /^(Your wallet needs|It pays|This opener pays)/.test(block);
+  const recheckBigBlocks = mode === 'open' && send.isConnected && !!send.address && (bigBlocks === false || bigBlocks === null);
 
   const go = async () => {
-    if (!coin || !t) return;
+    // The same blocks as Review: a wallet switched after Review (say, to one without big blocks) sends nothing.
+    if (!coin || !t || block) return;
     let ok = false;
     if (mode === 'open' && sqrt !== null) {
       ok = await send.run([{ label: 'Open the pool', tx: async () => openTx(opener, coin, partner, fee, sqrt, t.fee) }]);
@@ -202,12 +213,14 @@ export function OpenPoolCard({ venue, opener, pools, send, onAdd, onDone }: {
           <div className="rounded-lg bg-black/55 p-3 space-y-1.5" data-testid="hyperevm-open-exists">
             <Line label="Pool" value={<a className="underline" href={hyperEvmAddressUrl(at.address)} target="_blank" rel="noopener noreferrer">{at.address}</a>} mono />
             {shownPool && <Line label="Price now" value={`1 ${shownPool.token0.symbol} = ${poolPriceText(shownPool)} ${shownPool.token1.symbol}`} />}
-            {mode === 'list' && <p className="text-white/75">Opened straight on the factory, so it is not on the list. Listing it puts it there at this price, for the same fee.</p>}
-            {shownPool && <button type="button" className={QUIET_BTN} onClick={() => onAdd(shownPool)}>Add to it</button>}
+            {mode === 'list' && <p className="text-white/75">Opened straight on the factory, so it is not on the list. Listing it puts it there at this price, for the same fee. Once it is listed, you can add to it.</p>}
+            {/* Only a pool on the list: a position in one off it would not show on the site. List it first. */}
+            {shownPool && mode === 'shown' && <button type="button" className={QUIET_BTN} onClick={() => onAdd(shownPool)}>Add to it</button>}
           </div>
         )}
 
         {block && <p className={warn ? 'text-amber-300/90' : 'text-white/75'} data-testid="hyperevm-open-block">{block}</p>}
+        {recheckBigBlocks && <button type="button" className={QUIET_BTN} onClick={() => setBigBlocksAsk((n) => n + 1)} data-testid="hyperevm-open-bigblocks-recheck">Check again</button>}
 
         {!send.isConnected ? (
           <p className="text-white/75">Connect a wallet to open a pool.</p>
@@ -228,7 +241,7 @@ export function OpenPoolCard({ venue, opener, pools, send, onAdd, onDone }: {
               <Line label="Opener" value={opener} mono />
               <div className="flex gap-2">
                 <button type="button" className={QUIET_BTN} onClick={() => setReview(false)} disabled={working}>Back</button>
-                <button type="button" className={PRIMARY_BTN} style={PRIMARY_STYLE} onClick={() => void go()} disabled={working} data-testid="hyperevm-open-send">{mode === 'list' ? 'List pool' : 'Open pool'}</button>
+                <button type="button" className={PRIMARY_BTN} style={PRIMARY_STYLE} onClick={() => void go()} disabled={working || !!block} data-testid="hyperevm-open-send">{mode === 'list' ? 'List pool' : 'Open pool'}</button>
               </div>
             </div>
           )

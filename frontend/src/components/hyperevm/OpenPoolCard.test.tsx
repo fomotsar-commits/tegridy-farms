@@ -16,7 +16,7 @@ const PEPE = '0xfffffffffffffffffffffffffffffffffffff001';
 const POOL = '0x3000000000000000000000000000000000000003';
 const FEE = 230_000_000_000_000_000n;
 const TREASURY = '0x1000000000000000000000000000000000000006';
-const chainState = { bigBlocks: true as boolean, poolOpen: false, treasury: TREASURY as string };
+const chainState = { bigBlocks: true as boolean, poolOpen: false, treasury: TREASURY as string, coinThrows: false };
 const sent: { label: string; tx: () => Promise<unknown> }[][] = [];
 
 vi.mock('./useHyperEvm', () => ({
@@ -26,7 +26,12 @@ vi.mock('./useHyperEvm', () => ({
 }));
 const client = {
   request: async ({ method }: { method: string }) => (method === 'eth_usingBigBlocks' ? chainState.bigBlocks : null),
-  multicall: async ({ contracts }: { contracts: ReadCall[] }) => contracts.map((c) => {
+  multicall: async ({ contracts }: { contracts: ReadCall[] }) => {
+    if (chainState.coinThrows && contracts.some((c) => c.address.toLowerCase() === PEPE)) throw new Error('rate limited');
+    return answers(contracts);
+  },
+};
+const answers = (contracts: ReadCall[]) => contracts.map((c) => {
     const ok = (result: unknown) => ({ status: 'success' as const, result });
     if (c.address.toLowerCase() === PEPE) return ok(c.functionName === 'decimals' ? 18 : c.functionName === 'symbol' ? 'PEPE' : 'Pepe');
     if (c.functionName === 'POOL_OPENING_FEE') return ok(FEE);
@@ -35,8 +40,7 @@ const client = {
     if (c.functionName === 'slot0') return ok([1n << 96n, 0, 0, 0, 0, 0x66, true]);
     if (c.functionName === 'liquidity' || c.functionName === 'balanceOf') return ok(0n);
     return { status: 'failure' as const };
-  }),
-};
+  });
 
 import { OpenPoolCard } from './OpenPoolCard';
 
@@ -65,6 +69,7 @@ describe('the open-a-pool form', () => {
     chainState.bigBlocks = true;
     chainState.poolOpen = false;
     chainState.treasury = TREASURY;
+    chainState.coinThrows = false;
     sent.length = 0;
   });
 
@@ -125,8 +130,9 @@ describe('the open-a-pool form', () => {
     const onAdd = vi.fn();
     renderCard(onAdd);
     expect(await screen.findByText(/Opened straight on the factory, so it is not on the list/)).toBeTruthy();
-    fireEvent.click(await screen.findByText('Add to it'));
-    expect(onAdd.mock.calls[0]![0]).toMatchObject({ address: POOL, fee: 3000 });
+    // No "Add to it" until it is listed: a position in a pool off the list would not show on the site.
+    await screen.findByText('Price now');
+    expect(screen.queryByText('Add to it')).toBeNull();
     await waitFor(() => expect((screen.getByTestId('hyperevm-open-review-button') as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(screen.getByTestId('hyperevm-open-review-button'));
     fireEvent.click(screen.getByTestId('hyperevm-open-send'));
@@ -145,5 +151,41 @@ describe('the open-a-pool form', () => {
     fireEvent.click(await screen.findByText('Add to it'));
     expect(onAdd).toHaveBeenCalledTimes(1);
     expect((screen.getByTestId('hyperevm-open-review-button') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  // CodeRabbit's review of #1350, 2026-11-28.
+  it('the big-block setting can be checked again after it is switched on elsewhere, with no reload', async () => {
+    chainState.bigBlocks = false;
+    renderCard();
+    fireEvent.change(await screen.findByTestId('hyperevm-open-price'), { target: { value: '0.001' } });
+    expect(await screen.findByText('Your wallet needs Hyperliquid’s big-block setting on to open a pool.')).toBeTruthy();
+    chainState.bigBlocks = true; // switched on in Hyperliquid, outside the site
+    fireEvent.click(screen.getByTestId('hyperevm-open-bigblocks-recheck'));
+    await waitFor(() => expect((screen.getByTestId('hyperevm-open-review-button') as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.queryByTestId('hyperevm-open-bigblocks-recheck')).toBeNull();
+  });
+
+  it('a wallet switched after Review to one without big blocks cannot send', async () => {
+    const card = (s: unknown) => <OpenPoolCard venue={VENUE} opener={OPENER} pools={[]} send={s as never} onAdd={() => {}} onDone={() => {}} />;
+    const { rerender } = render(card(send));
+    fireEvent.change(screen.getByTestId('hyperevm-open-coin'), { target: { value: PEPE } });
+    fireEvent.change(await screen.findByTestId('hyperevm-open-price'), { target: { value: '0.001' } });
+    await waitFor(() => expect((screen.getByTestId('hyperevm-open-review-button') as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByTestId('hyperevm-open-review-button'));
+    chainState.bigBlocks = false;
+    rerender(card({ ...send, address: '0x7000000000000000000000000000000000000008' }));
+    expect(await screen.findByText('Your wallet needs Hyperliquid’s big-block setting on to open a pool.')).toBeTruthy();
+    const button = screen.getByTestId('hyperevm-open-send') as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    fireEvent.click(button);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(sent.length).toBe(0);
+  });
+
+  it('a coin that could not be read says so, never that it is not a coin', async () => {
+    chainState.coinThrows = true;
+    renderCard();
+    expect(await screen.findByText('Could not read this coin just now.')).toBeTruthy();
+    expect(screen.queryByText('This address does not answer as a coin.')).toBeNull();
   });
 });
