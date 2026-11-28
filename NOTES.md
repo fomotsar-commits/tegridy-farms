@@ -15,6 +15,34 @@ Rules for entries, so this stays worth reading:
 
 ---
 
+## 2026-11-28: a changed pixel in someone else's GIF frame costs kilobytes, rows added above it cost nothing
+
+**Believed:** to write new words into frames of an animated GIF another tool encoded, decode each frame, change
+the pixels, and encode it again; and if that comes out too big, write the original stream's own LZW codes again
+wherever the pixels are unchanged, so only the changed stretch costs more than it did.
+
+**Measured** (PR #1376, the island's `flash-bayla.gif`: 720 x 900, 175 frames, made by gifski, 4,669,695 bytes,
+already near X's 5,000,000-byte cap for a GIF posted from a phone; Node 24 and Pillow 12.2, 2026-11-28):
+
+- gifski packs a frame about twice as tight as plain greedy LZW does on the very same indices. Its first frame
+  is 58,799 bytes; greedy LZW writes it in 125,483 and Pillow 12.2 in 185,026. Every frame encoded again
+  losslessly: 4.61 MB of image data became 5.88 MB.
+- Writing the original codes again keeps an unchanged frame byte for byte (175 of 175). One changed pixel, though,
+  puts the dictionary out of step: every later code that extends a string begun in the changed stretch has no
+  match, and the writer, which adds one entry per code and needs more codes there, fills its table first. It then
+  stays out of step until the original's next clear, or to the end of the frame when the original runs on a full
+  table. Frames with about 220 changed pixels grew by 6 to 30 KB each. Repainting a 512 x 38 title through the 115
+  frames that draw on it grew the file by 1.66 MB. Matching the original's codes by their strings (their prefix
+  chains) instead of by number did not help: 1.66 MB became 1.70 MB.
+- Rows added before the first frame's pixels cost almost nothing. Write the new rows, a clear, then the original
+  codes one for one. Each code's width depends only on how many codes have been read since the last clear, so it
+  comes out exactly as the reader read it. Every later frame moves down by the new rows and keeps its own bytes.
+  A 720 x 72 band added 3,547 bytes, and Pillow reads all 175 frames pixel-identical below it.
+
+**Do:** to put something on a GIF someone else encoded, give it new rows of its own above the picture (new pixels
+first in raster order, so nothing after them is out of step), not new pixels inside the frames. Check the result
+with a decoder that is not your own. Code: `frontend/src/lib/gifBand.ts`.
+
 ## 2026-11-26: a deposit's maxima do not hold a topped-up cp-swap pool to its price, and a top-up is any holder's to take
 
 **Believed:** to restart a near-empty cp-swap pool at the market price, send its short side up to
