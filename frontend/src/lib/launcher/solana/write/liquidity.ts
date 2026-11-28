@@ -263,8 +263,8 @@ function poolProblem(cp: PublicKey, address: PublicKey, pool: PoolStateView, tok
     return LP_COPY.poolChanged('its token sits under a program this site does not know');
   }
   const derived: Array<[string, PublicKey, string]> = [
-    [pool.token0Vault, deriveVault(cp, address, new PublicKey(pool.token0Mint)), 'an account the pool holds a coin in'],
-    [pool.token1Vault, deriveVault(cp, address, new PublicKey(pool.token1Mint)), 'an account the pool holds a coin in'],
+    [pool.token0Vault, deriveVault(cp, address, new PublicKey(pool.token0Mint)), 'its own account for one of its coins'],
+    [pool.token1Vault, deriveVault(cp, address, new PublicKey(pool.token1Mint)), 'its own account for one of its coins'],
     [pool.lpMint, deriveLpMint(cp, address), 'its pool-share token'],
     [pool.observationKey, deriveObservation(cp, address), 'its price record'],
   ];

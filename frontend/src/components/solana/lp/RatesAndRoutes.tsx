@@ -29,6 +29,8 @@ const BUILD_JUPITER_FEE: JupiterFee | null =
 export function Rates({ read, jupiterFee = BUILD_JUPITER_FEE }: { read: FeeTierRead | null; jupiterFee?: JupiterFee | null }) {
   const publicTier = read?.kind === 'ok' ? read.tiers.find((t) => t.index === PUBLIC_TIER_INDEX && t.state === 'live')?.config ?? null : null;
   const venue = howVenueEarns(publicTier, jupiterFee);
+  // The launch pools' cut, as the table's row has it: "The venue earns:" lists every way it does.
+  const launchTier = read?.kind === 'ok' ? read.tiers.find((t) => t.index === 0 && t.state === 'live')?.config ?? null : null;
   const explorer = explorerOf(useLpWrites());
   // The public tier first: every pool opened from this site is on it.
   const tiers = read?.kind === 'ok' ? [...read.tiers].sort((a, b) => rank(a.index) - rank(b.index)) : [];
@@ -98,6 +100,7 @@ export function Rates({ read, jupiterFee = BUILD_JUPITER_FEE }: { read: FeeTierR
             {venue.sources.map((line) => (
               <li key={line}>{line}</li>
             ))}
+            {launchTier && <li>{`${pctText(feeSplit(launchTier).venueTakesPct)} of each trade in a launch pool.`}</li>}
           </ul>
           {!venue.elsewhere && venue.where && <p>{venue.where}</p>}
           {!venue.elsewhere && wallets}

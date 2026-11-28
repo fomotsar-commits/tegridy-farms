@@ -465,7 +465,7 @@ function HowItPays({ pool, pair }: { pool: RangePool | null; pair: NamedPair | n
     <Card title="How a range position earns" testId="range-earns" art={<CardArt pageId="range-pools" idx={0} />}>
       {s ? (
         <p className="text-white/85">
-          {`Each swap through your range pays a ${s.fee} fee. Positions in range share ${s.lpOfFee} of it (${s.lpOfSwap} of the swap), split by how much liquidity each has there. The venue keeps ${s.venueOfFee} (${s.venueOfSwap} of the swap). Both shares are read from this pool’s fee tier on the chain.`}
+          {`Each swap through your range pays a ${s.fee} fee. Positions in range share ${s.lpOfFee} of it (${s.lpOfSwap} of the swap), split by how much liquidity each has at the current price. The venue keeps ${s.venueOfFee} (${s.venueOfSwap} of the swap). Both shares are read from this pool’s fee tier on the chain.`}
         </p>
       ) : (
         <p className="text-white/85">

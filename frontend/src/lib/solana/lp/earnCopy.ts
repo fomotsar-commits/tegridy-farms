@@ -1,7 +1,7 @@
 import { PLATFORM_TREASURY_VAULT } from '../../launcher/solana/curve/program';
 import { WORKSHOP_WALLET } from '../../launcher/solana/write/plant';
 import { FEE_RATE_DENOMINATOR } from '../cpswap/math';
-import type { AmmConfigView } from '../cpswap/program';
+import { PUBLIC_TIER_INDEX, type AmmConfigView } from '../cpswap/program';
 import { feeSplit, solOf } from '../cpswap/venue';
 import { feeRateText, pctText } from './format';
 
@@ -11,6 +11,9 @@ import { feeRateText, pctText } from './format';
  * read, no number is said. The swap fee is the swap's own build setting (lib/solana.ts).
  * A wallet is called the team's vault only when the chain names that address.
  */
+
+/** Which pools a tier's split is said of: "public-pool ", "launch-pool ", or nothing for another tier. */
+const tradeIn = (index: number) => (index === PUBLIC_TIER_INDEX ? 'public-pool ' : index === 0 ? 'launch-pool ' : '');
 
 export const EARN_TITLES = { you: 'How you earn', venue: 'How the venue earns' } as const;
 
@@ -114,7 +117,7 @@ export function howVenueEarns(tier: AmmConfigView | null, jupiter: JupiterFee | 
     }
   }
   if (isAgreed) {
-    const where = `Of each trade’s fee, ${share(tier.protocolFeeRate)} goes to the team’s vault, ${VAULT_CAN}, and ${share(tier.fundFeeRate)} to the island’s Workshop, the island’s agreed share.`;
+    const where = `Of the fee on each ${tradeIn(tier.index)}trade, ${share(tier.protocolFeeRate)} goes to the team’s vault, ${VAULT_CAN}, and ${share(tier.fundFeeRate)} to the island’s Workshop, the island’s agreed share.`;
     return { sources, where: `${where}${swapTo}`, wallets, elsewhere: false };
   }
   const head = agreed

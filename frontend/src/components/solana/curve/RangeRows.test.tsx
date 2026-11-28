@@ -71,7 +71,7 @@ describe('the range review’s fee lines', () => {
   });
 
   it('an opening’s own notices (its price check) are said first, above every row, once; the review says “this pool’s price”', () => {
-    const off = 'This pool’s price is 9.1% below the outside price (Jupiter’s). Anyone can open a range pool at any price.';
+    const off = 'This pool’s price is 9.1% below the market price (Jupiter’s). Anyone can open a range pool at any price.';
     render(<TxReview prepared={prepared(opening({ owner: PLATFORM_TREASURY_VAULT.toBase58(), fundOwner: WORKSHOP_WALLET.toBase58() }, [off]))} decimals={6} display={(x) => x} />);
     const box = screen.getByTestId('tx-review-warnings');
     expect(box).toHaveTextContent(off);

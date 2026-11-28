@@ -854,7 +854,7 @@ describe('pool swap', () => {
   it('the pool opens by the CHAIN clock: not open yet by the chain = nothing built; unknown clock with a future open = refused', async () => {
     const early = await poolSetup({ openTime: 1_001n });
     let r = await preparePoolSwap(W(early.chain), early.gate, { owner: ME, mint: MINT, pool: early.lp, side: 'buy', amountIn: 1_000n, slippageBps: 100n });
-    expect(!r.ok && r.outcome.message).toMatch(/cannot price/);
+    expect(!r.ok && r.outcome.message).toMatch(/no price for this trade/);
     const noClock = await poolSetup({ openTime: 1_001n, clock: null });
     r = await preparePoolSwap(W(noClock.chain), noClock.gate, { owner: ME, mint: MINT, pool: noClock.lp, side: 'buy', amountIn: 1_000n, slippageBps: 100n });
     expect(!r.ok && r.outcome.message).toMatch(/network clock/);
@@ -865,7 +865,7 @@ describe('pool swap', () => {
   it('a pool closed to swaps cannot be quoted, so nothing is built', async () => {
     const { chain, gate, lp } = await poolSetup({ status: 4 });
     const r = await preparePoolSwap(W(chain), gate, { owner: ME, mint: MINT, pool: lp, side: 'buy', amountIn: 1_000n, slippageBps: 100n });
-    expect(!r.ok && r.outcome.message).toMatch(/cannot price/);
+    expect(!r.ok && r.outcome.message).toMatch(/no price for this trade/);
   });
 
   // F1: the page's copy of the pool is from page load. The quote, and the minimum

@@ -553,7 +553,7 @@ describe('what it refuses to build, in words', () => {
 
   it('an amount too small to be protected by a price limit', async () => {
     const w = world();
-    expect((await refusal(w, sell(w, { amountIn: 1n }))).message).toMatch(/cannot price this trade|too small/);
+    expect((await refusal(w, sell(w, { amountIn: 1n }))).message).toMatch(/no price for this trade|too small/);
   });
 
   it('a pairing coin under Token-2022 whose own mint takes a fee on every transfer', async () => {
@@ -652,8 +652,8 @@ describe('the checker: a venue swap read back out of its bytes', () => {
       3: /different pool than the one checked/,
       4: /spends from an account that is not yours/,
       5: /pays out to an account that is not yours/,
-      6: /wrong account for a coin the pool holds/,
-      7: /wrong account for a coin the pool holds/,
+      6: /names an account that is not the pool’s own/,
+      7: /names an account that is not the pool’s own/,
       8: /wrong token program/,
       9: /wrong token program/,
       10: /wrong token/,

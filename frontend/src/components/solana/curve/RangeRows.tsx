@@ -137,7 +137,7 @@ export function RangeCreateRows({ summary: s }: { summary: RangeCreateSummary })
       <Row label="Deposits back when you close your position" value={`${sol(s.backOnClose)}: its record, its NFT and the NFT’s account.`} mono={false} />
       <Row
         label="How a position earns"
-        value={`Positions in range share ${split.lpOfFee} of each ${split.fee} swap fee (${split.lpOfSwap} of the swap), split by how much liquidity each has there. The venue keeps ${venue.cut}.`}
+        value={`Positions in range share ${split.lpOfFee} of each ${split.fee} swap fee (${split.lpOfSwap} of the swap), split by how much liquidity each has at the current price. The venue keeps ${venue.cut}.`}
         mono={false}
       />
       {/* Anything but the agreed split is said once, in bold, at the top of the review (TxFlowView). */}

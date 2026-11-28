@@ -213,7 +213,7 @@ describe('a swap in a range pool', () => {
     expect(await msg(chainWith({ status: 1 << POOL_STATUS_BIT.swap }))).toBe(RANGE_SWAP_COPY.swapsPaused);
     expect(await msg(chainWith({ bandMissing: true }))).toBe(RANGE_SWAP_COPY.bandUnread);
     // Far more than the one band's liquidity: the walk runs off the bands read.
-    expect(await msg(chainWith(), sell(NOT_ASKED, 10n ** 18n))).toMatch(/price bands|cannot fill|cannot price/);
+    expect(await msg(chainWith(), sell(NOT_ASKED, 10n ** 18n))).toMatch(/price bands|too little to fill|no price for this trade/);
     const noClock = chainWith();
     setClock(noClock, null);
     expect(await msg(noClock)).toBe(VENUE_SWAP_COPY.noClock);

@@ -113,31 +113,31 @@ export const RANGE_COPY = {
   withdrawalsOff:
     'Withdrawals are switched off on this pool by the team’s vault, so money put in now could not be taken out until the vault switches them back on. Nothing was built.',
   vaultFrozen: 'A coin’s issuer has frozen this pool’s own account for that coin, so nothing can move in or out of the pool, for anyone. Nothing was built.',
-  cannotSize: (why: string) => `This site could not size your account for a coin of this pool (${why}), so nothing was built.`,
+  cannotSize: (why: string) => `This site could not work out the deposit for an account that holds one of this pool’s coins (${why}), so nothing was built.`,
   priceOff: (pct: string, side: 'above' | 'below', loss: string | null) =>
-    `This pool’s price is ${pct} ${side} the outside price (Jupiter’s). Anyone can open a range pool at any price. ` +
+    `This pool’s price is ${pct} ${side} the market price (Jupiter’s). Anyone can open a range pool at any price. ` +
     (loss === null
-      ? 'What a move back to the outside price would cost you at these amounts could not be worked out.'
-      : `At these amounts, a move back to the outside price would take up to about ${loss} of what you put in. That is an estimate.`),
-  noMarket: 'Jupiter has no route for this pair, so this pool’s price could not be checked against an outside price. Anyone can open a range pool at any price.',
+      ? 'What a move back to the market price would cost you at these amounts could not be worked out.'
+      : `At these amounts, a move back to the market price would take up to about ${loss} of what you put in. That is an estimate.`),
+  noMarket: 'Jupiter has no route for this pair, so this pool’s price could not be checked against a market price. Anyone can open a range pool at any price.',
   priceUnread: (why: string) =>
-    `The outside price could not be read just now (${why}), so this pool’s price was not checked against it. Anyone can open a range pool at any price.`,
+    `The market price could not be read just now (${why}), so this pool’s price was not checked against it. Anyone can open a range pool at any price.`,
   removingPaused: 'Taking liquidity out of this pool is switched off by the team’s vault right now.',
   collectingPaused: 'Collecting fees from this pool is switched off by the team’s vault right now.',
   rewardsPaused: 'Collecting rewards from this pool is switched off by the team’s vault right now.',
   earnedWaitsOnRemoval:
-    'Taking liquidity out of this pool is switched off by the team’s vault right now, so what this position earned since it was last changed waits until that is switched back on. It stays owed to it.',
+    'Taking liquidity out of this pool is switched off by the team’s vault right now. What this position earned since its last change stays owed to it until that is switched back on.',
   paysRecordOnly:
     'Taking liquidity out of this pool is switched off by the team’s vault right now, so this pays only what the position’s record held at its last change. What it earned since stays owed to it.',
   closeRewardShort:
-    'The pool holds less of a reward than this position is owed, and the program closes a position only once every reward owed is paid, so closing waits until the pool holds enough. Take out 100% and keep it open instead: that pays what the pool holds, and the rest stays owed to it.',
+    'The pool holds less of a reward than this position is owed, and the program closes a position only once every reward owed is paid. Take out 100% and keep it open instead: that pays what the pool holds of that reward, and the rest stays owed to it.',
   badRange: 'That range is not one a position may use in this pool.',
   buysNothing: 'That amount buys nothing in this range: a range above the price takes the token only, and one below it takes the pairing coin only.',
   noTokenAccount: (address: string) => LP_COPY.noTokenAccount(address),
   noCoinAccount: (symbol: string, address: string) => LP_COPY.noCoinAccount(symbol, address),
   short: (need: string, have: string) => LP_COPY.overBalance(need, have),
   notAPosition: 'This address is not a range position of this venue.',
-  notYourNft: 'The position’s NFT is not in your wallet’s own account for it, so this site does not take it out for you.',
+  notYourNft: 'This site takes a position out only when its NFT is in your wallet’s own account for it, and this one’s is not, so nothing was built.',
   nothingToTake: 'There is nothing in this position to take out, and no fees or rewards to collect.',
   badPercent: 'Choose how much to take out: from 0% (fees only) to 100%.',
   badTolerance: 'The price tolerance must be from 0% to 50%.',

@@ -44,7 +44,7 @@ export const CP_SWAP_ERROR_COPY: Record<CpSwapErrorName, string> = {
   ExceededSlippage: 'The price moved past your limit before this landed. Get a new quote and try again.',
   ZeroTradingTokens: 'That amount is too small to trade.',
   NotSupportMint: 'The pool does not support this kind of token.',
-  InvalidVault: 'This transaction names the wrong account for a coin the pool holds.',
+  InvalidVault: 'This transaction names an account that is not the pool’s own.',
   InitLpAmountTooLess: 'Too little was put in to open the pool.',
   TransferFeeCalculateNotMatch: 'A token transfer fee did not match what the pool expected.',
   MathOverflow: 'The amount is too large for the pool to work with.',

@@ -253,7 +253,7 @@ describe('opening a new pool', () => {
     expect(cost.closest('details')).toBeNull();
     const earns = within(card).getByTestId('range-create-earns');
     expect(earns.textContent).toBe(
-      'Positions in range share 84% of each 1% swap fee (0.84% of the swap), split by how much liquidity each has there. The venue keeps 16% (0.16% of the swap).',
+      'Positions in range share 84% of each 1% swap fee (0.84% of the swap), split by how much liquidity each has at the current price. The venue keeps 16% (0.16% of the swap).',
     );
     expect(earns.closest('details')).toBeNull();
     expect(card.textContent).toMatch(/10\.4% of each fee \(0\.104% of the swap\) to the team’s vault, .* and 5\.6% of each fee \(0\.056% of the swap\) to the island’s Workshop/);

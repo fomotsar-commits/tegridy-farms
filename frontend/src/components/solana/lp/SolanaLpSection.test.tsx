@@ -614,8 +614,10 @@ describe('the rates: what a trade pays, what stays in the pool, what the venue t
     const sources = within(rates).getByTestId('lp-venue-sources');
     expect(within(sources).getAllByRole('listitem').slice(0, 2).map((li) => li.textContent)).toEqual(['0.16% of each trade in a public pool.', '0.15 SOL when a public pool is opened.']);
     expect(within(sources).getAllByRole('listitem')[2]).toHaveTextContent(/a swap sent through Jupiter/);
+    // Under "The venue earns:" every way it does, the launch pools' cut in the table included.
+    expect(within(sources).getAllByRole('listitem')[3]).toHaveTextContent(/^0\.05% of each trade in a launch pool\.$/);
     expect(rates).toHaveTextContent(
-      'Of each trade’s fee, 10.4% (0.104% of the trade) goes to the team’s vault, which can change fee rates if both keys approve, and 5.6% (0.056% of the trade) to the island’s Workshop, the island’s agreed share.',
+      'Of the fee on each public-pool trade, 10.4% (0.104% of the trade) goes to the team’s vault, which can change fee rates if both keys approve, and 5.6% (0.056% of the trade) to the island’s Workshop, the island’s agreed share.',
     );
     // The venue's ways of earning, introduced as such; the split said once in the small print.
     expect(sources.previousElementSibling).toHaveTextContent(/^The venue earns:$/);

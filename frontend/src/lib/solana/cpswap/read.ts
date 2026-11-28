@@ -221,13 +221,13 @@ export async function readPoolAt(
   if (v0.kind !== 'ok') return v0;
   if (v1.kind !== 'ok') return v1;
   if (v0.value.owner.toBase58() !== pool.token0Program || v1.value.owner.toBase58() !== pool.token1Program) {
-    return { kind: 'unreadable', detail: 'an account the pool holds a coin in is not owned by the token program the pool names' };
+    return { kind: 'unreadable', detail: 'the pool’s own account for one of its coins is not owned by the token program the pool names' };
   }
 
   const vault0Amount = decodeTokenAccountAmount(v0.value.data);
   const vault1Amount = decodeTokenAccountAmount(v1.value.data);
   if (vault0Amount === null || vault1Amount === null) {
-    return { kind: 'unreadable', detail: 'an account the pool holds a coin in did not decode as a token account' };
+    return { kind: 'unreadable', detail: 'the pool’s own account for one of its coins did not decode as a token account' };
   }
 
   const reserve0 = vaultAmountWithoutFee(

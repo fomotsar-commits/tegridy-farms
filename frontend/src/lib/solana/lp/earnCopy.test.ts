@@ -27,7 +27,7 @@ const FEW_TRADES = 'Few trades means small fees.';
 const VAULT_ROW = { label: 'Team’s vault', address: VAULT };
 const WORKSHOP_ROW = { label: 'Island’s Workshop', address: WORKSHOP };
 const SPLIT_WHERE =
-  'Of each trade’s fee, 10.4% (0.104% of the trade) goes to the team’s vault, which can change fee rates if both keys approve, and 5.6% (0.056% of the trade) to the island’s Workshop, the island’s agreed share.';
+  'Of the fee on each public-pool trade, 10.4% (0.104% of the trade) goes to the team’s vault, which can change fee rates if both keys approve, and 5.6% (0.056% of the trade) to the island’s Workshop, the island’s agreed share.';
 const NOT_AGREED = 'The venue’s cut does not follow the agreed split (10.4% of each trade’s fee to the team’s vault, 5.6% to the island’s Workshop).';
 
 describe('the recorded chain says what the sentences say', () => {
@@ -101,7 +101,7 @@ describe('How the venue earns', () => {
     const v = howVenueEarns(splitTier(0), null);
     expect(v.elsewhere).toBe(false);
     expect(v.where).toBe(
-      'Of each trade’s fee, 13% (0.0325% of the trade) goes to the team’s vault, which can change fee rates if both keys approve, and 7% (0.0175% of the trade) to the island’s Workshop, the island’s agreed share.',
+      'Of the fee on each launch-pool trade, 13% (0.0325% of the trade) goes to the team’s vault, which can change fee rates if both keys approve, and 7% (0.0175% of the trade) to the island’s Workshop, the island’s agreed share.',
     );
     // Tier 0's rates on tier 1 are not tier 1's agreed split.
     expect(howVenueEarns({ ...split1(), protocolFeeRate: 130_000n, fundFeeRate: 70_000n }, null).elsewhere).toBe(true);
