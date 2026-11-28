@@ -72,7 +72,7 @@ describe('BaylaLiberation', () => {
     const bar = screen.getByRole('progressbar', { name: 'BAYLA liberation' });
     expect(bar).toHaveAttribute('aria-valuenow', '32');
     expect((bar.firstElementChild as HTMLElement).style.width).toBe(`${(20_442_463 / 63_746_791) * 100}%`);
-    expect(screen.getByTestId('bayla-liberation-line')).toHaveTextContent("20.44M BAYLA in our pools · 63.74M in pump.fun's");
+    expect(screen.getByTestId('bayla-liberation-line')).toHaveTextContent("20.44M BAYLA in our BAYLA/SOL pools · 63.74M in pump.fun's");
   });
 
   it('says Liberated, with a full bar, once our pools hold more', async () => {
