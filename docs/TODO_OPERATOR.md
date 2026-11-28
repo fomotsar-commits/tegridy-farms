@@ -29,6 +29,49 @@ stop and say so — a surprise is information.
 
 ---
 
+## 🔴 2026-11-28: our two Solana programs' names on Solscan (one sitting, about 10 minutes; the pack is ready, nothing sent)
+
+On 2026-11-27 you asked for our pool swaps to stop showing up with no name on Solscan. On
+2026-11-28 you asked for it on this list. Your paper is `START-HERE.md` in
+`C:\Users\jimbo\OneDrive\Desktop\tegriddy farms\IDL-PUBLISH-2026-11-27` (on this PC only, not in
+git).
+
+**Not done yet (read on mainnet 2026-11-28 07:09 UTC).** Both programs' list spots are still empty,
+and the paying wallet holds 0.057 SOL.
+
+**What it is.** Solscan can't read our pool program, so it names our swaps after something else in
+the same transaction: "Raydium", pump.fun's "AMM", or the price robot's safety check. The pack
+publishes each program's instruction list (its "IDL") at the one address Solscan reads it from: the
+pool program `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT` as `memetics_amm`, and the launch
+program `64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2` as `memetics_launch`. Each list is read
+back, then handed to the vault `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`, which already
+controls both programs. No vault proposal and no 48-hour wait. Nothing about swaps, prices, fees or
+pools changes: the programs never read these lists.
+
+**Why it is red.** Until it runs, anyone can claim either spot first and then decide what Solscan
+shows for our swaps. A simulation on real mainnet state (2026-11-27, nothing sent) showed an outside
+arbitrage wallet could do it.
+
+**The SOL.** The BAYLA deployer `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6` pays about 0.18 SOL.
+About 0.179 SOL of it is rent that stays inside the two list accounts (it comes back only if the
+vault ever closes a list); network fees come to under 0.001 SOL. **Send it 0.2 SOL.** No venue,
+treasury or pool money is touched.
+
+1. From Phantom, send 0.2 SOL to `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6`. Paste it from this
+   page, never from a wallet's history, and compare the whole address.
+2. Double-click `1-DRYRUN.cmd`. It sends nothing, and must end with `PREFLIGHT PASS`.
+3. Double-click `2-SEND.cmd` and type `SEND`. It takes a few minutes and ends with `ALL DONE.`
+   Every stop starts with `STOP:` and says what to do; the paper's table covers each one. If it says
+   **someone else holds this list's spot**, send nothing more and tell a session.
+4. A session reads both lists back from the chain and checks Solscan.
+5. Send the note in `SOLSCAN-MESSAGE.md` to Solscan, through the X, Telegram or Discord links on
+   solscan.io itself, so their team puts "Memetics AMM" in front of our swaps. 🚨 Anyone in a DM who
+   asks for SOL or a "listing fee" for this is a scammer.
+
+**After the fee-sweep upgrade below executes**, the pool list needs one refresh to name
+`sweep_fees` and the other new instructions. Because the vault holds the list, that refresh is a
+vault proposal.
+
 ## 🔴 2026-11-26: the fee sweep, so the venue's fees reach the vault by themselves (two sittings; the pack is ready, nothing sent)
 
 Your word on 2026-11-15: "all funds for the venue land in the treasury". On 2026-11-24 and again
