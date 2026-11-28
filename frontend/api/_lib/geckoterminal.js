@@ -44,8 +44,18 @@ export const LP_EVENT_TAG = "79a3cdc939da753c";
 const PROGRAM_DATA = "Program data: ";
 /** Slots a range may span in one call: GeckoTerminal's chunk is configurable; this bounds one request's reads. */
 export const MAX_SLOT_RANGE = 50_000;
-/** Transactions one /events call will decode; more than this in one range is a 502 that asks for a smaller chunk. */
-export const MAX_TXS_PER_CALL = 60;
+/**
+ * Transactions one /events call will decode; more than this in one range is a 502 that asks
+ * for a smaller chunk. An indexer replays our history in chunks of a fixed size and stops on
+ * a chunk that is refused, so this sits well above the busiest 50,000 slots so far (125
+ * transactions, slots 471834753 to 471884752, read 2026-11-26): at 60, a replay in
+ * 50,000-slot chunks stopped on 14 of them.
+ */
+export const MAX_TXS_PER_CALL = 300;
+/** Transactions read from the RPC at one time: two, so a replay does not crowd the site's own reads off the same key. */
+export const TX_READS_AT_ONCE = 2;
+/** Signature pages (1,000 each) one call walks back from the tip before it gives up. */
+export const MAX_SIGNATURE_PAGES = 200;
 /** How far behind the tip a slot must be before its events are cached by the edge for a day. */
 export const SETTLED_SLOTS = 300;
 const POOLS_FRESH_MS = 60_000;
@@ -422,34 +432,68 @@ export async function txnIndexIn(rpc, slot, signature) {
 }
 
 /**
+ * Where a listed transaction sits in its block. Newer RPC nodes say so in the signature list
+ * itself (`transactionIndex`; it matched the block's own order on 53 of 53 live transactions,
+ * 2026-11-26), which saves a block read per slot. A node that does not say is asked for the block.
+ */
+export async function placeInBlock(rpc, s) {
+  if (Number.isInteger(s.transactionIndex) && s.transactionIndex >= 0) return s.transactionIndex;
+  return txnIndexIn(rpc, s.slot, s.signature);
+}
+
+/**
+ * The transactions behind `sigs`, in their order, read TX_READS_AT_ONCE at a time: each answer
+ * is filed under its own signature's place, whichever comes back first. One failed read fails
+ * the whole call and stops the rest from being asked for.
+ */
+export async function transactionsOf(rpc, sigs) {
+  const txs = new Array(sigs.length);
+  let next = 0;
+  let failed = false;
+  const reader = async () => {
+    while (!failed && next < sigs.length) {
+      const i = next++;
+      try {
+        txs[i] = await transaction(rpc, sigs[i].signature);
+      } catch (e) {
+        failed = true;
+        throw e;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(TX_READS_AT_ONCE, sigs.length) }, reader));
+  return txs;
+}
+
+/**
  * The program's finalized transactions in [fromBlock, toBlock], oldest first. The RPC lists
- * newest first, so pages are walked back until one dips below `fromBlock`.
+ * newest first, so pages are walked back until one dips below `fromBlock`. A history too deep
+ * to walk is an error: a list cut short would be indexed as the whole range, for good.
  */
 export async function signaturesIn(rpc, fromBlock, toBlock) {
   const hits = [];
   let before;
-  for (let page = 0; page < 200; page++) {
+  for (let page = 0; page < MAX_SIGNATURE_PAGES; page++) {
     const list = await rpc("getSignaturesForAddress", [VENUE_PROGRAM, { limit: 1000, commitment: "finalized", ...(before ? { before } : {}) }]);
-    if (!Array.isArray(list) || !list.length) break;
+    if (!Array.isArray(list) || !list.length) return hits.reverse();
     for (const s of list) if (s.slot >= fromBlock && s.slot <= toBlock && !s.err) hits.push(s);
-    if (list[list.length - 1].slot < fromBlock || list.length < 1000) break;
+    if (list[list.length - 1].slot < fromBlock || list.length < 1000) return hits.reverse();
     before = list[list.length - 1].signature;
   }
-  return hits.reverse();
+  throw new Error(`the program's history is deeper than ${MAX_SIGNATURE_PAGES} signature pages above slot ${fromBlock}`);
 }
 
 /** Every event in [fromBlock, toBlock], in block, transaction and event order. */
 export async function eventsIn(rpc, fromBlock, toBlock) {
   const sigs = await signaturesIn(rpc, fromBlock, toBlock);
   if (sigs.length > MAX_TXS_PER_CALL) throw Object.assign(new Error(`${sigs.length} transactions in slots ${fromBlock}-${toBlock}: ask for a smaller chunk (at most ${MAX_TXS_PER_CALL} transactions a call)`), { tooMany: true });
-  const txs = [];
-  for (const s of sigs) txs.push(await transaction(rpc, s.signature));
+  const txs = await transactionsOf(rpc, sigs);
   const pools = await poolsFor(rpc, txs);
   const events = [];
   for (const [i, s] of sigs.entries()) {
     const tx = txs[i];
     if (!programEvents(tx, pools).length) continue;
-    const txnIndex = await txnIndexIn(rpc, s.slot, s.signature);
+    const txnIndex = await placeInBlock(rpc, s);
     events.push(...eventsOf(tx, pools, txnIndex));
   }
   return events.sort((a, b) => a.block.blockNumber - b.block.blockNumber || a.txnIndex - b.txnIndex || a.eventIndex - b.eventIndex);

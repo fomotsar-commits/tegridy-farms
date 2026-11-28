@@ -1,6 +1,6 @@
 // Polyfill MUST load before any @solana/* import, the same rule as SolanaProviders.
 import '../../../lib/solanaPolyfill';
-import { useCallback, useMemo, useState } from 'react';
+import { Suspense, lazy, useCallback, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useConnection } from '@solana/wallet-adapter-react';
 import { PublicKey } from '@solana/web3.js';
@@ -23,6 +23,7 @@ import { siteNamed, tokenTicker } from '../../../lib/solana/lp/identity';
 import type { AmmConfigView } from '../../../lib/solana/clmm/program';
 import { feePaidIn, feeSplit, poolFeeCeiling } from '../../../lib/solana/clmm/feeText';
 import { RANGE_OPENING_FEE_TEXT, rangeVenueEarns } from '../../../lib/solana/clmm/venueEarns';
+import { browserRoomReaders, type RoomReaders } from '../../../lib/solana/clmm/roomRead';
 import { pairOf, priceAtSqrt, type Pair } from '../../../lib/solana/clmm/rangeMath';
 import { CardArt } from '../../ui/CardArt';
 import { FinePrint } from '../../ui/FinePrint';
@@ -41,6 +42,9 @@ import { RangePositionsCard } from './RangePositionsCard';
 import { loadRangeWriteApi } from './rangeWriteApi';
 import { priceText, tokenWord, withTokenLabel, type NamedPair } from './rangeText';
 import { useChainRead, useRangeWrites } from './useRangeData';
+
+// The Liquidity Room (a prototype): fetched, with three.js, only when `?room=1` asks for it.
+const LiquidityRoom = lazy(() => import('../room/LiquidityRoom'));
 
 /**
  * The Range tab's section: how a range position pays, the pools of one pair (one per fee
@@ -72,6 +76,8 @@ export interface RangeReaders {
   outsidePrice(mint: string, decimals: number, opts?: { fresh?: boolean }): Promise<OutsidePrice>;
   /** Each token's check (tokenSafety.ts), for the ticker every line names it by. */
   tokenSafety(mints: string[]): Promise<Map<string, TokenSafety>>;
+  /** What the Liquidity Room reads (roomRead.ts); absent where nothing draws it. */
+  room?: RoomReaders;
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
@@ -88,6 +94,7 @@ export function browserRangeReaders(rpc: SolanaRpc, programId: PublicKey): Range
       return (o?.fresh ? null : await listedOutsidePrice(mint, jupiter)) ?? readOutsidePrice(mint, decimals, { rpc, programId: ownPoolPrograms([programId.toBase58()]) }, jupiter, undefined, o);
     },
     tokenSafety: (mints) => readTokenSafety(rpc, mints),
+    room: browserRoomReaders(rpc, programId),
   };
 }
 
@@ -107,6 +114,8 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
 
   const [params, setParams] = useSearchParams();
   const raw = params.get('mint');
+  // The room is a prototype behind a switch only its link sets: nobody meets it by accident.
+  const roomOn = params.get('room') === '1';
   const parsed = raw ? parseMintInput(raw) : null;
   const tokenMint = parsed?.ok ? parsed.mint : BAYLA_MINT;
   // A coin pairs only with the coins ranked above it (quotesFor, as the Pools tab and the pool
@@ -321,6 +330,12 @@ export function RangeInner({ readers, load, mode }: { readers: RangeReaders; loa
         {pools.reading && poolList && <p className="text-white/45 text-[10px]">Reading again…</p>}
         {pool && <Row label="Pool" value={pool.pool.address} />}
       </Card>
+
+      {roomOn && pool && named && readers.room && (
+        <Suspense fallback={null}>
+          <LiquidityRoom key={pool.pool.address} readers={readers.room} pool={pool} pair={named} positions={positions.read?.kind === 'ok' ? positions.read.value.positions : null} />
+        </Suspense>
+      )}
 
       {pool && pair && (
         <RangeOpenCard

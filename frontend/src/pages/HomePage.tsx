@@ -56,6 +56,7 @@ import { BungalowHero } from '../components/bungalow/BungalowHero';
 import { BungalowMarket } from '../components/bungalow/BungalowMarket';
 import { BungalowHolders } from '../components/bungalow/BungalowHolders';
 import { BungalowBurn } from '../components/bungalow/BungalowBurn';
+import { BaylaLiberation, LIBERATION_ROOM } from '../components/bungalow/BaylaLiberation';
 import { RoomRail, type RoomStop } from '../components/bungalow/RoomRail';
 
 /** A resident's page, section by section, as its rail names them (RoomRail.tsx). Each id is on its slot below. */
@@ -705,6 +706,13 @@ export default function HomePage() {
             when the bungalow declares a `market` pool; self-hides otherwise. */}
         {bungalowIdentity?.market && (
           <div className="pb-8 2xl:col-span-8" id={ROOM_STOPS.market.id}>
+            {/* Her liberation bar heads her market (owner, 2026-11-26): inside the market's stop,
+                so the rail's numbers and its scroll-spy are unchanged. */}
+            {bungalowIdentity.id === LIBERATION_ROOM && (
+              <div className="pb-8">
+                <BaylaLiberation bungalow={bungalowIdentity} />
+              </div>
+            )}
             <BungalowMarket bungalow={bungalowIdentity} wideGrid />
           </div>
         )}
