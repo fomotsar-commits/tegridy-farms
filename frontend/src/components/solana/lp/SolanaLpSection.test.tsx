@@ -612,16 +612,16 @@ describe('the rates: what a trade pays, what stays in the pool, what the venue t
     expect(rates).toHaveTextContent('You receive it when you remove liquidity.');
     expect(rates).toHaveTextContent('Few trades means small fees.');
     const sources = within(rates).getByTestId('lp-venue-sources');
-    // The venue's ways of earning, introduced as such; the split said once in the small print.
-    expect(sources.previousElementSibling).toHaveTextContent(/^The venue earns:$/);
-    const details = sources.closest('details')!;
-    expect(details.textContent!.match(/0\.84/g)).toHaveLength(1);
-    expect(details.textContent!.match(/0\.16/g)).toHaveLength(1);
     expect(within(sources).getAllByRole('listitem').slice(0, 2).map((li) => li.textContent)).toEqual(['0.16% of each trade in a public pool.', '0.15 SOL when a public pool is opened.']);
     expect(within(sources).getAllByRole('listitem')[2]).toHaveTextContent(/a swap sent through Jupiter/);
     expect(rates).toHaveTextContent(
       'Of each trade’s fee, 10.4% (0.104% of the trade) goes to the team’s vault, which can change fee rates if both keys approve, and 5.6% (0.056% of the trade) to the island’s Workshop, the island’s agreed share.',
     );
+    // The venue's ways of earning, introduced as such; the split said once in the small print.
+    expect(sources.previousElementSibling).toHaveTextContent(/^The venue earns:$/);
+    const details = sources.closest('details')!;
+    expect(details.textContent!.match(/0\.84/g)).toHaveLength(1);
+    expect(details.textContent!.match(/0\.16/g)).toHaveLength(1);
     // The cut follows the agreed split, so both wallets are one press away: short, the whole address a press further.
     expect(within(rates).queryByTestId('lp-venue-elsewhere')).toBeNull();
     expect(within(rates).getByRole('group', { name: 'Island’s Workshop' }).closest('details')).not.toBeNull();
