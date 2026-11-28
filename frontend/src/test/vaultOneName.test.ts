@@ -2,7 +2,7 @@
 // vault that holds the pool programs' admin keys (PR #1320). A pool's own account for a coin is
 // called that, never a vault, or a stranger reads two things under one name. A shown string
 // passes when each "vault" in it is "the team's vault", or "the vault" once that string or its
-// section (ALLOWED) has named it; a Squads line introduces it, and an identifier is no copy.
+// section (ALLOWED) has named it, or the Squads vault named as such; an identifier is no copy.
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { SRC, fromSrc, shownTexts, sourceFiles } from './shownText';
@@ -16,11 +16,13 @@ const NAMED = /team(?:’|'|&apos;|&rsquo;)s\s+vault/i;
 
 /** Each "vault" in `text` that names something other than the team's vault. */
 export function strayVaults(text: string, file: string): string[] {
-  if (/^[\w-]+$/.test(text.trim()) || /Squads/.test(text)) return [];
+  if (/^[\w-]+$/.test(text.trim())) return [];
   const out: string[] = [];
   for (const m of text.matchAll(/\bvaults?\b/gi)) {
     const before = text.slice(0, m.index);
     if (TEAMS.test(before)) continue;
+    // The Squads vault, named as such: "the known Squads vault", "vault 0 of the Squads multisig".
+    if (/Squads\s+$/.test(before) || /^vault\s+\d+\s+of\s+the\s+Squads\b/i.test(text.slice(m.index))) continue;
     const theVault = m[0].toLowerCase() === 'vault' && /\bthe\s+$/i.test(before);
     if (theVault && (NAMED.test(before) || ALLOWED.has(file))) continue;
     out.push(text.slice(Math.max(0, m.index - 50), m.index + 30).replace(/\s+/g, ' ').trim());
@@ -49,5 +51,9 @@ describe('one name for the team’s vault', () => {
     expect(strayVaults('One of this pool’s vaults is frozen.', f)).toHaveLength(1);
     expect(strayVaults('A reward’s vault holds less; that pays what the vault holds.', f)).toHaveLength(2);
     expect(strayVaults('the swap names the wrong pool vault', f)).toHaveLength(1);
+    // A Squads line names its own vault only: a pool's vault beside it in the same string still counts.
+    expect(strayVaults(', vault 0 of the Squads multisig', f)).toEqual([]);
+    expect(strayVaults("it is not the platform's known Squads vault.", f)).toEqual([]);
+    expect(strayVaults('Squads holds the admin keys. One of this pool’s vaults is frozen.', f)).toHaveLength(1);
   });
 });

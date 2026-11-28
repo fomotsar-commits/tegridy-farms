@@ -68,7 +68,7 @@ export async function readRangeRoutePools(
         }
         // A dynamic fee runs above the tier's rate, which the review and the form say: no candidate.
         const blocked =
-          problem ?? (range.pool.dynamicFeeInfo !== null ? 'its fee changes with the market' : vaults.some((v) => v!.frozen) ? 'an issuer has frozen its account for a coin' : null);
+          problem ?? (range.pool.dynamicFeeInfo !== null ? 'its fee changes with the market' : vaults.some((v) => v!.frozen) ? 'the pool’s own account for a coin is frozen' : null);
         try {
           const ext = await readExtension(rpc, programId, range.pool);
           const bands = await readBandsNear(rpc, programId, range.pool, ext, MAX_SWAP_BANDS);
