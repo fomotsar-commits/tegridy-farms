@@ -181,6 +181,13 @@ chain reads), and makes a history too deep to walk an error instead of a short l
 - 2026-11-26: the adapter follow-up above, as a reply in the DexScreener thread.
 - Read 2026-11-26: no reply yet on #163; GeckoTerminal still 404; DexScreener still no pair,
   and no staff reply in the thread.
+- Read 2026-11-27: nothing changed. GeckoTerminal still 404 (it lists 15 BAYLA pools on other
+  exchanges, not ours); DexScreener still no pair, the thread still tagged pending, no staff
+  reply; no reply on #163.
+- 2026-11-28: DefiLlama, a separate listing (value locked and volume for the venue,
+  not a chart per pool; free, no minimum size, no audit asked). Two pull requests, from the
+  pack in `defillama/`: DefiLlama/DefiLlama-Adapters#22424 (value locked) and
+  DefiLlama/dimension-adapters#11422 (volume, fees, revenue). One each; follow up inside them.
 
 ## What each listing does for the money
 
