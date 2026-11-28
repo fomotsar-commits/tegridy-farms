@@ -1264,6 +1264,70 @@ jobs:
 
           yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/tegridy-launch-migration.test.ts tests/cp-swap-fee-rules.test.ts tests/cp-swap-swap-guard.test.ts tests/cp-swap-keeper-fee.test.ts tests/cp-swap-keeper-resign.test.ts tests/cp-swap-sweep-fees.test.ts tests/cp-swap-price-record.test.ts
 
+  # vwap-order: the on-chain VWAP order of docs/VWAP_ORDER_PROGRAM.md, audited by nobody and
+  # deployed nowhere. Its own workspace and lock, so nothing here moves a crate the live programs
+  # build with. Its tests run it beside cp-swap's mainnet binary, in LiteSVM.
+  vwap-order:
+    needs: scope
+    if: >-
+      !cancelled() &&
+      (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable branch @ 2026-08-05
+      - name: Cache cargo
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: vwap-cargo-${{ hashFiles('solana/vwap-order/Cargo.lock', 'solana/vwap-order/litesvm-tests/Cargo.lock', 'solana/tegridy-amm/Cargo.lock') }}
+      # Before any build, so no target folder is read. The placeholder id joins
+      # solana/guards/allowed-keys.json in a pull request of its own once this program is on
+      # trunk (a guard change may touch nothing else); until then this step names it alone.
+      - name: No outside key in the order program
+        run: |
+          set -euo pipefail
+          node -e 'const f=require("fs"),a=JSON.parse(f.readFileSync("solana/guards/allowed-keys.json","utf8"));a.placeholder={...a.placeholder,VwapPLACEHo1DERnotDep1oyed11111111111111111:"vwap-order, deployed nowhere"};f.writeFileSync("/tmp/allow-vwap.json",JSON.stringify(a))'
+          node solana/guards/key-guard.mjs --allow /tmp/allow-vwap.json \
+            --deny solana/guards/upstream/deny-keys.txt \
+            --ours solana/tegridy-amm/programs/cp-swap --ours solana/tegridy-clmm \
+            --ours solana/tegridy-amm/programs/tegridy-launch --ours solana/tegridy-amm/programs/bayla-ladder \
+            --ours solana/vwap-order
+      - name: Order arithmetic (standalone, no deps)
+        working-directory: solana/vwap-order/programs/vwap-order
+        run: rustc --edition 2021 --test src/math.rs -o /tmp/vwap_math && /tmp/vwap_math
+      - name: Install Solana CLI ${{ env.SOLANA_VERSION }}
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+      # The same two guards as every build here: an artifact must exist (build-sbf can exit 0
+      # having compiled nothing) and no function may overflow the 4 KB SBF stack frame.
+      - name: Build the order program, cp-swap's mainnet binary and the test-only CPI caller
+        run: |
+          set -euo pipefail
+          sbf() {
+            rm -f "$2"
+            (cd "$1" && cargo build-sbf -- --locked) 2>&1 | tee /tmp/sbf.log
+            [ -f "$2" ] || (cd "$1" && cargo build-sbf -- --locked) 2>&1 | tee -a /tmp/sbf.log
+            [ -f "$2" ] || { echo "::error::cargo build-sbf exited 0 but produced no $2"; exit 1; }
+            if grep -q "exceeded max offset" /tmp/sbf.log; then
+              echo "::error::SBF stack frame overflow in $1"; grep -B3 "exceeded max offset" /tmp/sbf.log; exit 1
+            fi
+            echo "$(sha256sum "$2" | cut -d' ' -f1)  $(stat -c%s "$2") bytes  $2" | tee -a "$GITHUB_STEP_SUMMARY"
+          }
+          sbf solana/vwap-order/programs/vwap-order solana/vwap-order/target/deploy/vwap_order.so
+          sbf solana/tegridy-amm/programs/cp-swap solana/tegridy-amm/target/deploy/raydium_cp_swap.so
+          sbf solana/tegridy-amm/tests/cpi-caller solana/tegridy-amm/tests/cpi-caller/target/deploy/cpi_caller.so
+      - name: Unit tests
+        working-directory: solana/vwap-order/programs/vwap-order
+        run: cargo test --locked --lib
+      - name: The order beside the venue's pool program (LiteSVM)
+        working-directory: solana/vwap-order/litesvm-tests
+        run: cargo test --locked -- --nocapture
+
   # ─────────────────────────────────────────────────────────────────────
   # Required-status aggregator, mirroring contracts-ci.yml's all-tests-pass.
   #
@@ -1291,6 +1355,7 @@ jobs:
         ladder-constraints,
         launch-constraints,
         migration-rehearsal,
+        vwap-order,
       ]
     runs-on: ubuntu-latest
     if: always()

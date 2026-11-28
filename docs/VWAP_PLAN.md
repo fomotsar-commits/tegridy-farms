@@ -93,6 +93,9 @@ day's average instead of moving the price at once. No true VWAP order exists on 
 | Our own order program | The person's own escrow, one per order | Build roughly 3 to 4 weeks; an outside audit; about 2 to 3 SOL of rent to deploy a program of 300 to 400 KB; each order locks about 0.0064 SOL of rent, paid back when it closes | Our usual fee on each slice | New on-chain code holding money: against our "copy proven code" rule until audited |
 | A "slice it" helper on the site, no program | The person's own wallet | Website only, roughly a week | Our usual fee on each slice | Each slice is signed by hand; it stops when the tab closes |
 
+2026-11-19: the owner asked for both, the site version first. The program is designed and built on
+a branch, not audited and not deployed, with measured costs: `docs/VWAP_ORDER_PROGRAM.md`.
+
 **Our own order program, in more detail.** Each order would be an escrow account the person
 funds and can cancel at any time. Anyone may execute the next slice once its time comes, but
 only inside a price band, and the program pays them a small tip for it. The hard part is the

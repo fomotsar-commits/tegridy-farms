@@ -107,6 +107,27 @@ one package without a reinstall: `npm pack <name>@<locked version>`, extract the
 `package/` over the folder, and `require()` it to prove it loads. Check the version against the
 lockfile: an unpinned `npm pack` fetched lightningcss 1.33.0 where the lock says 1.32.0.
 
+## 2026-11-19: a mutant that removes a check can survive because the load before the check already fails
+
+**Believed:** a test that sends `[begin_slice, swap]` with no third instruction and expects
+"the end is missing" pins `begin_slice`'s check of what the third instruction is.
+
+**Measured** (`solana/vwap-order`, LiteSVM, the real cp-swap build): with that check replaced by
+`true`, all 14 tests still passed. `load_instruction_at_checked(here + 2)` fails when there is no
+instruction at that index, and the error it maps to is the same one, so the test never reached the
+check. The same happened to "the next instruction is our pool's program": the only wrong
+instruction tried also had wrong data, and the data check caught it first. Each needed its own test:
+a third instruction that exists but is something else, and the swap's exact bytes sent to another
+program. Without the first, a slice skips both price checks and the order takes no more slices.
+
+**Also measured:** LiteSVM 0.6.x pins the Solana 2.2 crates, and Anchor 0.32.1 calls
+`AccountInfo::resize` from 2.3 (`no method named resize`); LiteSVM 0.7.1 is the 2.3 line. Keep a
+simulator's crates out of a program's own lock: Solana 2.3.0 builds with cargo 1.84, which cannot
+read a newer crate's edition 2024 manifest (the cpi-caller lock trap of 2026-11-10).
+
+**Do:** for each check, make the mutant and read which assertion fails, not only that one fails:
+a refusal by the same code from an earlier line proves nothing about the line removed.
+
 ## 2026-11-19: a press that scrolls the page makes a double tap's second tap press what moved under the finger
 
 **Believed:** a scroll that brings the next step onto the screen is harmless to the finger: the
