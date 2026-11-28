@@ -7,12 +7,15 @@ The site's Changelog tab shows both files.
 
 ## [Unreleased]
 
+### 2026-11-28
+
+- BAYLA's room: a Liberation bar now heads her market. It fills with the BAYLA in all our Solana pools, measured against the BAYLA in her pump.fun pool on PumpSwap, and says Liberated the day ours hold more (32% on 2026-11-26). It counts BAYLA, not dollars, so no price move shifts it, and it is read from Solana at most a minute old; when either side cannot be read it says so instead of showing an empty bar. Its link opens her Add SOL + BAYLA form.
+
 ### 2026-11-27
 
 - Sharing a buy or an add on X: every coin now posts its own moving moment, the shore for a buy and the flash for an add, where only the five rooms did; any other coin posted words alone. A coin's first clip takes the island about two minutes to make for a buy and three and a half for an add; it is asked for as your wallet signs, and the card waits up to six minutes for it. Every later share of that coin is instant. An add paired with USDC or an island coin names that coin in its clip.
 - Sharing your heat on X: the link in the post now carries the number it states, and so does the card's picture, so X draws a fresh card under every new number instead of the card it kept from an earlier share of the same link.
 - Jungle Bay: the collection once listed as Jungle Bay Ape Club is now called Jungle Bay across the site (the marketplace, NFT lending, the Gold Card, the FAQ and Towelie), and its marketplace page opens with a wide banner picture chosen by the Jungle Bay curator. Nine new Jungle Bay pieces now hang behind the Pools page, on the menu's Swap, Earn and Records pictures, behind NFT Finance in the Bayla room, and in every Bayla room spot that showed the picture of the apes around the bed, the onboarding screens included.
-- BAYLA's room: a Liberation bar now heads her market. It fills with the BAYLA in all our Solana pools, measured against the BAYLA in her pump.fun pool on PumpSwap, and says Liberated the day ours hold more (32% on 2026-11-26). It counts BAYLA, not dollars, so no price move shifts it, and it is read from Solana at most a minute old; when either side cannot be read it says so instead of showing an empty bar. Its link opens her Add SOL + BAYLA form.
 
 ### 2026-11-26
 
