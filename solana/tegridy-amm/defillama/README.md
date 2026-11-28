@@ -1,18 +1,19 @@
-# DefiLlama: the two listings, ready to send
+# DefiLlama: the two listings
 
 DefiLlama lists a protocol through pull requests on two of its GitHub repositories. Both are
 free. Neither has a minimum size or asks for an audit (its docs and both repositories' rules,
-read 2026-11-27). This folder holds everything for both. Both were sent on 2026-11-28: see
-"Sent" below, and do not open either again.
+read 2026-11-27). This folder holds everything for both. Both were sent on 2026-11-28, and the
+volume one was merged there the same day: see "Sent" below, and do not open either again.
 
 | What it shows | Their repository | Our file | The text to paste |
 |---|---|---|---|
 | Value locked in our pools | `DefiLlama/DefiLlama-Adapters` | `DefiLlama-Adapters/projects/memetics-finance/index.js` | `DefiLlama-Adapters/PR.md` |
 | Volume, fees and revenue | `DefiLlama/dimension-adapters` | `dimension-adapters/dexs/memetics-finance.ts` | `dimension-adapters/PR.md` |
 
-Both read program `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT` straight from the chain. Each
-passed DefiLlama's own test command in a local copy of their repository on 2026-11-27; the
-output is in each `PR.md`.
+Both of our files read program `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT` straight from the
+chain, and each passed DefiLlama's own test command in a local copy of their repository; the
+output is in each `PR.md`. The volume adapter that DefiLlama merged is their maintainer's rewrite
+of ours: see "Volume: merged" below.
 
 ## Sent
 
@@ -34,6 +35,52 @@ first test, a day earlier, read $124.73: the figure moves that much from day to 
 - A commit made through GitHub's file API is stamped with the account's primary email address,
   not the no-reply address our own commits carry. For a commit that goes to someone else's
   repository, set its author and committer to the no-reply address when the commit is made.
+- DefiLlama's automated reviewer (CodeRabbit) reviews every pull request there. On the volume
+  one it asked for changes, which shows as a red X beside the pull request. Two more commits
+  answered it, and it approved on 2026-11-28. What changed: a token's own transfer fee is
+  counted in volume (the program's event carries the amount after that fee); the one fee share
+  that existed before the split is rounded once; transactions are read two at a time through
+  their `PromisePool`; and every signature page is asked for at a finalized slot past the
+  window's end, so a node that lags refuses instead of answering short. The description in
+  `dimension-adapters/PR.md` is as it stood when the pull request was merged.
+- To clear that reviewer's change request: fix or answer each of its threads in the pull
+  request, then post `@coderabbitai approve` as a comment of its own. It withdrew one request
+  on evidence: a `fees/` copy of the adapter is not needed (`dexs/deepswap.ts` has none, and
+  DefiLlama publishes its fees). Editing the description after it has reviewed makes its
+  checks stale, so edit the description first. Its title format is
+  `[type] protocol-name - description`.
+- On the value-locked pull request the same reviewer left one small suggestion and no change
+  request: read each pool's fee counters and its vault balances in one call. Not done.
+- The value-locked pull request still waits for a DefiLlama maintainer; the automated
+  reviewer's word is not that.
+
+### Volume: merged on 2026-11-28
+
+DefiLlama's maintainer `bheluga` merged the volume pull request on 2026-11-28 05:58 UTC, after
+rewriting the adapter in it (their commit "refactor using allium"). What runs at DefiLlama is
+their version:
+https://github.com/DefiLlama/dimension-adapters/blob/master/dexs/memetics-finance.ts
+(merge commit `c56bde05e1dfc43b7dacad2107f4441b2b6f2314`). `dimension-adapters/dexs/memetics-finance.ts` here is
+our own last version, the pull request's third commit, which reads the chain over RPC: kept
+for cross-checks, and not what DefiLlama runs. A later change goes to their file, on a new
+branch of the owner's fork.
+
+What their version keeps, and what it changes:
+
+- Kept: the price robot's fee-free swaps are not volume. Fees are the 1% trade fee and the
+  0.15 SOL to open a pool. The vault's 10.4% of each trade fee (16% before 2026-10-19) and the
+  pool-opening fee are revenue and protocol revenue.
+- Changed: the Workshop's 5.6% is shown under supply side revenue, beside the liquidity
+  providers' 84%, still under its own label "Swap Fees To Fund Owner". We had put it under
+  revenue and offered this move in the pull request; DefiLlama's rule puts a share paid to a
+  partner there. The amounts are the chain's either way.
+- Changed: a token's own transfer fee is not added to volume, and a pool's creator fee is not
+  read (no pool charges one today).
+- It reads swaps from Allium, DefiLlama's data provider, so its test runs only with
+  DefiLlama's key. The fee tiers' rates are still read from the chain.
+- After a merge the figures can take a day to show. Their template says to tell them in their
+  Discord only if more than 24 hours pass. On 2026-11-28 their API did not answer for
+  `memetics-finance` yet.
 
 ## What the listing will show
 
@@ -44,10 +91,11 @@ first test, a day earlier, read $124.73: the figure moves that much from day to 
 - **Volume: only what fee-paying traders did: $124.73** in the 24 hours to 2026-11-27 06:00
   UTC. Our own price robot's swaps are not in it. See the first decision below.
 - **How the money is shown.** A swap pays the pool's 1% trade fee. Liquidity providers keep 84%
-  of it (0.84% of the swap). The other 16% (0.16% of the swap) is shown as revenue: 10.4% of the
-  fee to the vault and 5.6% to the Workshop, each under its own label. Only the vault's part is
-  also shown as protocol revenue, DefiLlama's name for what a treasury collects. Opening a pool
-  pays the vault 0.15 SOL: shown as revenue and as protocol revenue.
+  of it (0.84% of the swap). As merged, the vault's 10.4% of the fee
+  (0.104% of the swap) is shown as revenue and as protocol revenue, DefiLlama's name for what a
+  treasury collects. The Workshop's 5.6% is shown beside the liquidity providers' share, under
+  supply side revenue, with its own label. Opening a pool pays the vault 0.15 SOL: shown as
+  revenue and as protocol revenue.
 
 ## Decisions before sending: two settled, one open
 
@@ -62,7 +110,8 @@ first test, a day earlier, read $124.73: the figure moves that much from day to 
    A reviewer may still ask to move it: DefiLlama's written rule counts as revenue what the
    protocol keeps, and puts a share paid to a partner beside the liquidity providers'. The
    pull request says where the 5.6% goes and offers the move. The amounts are the chain's
-   either way.
+   either way. **2026-11-28: DefiLlama's maintainer made that move when merging**, so on
+   DefiLlama the 5.6% is under supply side revenue, not revenue.
 3. **Fields only the owner can settle**, marked in each `PR.md`: the logo file to attach
    (`frontend/public/icons/a5bed999/icon-512.png` is 512 by 512), whether to name TOWELI as the
    protocol's token (the text says "None on Solana"), the CoinGecko and CoinMarketCap ids (left
@@ -93,15 +142,16 @@ pnpm test dexs memetics-finance                      # in dimension-adapters, th
 pnpm test dexs memetics-finance 2026-11-07           # one past day: the date is the day after
 ```
 
-The volume test reads one transaction at a time from Solana's public endpoint, so a busy day
-takes several minutes.
+The volume lines run our own RPC version of the adapter, which reads a few transactions at a time
+from Solana's public endpoint, so a busy day takes several minutes. The version DefiLlama merged
+runs only with their Allium key.
 
 ## What changes on our side later
 
 - A change to a fee tier's protocol or fund rate (the split's next step, for one) needs a dated
-  line in `dexs/memetics-finance.ts` beside `FUND_SHARE_START`, sent to DefiLlama as a small
+  line in DefiLlama's `dexs/memetics-finance.ts` beside `FUND_SHARE_START`, sent to DefiLlama as a small
   pull request the week it executes. The adapter reads today's rates from the chain, and Solana
   keeps no history of them.
 - Range pools are a second program and are in neither adapter. One pool holds $1.54 today.
-- If the program passes a few thousand transactions a day, the volume adapter should move to
-  DefiLlama's Allium helper, as `dexs/deepswap.ts` does. Only DefiLlama can run that one.
+- The volume adapter at DefiLlama is on their Allium helper since the merge. A change to it is a
+  pull request against their file; we cannot run its test, so the pull request must say so.

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { decodeAbiParameters } from 'viem';
-import { buyManyWithEth, buyWithEth, sellForEth, swapTokens, portion, v3Path, v3SwapExactIn, type PermitSingle } from './universalRouter';
+import { buyManyWithEth, buyWithEth, sellForEth, swapTokens, swapTokensFeeOnInput, portion, v3Path, v3SwapExactIn, type PermitSingle } from './universalRouter';
 
 // The command sequences are Uniswap's (universal-router Commands.sol / ActionConstants.sol,
 // SDK uniswapTrade.ts), and a fork of Base ran exactly these bytes 2026-11-01: the seller got
@@ -102,5 +102,24 @@ describe('a coin for a coin', () => {
     const permit: PermitSingle = { details: { token: USDT0, amount: 5n, expiration: 1, nonce: 2 }, spender: TREASURY, sigDeadline: 3n };
     const call = swapTokens({ chainId: 999, tokenIn: USDT0, tokenOut: WHYPE, poolFee: 500, amountIn: 5n, minOut: 4n, feeBips: 30n, feeRecipient: TREASURY, permit: { permit, signature: '0x1234' } });
     expect(call.commands).toBe('0x0a000604');
+  });
+});
+
+describe("a coin for a coin, the fee from the coin going in (buying a coin the site does not list)", () => {
+  it("pulls the coin to the router through Permit2, pays the fee in it, then swaps all the router holds to the buyer at the floor", () => {
+    const PEPE = "0xFffFfFfFFfFFfffFFFffFfFFFfFfFffFfffFF001";
+    const call = swapTokensFeeOnInput({ chainId: 999, tokenIn: USDT0, tokenOut: PEPE, poolFee: 3000, amountIn: 1_000_000n, minOut: 9n, feeBips: 50n, feeRecipient: TREASURY });
+    // PERMIT2_TRANSFER_FROM, PAY_PORTION, V3_SWAP_EXACT_IN (Commands.sol 0x02, 0x06, 0x00).
+    expect(call.commands).toBe("0x020600");
+    expect(decodeAbiParameters([{ type: "address" }, { type: "address" }, { type: "uint160" }], call.inputs[0]!)).toEqual([USDT0, ADDRESS_THIS, 1_000_000n]);
+    expect(pay(call.inputs[1]!)).toEqual([USDT0, TREASURY, 50n]);
+    // The router pays (payerIsUser false) everything it holds of USDT0, and the buyer gets the coin.
+    expect(swapIn6(call.inputs[2]!)).toEqual([MSG_SENDER, CONTRACT_BALANCE, 9n, v3Path(USDT0, 3000, PEPE), false, []]);
+  });
+
+  it("a permit, when one is signed, goes first", () => {
+    const permit: PermitSingle = { details: { token: USDT0, amount: 5n, expiration: 1, nonce: 2 }, spender: TREASURY, sigDeadline: 3n };
+    const call = swapTokensFeeOnInput({ chainId: 999, tokenIn: USDT0, tokenOut: WHYPE, poolFee: 500, amountIn: 5n, minOut: 4n, feeBips: 30n, feeRecipient: TREASURY, permit: { permit, signature: "0x1234" } });
+    expect(call.commands).toBe("0x0a020600");
   });
 });

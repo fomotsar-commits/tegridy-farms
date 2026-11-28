@@ -1,16 +1,18 @@
 # Pull request text for `DefiLlama/dimension-adapters` (volume, fees, revenue)
 
-The owner opens this pull request. Tick "Allow edits by maintainers". The only file in it is
-`dexs/memetics-finance.ts`, copied from the folder beside this file. Where the body says
-`<link>`, paste the link of the value-locked pull request.
+Sent on 2026-11-28 as https://github.com/DefiLlama/dimension-adapters/pull/11422 and merged there the same
+day. Below are its title and description as they stood at merge. They describe our version of the
+adapter, which reads the chain over RPC: `dexs/memetics-finance.ts` beside this file, the pull request's
+third commit. DefiLlama's maintainer rewrote it onto their own data provider before merging; see the
+README. Do not open a second pull request.
 
 **Title**
 
 ```
-Add Memetics Finance (Solana AMM): volume, fees and revenue
+[dexs] Memetics Finance - volume, fees and revenue
 ```
 
-**Body** (their template, filled in; paste everything below the line)
+**Body**
 
 ---
 
@@ -32,11 +34,13 @@ https://memetics.finance
 
 ##### Logo (High resolution, will be shown with rounded borders):
 
-(attached to the TVL pull request: <link>)
+![Memetics Finance logo](https://memetics.finance/icons/a5bed999/icon-512.png)
+
+512 x 512 PNG: https://memetics.finance/icons/a5bed999/icon-512.png (the same file is in the TVL pull request: https://github.com/DefiLlama/DefiLlama-Adapters/pull/22424)
 
 ##### Current TVL:
 
-$20.03k (2026-11-27, 34 pools; TVL adapter: <link>)
+$19.43k (2026-11-28 02:31 UTC, 34 pools; TVL adapter: https://github.com/DefiLlama/DefiLlama-Adapters/pull/22424)
 
 ##### Treasury Addresses (if the protocol has treasury)
 
@@ -80,7 +84,7 @@ Raydium (its cp-swap program, the one behind Raydium's CPMM pools)
 
 ##### methodology (what is being counted as tvl, how is tvl being calculated):
 
-- Volume: what traders sent into each swap of program `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`, before fees, read from the `SwapEvent` the program logs. Counted in SOL, USDC or USDT wherever the pool holds one of them; when a swap sends the pool's other token, that amount is valued at the price the swap itself traded at. Swaps by the protocol's own price-keeping bot are left out (see below).
+- Volume: what traders sent into each swap of program `EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT`, before fees, read from the `SwapEvent` the program logs. Where a token charges its own transfer fee (Token-2022), that fee is part of what the trader sent and is counted. Counted in SOL, USDC or USDT wherever the pool holds one of them; when a swap sends the pool's other token, that amount is valued at the price the swap itself traded at. Swaps by the protocol's own price-keeping bot are left out (see below).
 - Fees: the trade fee each swap paid, which the same event carries (1% of the amount sent in on every pool today), plus the flat fee in SOL to open a pool.
 - Revenue: 16% of each trade fee, and the pool creation fee. Of the 16%, 10.4% goes to the protocol's multisig treasury and 5.6% is set aside for the fund owner named on the fee tier, the wallet of the community the protocol shares its fees with.
 - Protocol revenue: the multisig treasury's part alone: 10.4% of each trade fee, and the pool creation fee.
@@ -98,8 +102,8 @@ Not on these Solana pools.
 
 **The questions a review asks**
 
-- **Related listing.** New protocol. Its TVL adapter is <link>. After merge the listing needs `dimensions: { dexs: "memetics-finance", fees: "memetics-finance" }` on the server side.
-- **Why RPC and not Allium.** The closest adapter is `dexs/deepswap.ts`, another Raydium cp-swap fork, and this one reads the same `SwapEvent`. It reads it over RPC because the program has about 200 transactions a day and under 6,000 since it launched (six pages of signatures), and because an outside contributor cannot run an Allium query to test it. Pages of signatures are cached and transactions are fetched one at a time, so the test passes on the public endpoint. If you would rather have it on `helpers/alliumSolanaEvents.ts`, say so and we will switch.
+- **Related listing.** New protocol. Its TVL adapter is https://github.com/DefiLlama/DefiLlama-Adapters/pull/22424. After merge the listing needs `dimensions: { dexs: "memetics-finance", fees: "memetics-finance" }` on the server side.
+- **Why RPC and not Allium.** The closest adapter is `dexs/deepswap.ts`, another Raydium cp-swap fork, and this one reads the same `SwapEvent`. It reads it over RPC because the program has about 200 transactions a day and under 6,000 since it launched (six pages of signatures), and because an outside contributor cannot run an Allium query to test it. Pages of signatures are cached and transactions are read two at a time through PromisePool, with a refusal waited out, so the test passes on the public endpoint. If you would rather have it on `helpers/alliumSolanaEvents.ts`, say so and we will switch.
 - **The protocol's own bot is not volume.** Each fee tier names a keeper: the protocol's price-keeping bot, which the program has charged no trade fee since November 2026 (`states/config.rs`, `swap_fee_rates`). Everyone else pays a fee of at least one unit, because the fee is rounded up. So a swap whose event carries a trade fee of 0 is the keeper's, and the adapter leaves it out of volume. It pays no fee, so it adds nothing to fees either.
 - **Why this differs from the site.** The site's volume figure counts every swap in the pools, the keeper's included, and covers the protocol's other programs and chains. This adapter counts fee-paying swaps of this one program.
 - **Is a zero correct?** An hour with no swap is common. Whole days without one happened in October 2026, while the first pools were opening (the first pool on 2026-10-03, the first swap on 2026-10-08), and are not expected now.
@@ -137,8 +141,12 @@ Swap Fees To Fund Owner |                    |                           | 0.07
 |---|---|---|---|---|---|---|---|
 | 2026-10-17, before the split | $26.00 | $0.2621 | $0.2202 | none | $0.0419 | $31 | $26.14, $0.2614, two (0.30 SOL) |
 | 2026-10-22 | $236.37 | $2.3622 | $1.9842 | $0.1323 | $0.2456 | $16 | $236.15, $2.3615, one (0.15 SOL) |
-| 2026-11-06 | $455.08 | $4.5454 | $3.8158 | $0.2544 | $0.4723 | $14 | $456.23, $4.5623, one (0.15 SOL) |
+| 2026-11-06 | $455.15 | $4.5454 | $3.8158 | $0.2544 | $0.4723 | $14 | $456.23, $4.5623, one (0.15 SOL) |
 
 Revenue for a day is the fund owner and treasury columns plus the pool creation fees; protocol revenue is the treasury column plus the pool creation fees. The test rounds each hourly figure of $10 or more to whole dollars (`adapters/utils/runAdapter.ts`), which is why a pool creation fee prints as a whole number and why, in the hour a pool opens, the printed totals can differ by under a dollar.
 
-For the last 24 hours the separate script reads $122.03 of volume in pools that hold SOL, USDC or USDT. The adapter's figure is $2.70 higher: it also counts 4 swaps in pools that hold none of the three, which DefiLlama prices, and it prices SOL hour by hour.
+For that window (26 Nov 06:00 to 27 Nov 06:00 GMT) the separate script reads $122.03 of volume in pools that hold SOL, USDC or USDT. The adapter's figure is $2.70 higher: it also counts 4 swaps in pools that hold none of the three, which DefiLlama prices, and it prices SOL hour by hour.
+
+**After the review fixes** (second and third commits): `pnpm run ts-check` and `pnpm test dexs memetics-finance` pass on the public endpoint. Window Fri, 27 Nov 2026 01:00:00 GMT to Sat, 28 Nov 2026 01:00:00 GMT: volume 496.11, fees 4.95, revenue 0.79, protocol revenue 0.51, supply side revenue 4.15. The past days above were run again: 2026-10-17 and 2026-10-22 print the same figures as before; 2026-11-06 prints the same fees and $455.15 of volume, where it printed $455.08 before a token's transfer fee was counted in what the trader sent. The third commit reads a window only once a finalized slot has a block time at or past its end, and asks for every signature page with `minContextSlot` set to that slot, so a node that lags cannot return a list that stops short.
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)

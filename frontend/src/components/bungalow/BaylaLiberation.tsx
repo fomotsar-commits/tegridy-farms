@@ -19,8 +19,8 @@ const short = (n: number) => formatCompactTokens(BigInt(n), 0);
 
 /**
  * BAYLA's liberation bar (owner, 2026-11-26: "a health bar ... that fills as we move to flipping the
- * pump fun pool for Bayla"). It fills with the BAYLA in our pools, against the BAYLA in her graduated
- * pump.fun pool, and is full the day ours holds more (a tie is not it). Read once on arrival, and says so, from the venue's own
+ * pump fun pool for Bayla"). It fills with the BAYLA in our BAYLA/SOL pools only (owner, 2026-11-28), against
+ * the BAYLA in her graduated pump.fun pool, itself BAYLA/SOL, and is full the day ours holds more (a tie is not it). Read once on arrival, and says so, from the venue's own
  * count (lib/venueTvl.ts); a side that could not be read shows no bar at all, never an empty one.
  */
 export function BaylaLiberation({ bungalow }: { bungalow: Bungalow }) {
@@ -71,8 +71,9 @@ export function BaylaLiberation({ bungalow }: { bungalow: Bungalow }) {
       {/* How it is counted, one press away (owner, 2026-10-13). */}
       <FinePrint summary="How it's counted" className="mt-1">
         <p>
-          The bar fills with every {symbol} in our pools, against any coin, and measures it against the {symbol} in her
-          graduated pump.fun pool on PumpSwap, the deepest of her pools outside this venue. It is full the day ours hold
+          The bar fills with the {symbol} in our {symbol}/SOL pools and measures it against the {symbol} in her graduated
+          pump.fun pool on PumpSwap, also {symbol}/SOL and the deepest of her pools outside this venue. Our {symbol} paired
+          with any other coin is not counted: a trade of SOL for {symbol} weighs SOL pools. It is full the day ours hold
           more: the flip. Counted in {symbol}, not dollars: at one price a pool is worth twice its {symbol}, so the bar is
           the depth of ours against theirs, and no price can move it. Read from Solana when this page opened.{' '}
           <a
@@ -129,7 +130,7 @@ function Bar({ flip, symbol }: { flip: BaylaFlip; symbol: string }) {
           />
         </div>
         <p className="m-0 mt-2 text-[13px] text-white/85 tabular-nums" data-testid="bayla-liberation-line">
-          {short(flip.ours)} {symbol} in our pools · {short(flip.pump)} in pump.fun&apos;s
+          {short(flip.ours)} {symbol} in our {symbol}/SOL pools · {short(flip.pump)} in pump.fun&apos;s
         </p>
       </div>
     </div>

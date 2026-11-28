@@ -41,9 +41,11 @@ describe('the HyperEVM record as committed', () => {
       // The HyperEVM treasury Safe, at the same address as Base's (rebuilt from its creation).
       treasury: '0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0',
       siteFeeBps: 50,
+      // Not deployed yet: the open form stays hidden until the owner's deploy run fills it.
+      poolOpener: null,
     });
     expect(hyperEvmLive()).toBe(true);
-    expect(hyperEvmVenue()).toMatchObject({ chainId: 999, factory: HYPEREVM_DEPLOYMENT.factory, treasury: HYPEREVM_DEPLOYMENT.treasury, siteFeeBps: 50n });
+    expect(hyperEvmVenue()).toMatchObject({ chainId: 999, factory: HYPEREVM_DEPLOYMENT.factory, treasury: HYPEREVM_DEPLOYMENT.treasury, siteFeeBps: 50n, poolOpener: null });
   });
 
   it('lists HYPE, WHYPE and the two dollar coins by their own tickers and whole addresses', () => {
@@ -66,6 +68,14 @@ describe('hyperEvmVenueFrom', () => {
     expect(hyperEvmVenueFrom({ ...FAKE, [key]: null })).toBeNull();
     expect(hyperEvmVenueFrom({ ...FAKE, [key]: '0x0000000000000000000000000000000000000000' })).toBeNull();
     expect(hyperEvmVenueFrom({ ...FAKE, [key]: '0x1234' as `0x${string}` })).toBeNull();
+  });
+
+  it('keeps the venue live without a pool opener, and takes one only when it is an address', () => {
+    expect(hyperEvmVenueFrom(FAKE)?.poolOpener).toBeNull();
+    expect(hyperEvmVenueFrom({ ...FAKE, poolOpener: null })?.poolOpener).toBeNull();
+    expect(hyperEvmVenueFrom({ ...FAKE, poolOpener: '0x0000000000000000000000000000000000000000' })?.poolOpener).toBeNull();
+    expect(hyperEvmVenueFrom({ ...FAKE, poolOpener: '0x1234' as `0x${string}` })?.poolOpener).toBeNull();
+    expect(hyperEvmVenueFrom({ ...FAKE, poolOpener: '0x1000000000000000000000000000000000000007' })?.poolOpener).toBe('0x1000000000000000000000000000000000000007');
   });
 
   it('is null while the owner has not set the site fee, or sets one out of range', () => {

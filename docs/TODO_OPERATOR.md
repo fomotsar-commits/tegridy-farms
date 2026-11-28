@@ -1421,6 +1421,12 @@ nothing is lost.
   written at once instead of at the next hourly run; check with
   `select source, swaps, usd, counted_to, last_error from venue_volume order by source;`
   (a `hyperevm` row, 0 swaps until a pool trades).
+- ⬜ **HyperEVM: deploy the pool opener** (one transaction, a few cents of HYPE; owner, 2026-11-26:
+  anyone opens a pool for 0.23 HYPE, paid to the treasury Safe). In the deploy pack:
+  `wsl.exe -e bash /mnt/c/Users/jimbo/hyperevm-deploy-2026-11/9-deploy-opener.sh`, then the
+  keystore password. It records the address and reads it back (fee 0.23 HYPE, paid to `0x796c…38C0`).
+  Then one small site change puts the address in `frontend/src/lib/chains/hyperEvmDeployment.ts`
+  (`poolOpener`), and the open form appears on HyperEVM pools. Until then nothing changes.
 - ⬜ **One sitting with real phones** [was O-1009-8], now with #722 (the Solana wallet list on a
   phone): on Android, does Phantom open its app, and does it connect by itself inside Phantom; in
   Trust's own browser, is Trust listed once; does the list fit a small phone. On a 320 by 568
