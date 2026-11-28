@@ -22,6 +22,8 @@ export function CoinLine({ token }: { token: HyperEvmToken }) {
       ) : (
         <a className="font-mono break-all underline underline-offset-2" href={hyperEvmAddressUrl(token.address)} target="_blank" rel="noopener noreferrer">{token.address}</a>
       )}
+      {token.unlisted && <span className="block text-amber-300/90">Not on the site's list: the ticker is its own claim. Check the address.</span>}
+      {token.lookalike && <span className="block text-amber-300/90">Its ticker looks like {token.lookalike}, but it is not the {token.lookalike} the site lists.</span>}
     </p>
   );
 }
@@ -39,7 +41,7 @@ export function CoinSelect({ label, value, onChange, tokens = HYPEREVM_TOKENS }:
       style={{ border: '1px solid rgba(255,255,255,0.18)' }}
     >
       {tokens.map((t) => (
-        <option key={t.address} value={t.address}>{t.symbol}</option>
+        <option key={t.address} value={t.address}>{t.unlisted ? `${t.symbol} · ${t.address.slice(0, 6)}…${t.address.slice(-4)}` : t.symbol}</option>
       ))}
     </select>
   );

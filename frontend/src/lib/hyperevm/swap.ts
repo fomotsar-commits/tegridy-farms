@@ -1,7 +1,7 @@
 import { encodeFunctionData } from 'viem';
 import { poolSide, type HyperEvmToken, type HyperEvmVenue } from '../chains/hyperEvm';
 import { QUOTER_V2_READ_ABI, v3MidOut } from '../evm/islandV3Route';
-import { UNIVERSAL_ROUTER_ABI, buyWithEth, portion, sellForEth, swapTokens, type PermitSingle } from '../evm/universalRouter';
+import { UNIVERSAL_ROUTER_ABI, buyWithEth, portion, sellForEth, swapTokens, swapTokensFeeOnInput, type PermitSingle } from '../evm/universalRouter';
 import type { HyperEvmReader, V3Pool } from './pools';
 
 /**
@@ -11,8 +11,10 @@ import type { HyperEvmReader, V3Pool } from './pools';
  * encoding. Only our pools are quoted: no other venue is ever compared or routed to.
  *
  * Where the site fee is taken: from the HYPE going in when HYPE is spent (the router pays it
- * before wrapping), else from the coin coming out (the router holds the output, pays the fee,
- * and sends the rest). Either way `out` below is what the wallet receives, after that fee.
+ * before wrapping); from the coin going in when the coin coming out is one the site does not
+ * list (a coin someone opened a pool for), so the treasury is never paid in it; else from the
+ * coin coming out (the router holds the output, pays the fee, and sends the rest). Either way
+ * `out` below is what the wallet receives, after that fee.
  */
 export interface SwapQuote {
   pool: V3Pool;
@@ -30,6 +32,11 @@ export interface SwapQuote {
 export type QuoteResult =
   | { ok: true; best: SwapQuote; all: SwapQuote[] }
   | { ok: false; why: 'same-coin' | 'wrap' | 'no-pool' | 'unread' | 'zero' };
+
+/** Whether the site fee comes out of the coin going in: HYPE spent, or a coin off the list coming out. */
+export function siteFeeOnInput(from: HyperEvmToken, to: HyperEvmToken): boolean {
+  return !!from.isNative || (!!to.unlisted && !from.unlisted);
+}
 
 function sameSide(a: HyperEvmToken, b: HyperEvmToken): boolean {
   return poolSide(a).toLowerCase() === poolSide(b).toLowerCase();
@@ -58,7 +65,8 @@ export async function quoteSwap(reader: HyperEvmReader, venue: HyperEvmVenue, po
   if (candidates.length === 0) return { ok: false, why: 'no-pool' };
   const tokenIn = poolSide(from);
   const tokenOut = poolSide(to);
-  const feeIn = from.isNative ? portion(amountIn, venue.siteFeeBps) : 0n;
+  const onInput = siteFeeOnInput(from, to);
+  const feeIn = onInput ? portion(amountIn, venue.siteFeeBps) : 0n;
   const swapped = amountIn - feeIn;
   const quotes = await Promise.all(candidates.map(async (pool): Promise<SwapQuote | null> => {
     try {
@@ -67,11 +75,11 @@ export async function quoteSwap(reader: HyperEvmReader, venue: HyperEvmVenue, po
         args: [{ tokenIn, tokenOut, amountIn: swapped, fee: pool.fee, sqrtPriceLimitX96: 0n }],
       });
       const gross = (result as readonly [bigint, ...unknown[]])[0];
-      const feeOut = from.isNative ? 0n : portion(gross, venue.siteFeeBps);
+      const feeOut = onInput ? 0n : portion(gross, venue.siteFeeBps);
       return {
         pool, from, to, amountIn,
         out: gross - feeOut,
-        siteFee: from.isNative ? { amount: feeIn, token: from } : { amount: feeOut, token: to },
+        siteFee: onInput ? { amount: feeIn, token: from } : { amount: feeOut, token: to },
         midOut: v3MidOut(amountIn, pool.sqrtPriceX96, tokenIn, tokenOut),
       };
     } catch {
@@ -117,6 +125,8 @@ export function buildSwapTx(a: {
     call = buyWithEth({ ...common, coin: poolSide(quote.to), weth: venue.whype });
   } else if (quote.to.isNative) {
     call = sellForEth({ ...common, coin: quote.from.address, weth: venue.whype, amountIn: quote.amountIn, permit: a.permit });
+  } else if (siteFeeOnInput(quote.from, quote.to)) {
+    call = swapTokensFeeOnInput({ ...common, tokenIn: quote.from.address, tokenOut: quote.to.address, amountIn: quote.amountIn, permit: a.permit });
   } else {
     call = swapTokens({ ...common, tokenIn: quote.from.address, tokenOut: quote.to.address, amountIn: quote.amountIn, permit: a.permit });
   }

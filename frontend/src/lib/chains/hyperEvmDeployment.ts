@@ -20,6 +20,12 @@ export interface HyperEvmDeployment {
    * the same as Base (SPEC decision 2). Null keeps HyperEVM hidden.
    */
   readonly siteFeeBps: number | null;
+  /**
+   * Our HyperEVMPoolOpener (contracts/hyperevm/src): anyone opens a pool through it for 0.23 HYPE,
+   * paid to `treasury` (owner, 2026-11-26). Null (or absent) only hides the open form and the
+   * pools opened through it; the rest of HyperEVM shows without it.
+   */
+  readonly poolOpener?: `0x${string}` | null;
 }
 
 export const HYPEREVM_DEPLOYMENT: HyperEvmDeployment = Object.freeze({
@@ -30,4 +36,5 @@ export const HYPEREVM_DEPLOYMENT: HyperEvmDeployment = Object.freeze({
   feeAdapter: '0x5f30Aa592fa4dB6AB62373666334E93772c28887',
   treasury: '0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0',
   siteFeeBps: 50,
+  poolOpener: null,
 });
