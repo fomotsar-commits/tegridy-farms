@@ -21,11 +21,11 @@ const DENY: string[] = readDeny(readFileSync(join(REPO_ROOT, 'solana', 'guards',
 const ALLOW = JSON.parse(readFileSync(join(REPO_ROOT, 'solana', 'guards', 'allowed-keys.json'), 'utf-8')) as { keptUpstream: Record<string, unknown> };
 
 /**
- * On the deny list but not Raydium's: the Memo program (a Solana program anyone uses), and
- * the four stablecoin mints the pool program takes by name, which the site names to explain
- * a block (lp/tokenSafety.ts). Every other entry is a Raydium program, owner or fee account.
+ * On the deny list but not Raydium's: the four stablecoin mints the pool program took by name,
+ * which the site names to explain a block (lp/tokenSafety.ts). Every other entry is a Raydium
+ * program, owner or fee account.
  */
-const NOT_RAYDIUMS = new Set(['MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr', ...Object.keys(ALLOW.keptUpstream)]);
+const NOT_RAYDIUMS = new Set(Object.keys(ALLOW.keptUpstream));
 const RAYDIUM = DENY.filter((k) => !NOT_RAYDIUMS.has(k));
 
 const SHIPPED_ROOTS = ['src', 'api', 'public', 'index.html', 'vercel.json'];

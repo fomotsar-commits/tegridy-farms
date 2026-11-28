@@ -23,12 +23,13 @@ export const PINNED = {
   'raydium-clmm.sha256': '522f72803ccc79b84790c66b8b654301093b720851d972dc7e834479cc01e91e',
   'parity-common-uint.sha256': 'aa732379604aad5b429692a1f312b25863c10f795e20ab526457309bacc7e97a',
   'raydium-cp-swap.sha256': 'b695714e31afd52e7ac6a68b661c9c97ac77ae994502ba1aa636bd8abef10d53',
-  'deny-keys.txt': '5c9632f8614d0ffbe3044638891234ad86ceed6006f25bba081065e025224111',
+  'deny-keys.txt': '3a56a460e21c7166bbf84d312251df7add1674b82bd0ae57b0da105c30ab355b',
 };
 
 export const COPIES = {
-  // The live mainnet program CAMMCzo5... was last deployed at slot 451,479,902 (2026-09-29
-  // 00:27 UTC) and carries text that first appears in this commit's tree.
+  // The mainnet program CAMMCzo5... as deployed at slot 451,479,902 (2026-09-29 00:27 UTC) carried
+  // text that first appears in this commit's tree. Raydium deployed it again at slot 459,932,378
+  // (2026-10-22 06:24 UTC), after this pin; what that deploy holds cannot be read from outside.
   'tegridy-clmm': {
     ours: 'solana/tegridy-clmm',
     repo: 'https://github.com/raydium-io/raydium-clmm',
@@ -72,8 +73,12 @@ export const COPIES = {
       'programs/amm/src/util/system.rs',
       'programs/amm/src/util/token.rs',
     ],
-    // The test in place of upstream's compute_swap_step_test, which solana-ci.yml skips.
-    oursOnly: ['README.md', 'programs/amm/tests/swap_math_fee_rule.rs'],
+    // Files upstream does not have, each pinned by hash: the copy's README, and the test in place
+    // of upstream's compute_swap_step_test, which solana-ci.yml skips.
+    oursOnly: {
+      'README.md': '598a9e776dc4beb2a5fb0da243939db72f36d21ccb7fa56b6b51a1306a0e5ef2',
+      'programs/amm/tests/swap_math_fee_rule.rs': '59d665105c621d8056b706b990419dc3067cb4306d8e6220231fbec3ad56362c',
+    },
     nested: ['vendor/uint'],
     // Raydium's lock pruned to the program's own crates, with uint read from vendor/uint.
     // Any change, even to a version upstream's lock also lists, needs a re-pin here.
@@ -88,7 +93,7 @@ export const COPIES = {
     take: (p) => p.startsWith('uint/') || p === 'LICENSE-APACHE2' || p === 'LICENSE-MIT',
     map: (p) => p.replace(/^uint\//, ''),
     patched: [],
-    oursOnly: [],
+    oursOnly: {},
   },
   // The program on mainnet since 2026-09-26. The pin's history is in the commit bodies of
   // .github/workflows/solana-ci.yml, where this hash lived until 2026-10-14.
@@ -116,26 +121,36 @@ export const COPIES = {
       'src/utils/token.rs',
       'Cargo.toml',
     ],
-    oursOnly: [],
+    oursOnly: {},
     // The workspace cargo builds cp-swap in. Its manifest (patch tables, the release profile,
     // members) is pinned whole; its lock, for the crates cp-swap compiles; programs/ holds only
     // these folders, since each one there joins the workspace.
     workspace: {
       dir: 'solana/tegridy-amm',
       manifest: { file: 'Cargo.toml', sha256: '507aabe0bca91903c94d71f7dc259919b3f02f1eed82eaa664c2f0c0ad10e1a2' },
+      // anchor build (the ladder's release build) reads its tool versions and members here.
+      anchor: { file: 'Anchor.toml', sha256: 'c451c34b248e5ef21d93fdb6a03617d8702927a7917c3c4bb3363396023c67f2' },
       lock: { file: 'Cargo.lock', root: 'raydium-cp-swap', sha256: '2fafdb6b101e39ab4f42dbe52c6f62c648da217b91e453e3473c71f945f189c0' },
       programs: ['bayla-ladder', 'cp-swap', 'tegridy-launch'],
+      // Our own programs beside it, with no upstream: each one's programs/<name>/Cargo.toml
+      // whole (dependencies, features, source path, tool version) and the crates it builds with.
+      own: {
+        'bayla-ladder': { manifest: 'c1b7caddd04dbd2b1ff41673b92195a0c5040bb1bcc850c362bad74cc578cb90', lock: 'f9dbb731ae63c38b87f505d814f2acaf41f801b85eb157fd59dbe9d640c5d055' },
+        'tegridy-launch': { manifest: 'eb73e715907c8eca2c71f29b7cdb9b0316177e65db1ccecf5bd41a71d94e6a1e', lock: 'ef3e236fa98ba53be00a5d22301b5ac396c245d8a3193c941f5995abf87d6d3e' },
+      },
     },
   },
 };
 
-// A pull request that changes a file in solana/guards/ (a pin, the reviewed patch, the
+// A pull request that changes or adds a file in solana/guards/ (a pin, the reviewed patch, the
 // allow-list, a guard) may change only these, so the person reading it reads nothing else.
 export const REPIN_MAY_TOUCH = [
   'solana/guards/',
   ...Object.values(COPIES).map((c) => `${c.ours}/`),
+  ...Object.keys(COPIES['cp-swap'].workspace.own).map((p) => `solana/tegridy-amm/programs/${p}/`),
   'solana/tegridy-amm/Cargo.toml',
   'solana/tegridy-amm/Cargo.lock',
+  'solana/tegridy-amm/Anchor.toml',
   'solana/tegridy-amm/TEGRIDY_FORK.md',
   // A patch that changes behaviour carries its validator test (solana-ci.yml runs them).
   'solana/tegridy-amm/tests/',
@@ -143,8 +158,12 @@ export const REPIN_MAY_TOUCH = [
   'solana/clmm-localnet/',
   'docs/RANGE_POOLS_PLAN.md',
   'CHANGELOG.md',
+  // The secret scanner reads the deny list's pin line as a key; its one-line skip rides with it.
+  '.gitleaksignore',
   'frontend/src/test/solanaGuardTampers.test.ts',
   'frontend/src/test/solanaKeyGuard.test.ts',
+  // It reads the deny list and the allow-list, so a change to either moves it too.
+  'frontend/src/test/siteNoRaydiumKeys.test.ts',
   // The site's range client where its tests read the program's source: ix.test.ts holds each
   // account list equal to the program's Accounts struct, and quote.test.ts holds the vectors'
   // stamp to the source. A patch that changes either moves them in the same pull request.
@@ -308,15 +327,30 @@ export function checkWorkspace(w, root) {
   const manifest = read(w.manifest.file);
   const got = manifest === null ? 'nothing' : sha256(manifest);
   if (got !== w.manifest.sha256) problems.push(`${w.dir}/${w.manifest.file} hashes to ${got}, not the pinned ${w.manifest.sha256}: it sets how the program builds (patch tables, release profile, members), so a change needs a re-pin here`);
+  const anchor = read(w.anchor.file);
+  const a = anchor === null ? 'nothing' : sha256(anchor);
+  if (a !== w.anchor.sha256) problems.push(`${w.dir}/${w.anchor.file} hashes to ${a}, not the pinned ${w.anchor.sha256}: anchor build reads its tool versions and members from it, so a change needs a re-pin here`);
   let crates = [];
+  const lock = read(w.lock.file);
   try {
-    const lock = read(w.lock.file);
     if (lock === null) throw new Error('is missing');
     crates = lockClosure(lock, w.lock.root);
     const h = sha256(crates.join('\n'));
     if (h !== w.lock.sha256) problems.push(`the ${crates.length} crates ${w.lock.root} builds with in ${w.dir}/${w.lock.file} hash to ${h}, not the pinned ${w.lock.sha256}: re-pin only after reading which crate changed`);
   } catch (e) {
     problems.push(`${w.dir}/${w.lock.file} ${e.message}`);
+  }
+  for (const [name, pin] of Object.entries(w.own ?? {})) {
+    const toml = read(`programs/${name}/Cargo.toml`);
+    const m = toml === null ? 'nothing' : sha256(toml);
+    if (m !== pin.manifest) problems.push(`${w.dir}/programs/${name}/Cargo.toml hashes to ${m}, not the pinned ${pin.manifest}: it sets what ${name} builds from (dependencies, features, source path, tool version), so a change needs a re-pin here`);
+    if (lock === null) continue;
+    try {
+      const h = sha256(lockClosure(lock, name).join('\n'));
+      if (h !== pin.lock) problems.push(`the crates ${name} builds with in ${w.dir}/${w.lock.file} hash to ${h}, not the pinned ${pin.lock}: re-pin only after reading which crate changed`);
+    } catch (e) {
+      problems.push(`${w.dir}/${w.lock.file} ${e.message}`);
+    }
   }
   const progs = existsSync(join(dir, 'programs')) ? readdirSync(join(dir, 'programs')).sort() : [];
   if (progs.join('|') !== w.programs.join('|')) problems.push(`${w.dir}/programs holds ${progs.join(', ')}, not exactly ${w.programs.join(', ')}: each folder there joins the workspace`);
@@ -346,7 +380,7 @@ export function committedBuildFiles(dirs, root) {
 /** `git diff --name-status` of a pull request: one that changes solana/guards/ changes nothing else. */
 export function repinAlone(nameStatus) {
   const rows = strip(nameStatus).split('\n').filter(Boolean).map((l) => l.split('\t'));
-  const pins = rows.filter(([s, p]) => p?.startsWith('solana/guards/') && s !== 'A').map(([, p]) => p);
+  const pins = rows.filter(([, p]) => p?.startsWith('solana/guards/')).map(([, p]) => p);
   if (!pins.length) return [];
   const mayTouch = (p) => REPIN_MAY_TOUCH.some((a) => (a.endsWith('/') ? p.startsWith(a) : p === a));
   return rows.map(([, p]) => p).filter((p) => !mayTouch(p)).map((p) => `${p}: this pull request changes ${pins.join(', ')}, so it may change nothing outside solana/guards/ and the programs they pin`);
@@ -376,7 +410,7 @@ export function checkCopy(name, oursDir, root = process.cwd()) {
 
   const nested = (c.nested ?? []).map((n) => `${n}/`);
   const actual = files(dir).filter((f) => !f.startsWith('target/') && !nested.some((n) => f.startsWith(n)));
-  const expected = new Set([...manifest.keys(), ...c.oursOnly]);
+  const expected = new Set([...manifest.keys(), ...Object.keys(c.oursOnly)]);
   for (const f of actual) if (!expected.has(f)) problems.push(`${f} is in our copy but is not upstream's, and no rule names it as ours`);
   for (const f of expected) if (!actual.includes(f)) problems.push(`${f} is missing from our copy`);
   for (const n of c.nested ?? []) if (!Object.values(COPIES).some((o) => o.ours === `${c.ours}/${n}`)) problems.push(`${n} is nested but no copy checks it`);
@@ -405,6 +439,11 @@ export function checkCopy(name, oursDir, root = process.cwd()) {
     }
   }
   for (const f of sections.keys()) if (!manifest.has(f)) problems.push(`${c.delta} patches ${f}, which upstream does not have`);
+  for (const [f, pin] of Object.entries(c.oursOnly)) {
+    if (!actual.includes(f)) continue;
+    const got = sha256(strip(readFileSync(join(dir, f), 'utf-8')));
+    if (got !== pin) problems.push(`${f} is ours only and hashes to ${got}, not the pinned ${pin}: a change needs a re-pin here`);
+  }
   const ws = c.workspace ? checkWorkspace(c.workspace, root) : null;
   if (ws) problems.push(...ws.problems);
   problems.push(...committedBuildFiles([join(dir, 'target'), ...(ws ? [resolve(root, c.workspace.dir, 'target')] : [])], root));
@@ -525,7 +564,8 @@ function main() {
     for (const p of r.problems) console.log(`::error::${name}: ${p}`);
     if (r.problems.length) fail = true;
     else {
-      const lock = c.lock ? `, ${c.lock.file} pinned` : r.crates ? `; workspace ${c.workspace.dir}: Cargo.toml pinned, the ${r.crates} crates it builds with in Cargo.lock pinned, programs/ exact` : '';
+      const own = Object.keys(c.workspace?.own ?? {}).join(' and ');
+      const lock = c.lock ? `, ${c.lock.file} pinned` : r.crates ? `; workspace ${c.workspace.dir}: Cargo.toml and Anchor.toml pinned, the ${r.crates} crates it builds with in Cargo.lock pinned, programs/ exact; ${own}: Cargo.toml and crates pinned` : '';
       const how = c.delta ? 'plus the reviewed patch' : 'exactly';
       console.log(`${name} = ${c.repo} @ ${c.commit.slice(0, 8)} ${how} (${r.compared} upstream files compared, ${r.patched ?? 0} patched, ${r.changed} changed lines${lock})`);
     }

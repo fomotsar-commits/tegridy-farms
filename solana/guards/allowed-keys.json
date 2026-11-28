@@ -1,5 +1,5 @@
 {
-  "about": "Every key that may appear in the venue's Solana programs (our copies of cp-swap and tegridy-clmm, and our own tegridy-launch and bayla-ladder), each named. key-guard.mjs fails on any other key, on any key the pinned upstream hard-codes, and on any entry here that appears nowhere. Change this list only in a pull request of its own (provenance.mjs --pr-files).",
+  "about": "Every key that may appear in the venue's Solana programs (our copies of cp-swap and tegridy-clmm, and our own tegridy-launch and bayla-ladder), each named. key-guard.mjs fails on any other key, on any key the pinned upstream hard-codes, and on any entry here, a system address aside, that appears nowhere. Change this list only in a pull request of its own (provenance.mjs --pr-files).",
   "ours": {
     "7ghzbbmq59QEbdweSzM1ggpeBH1Q2CyxZg4Tr2x8Aso": "tegridy-clmm's program id, made by the owner on 2026-10-21; its upgrade authority is the vault once deployed (docs/RANGE_POOLS_PLAN.md step 7).",
     "RangePoo1DEVNETarmNotDep1oyed11111111111111": "tegridy-clmm's id in a test build only (devnet, localnet or paramset, since 2026-11-03): not a key, nobody can deploy at it, so a build that gives a power to a test key or shortens reward periods runs nowhere. The release build never names it.",
@@ -19,13 +19,14 @@
     "ASLXdST48ivBZ4xV7VjgD51FJ6rHH5CN5s8XS5TLwygP": "bayla-ladder's devnet deployer placeholder (deployer::ID, devnet arm). Devnet only."
   },
   "system": {
-    "So11111111111111111111111111111111111111112": "Wrapped SOL mint (SPL Token). Used only inside an upstream unit test in tegridy-clmm states/pool.rs.",
+    "So11111111111111111111111111111111111111112": "Wrapped SOL mint (SPL Token). Written out only inside an upstream unit test in tegridy-clmm states/pool.rs; the launcher's binary also carries it, through a library constant.",
+    "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr": "SPL Memo program. cp-swap names it through a library constant (spl_memo::id() in withdraw.rs), so the swap-pool binary carries it though no source here writes it out. Named here so it is not on the deny list.",
     "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s": "Metaplex Token Metadata program. tegridy-clmm's Anchor.toml copies it onto a local test chain; position NFTs carry its name record.",
     "11111111111111111111111111111111": "System Program. bayla-ladder's mainnet deployer arm names it as a fail-closed sentinel nobody can sign for."
   },
   "keptUpstream": {
     "HVbpJAQGNpkgBaYBZQBR1t7yFdvaYVp2vCQQfKKEN4tM": {
-      "why": "USDP (Pax Dollar) mint. Was in upstream cp-swap's MINT_WHITELIST, which let this coin skip the Token-2022 extension check. The list was deleted from our copy on 2026-11-03, as upstream itself deleted it (59fb845); the live binary keeps it until the next cp-swap upgrade. Named now only in the unit test that holds the four coins to the same check as every coin. Pays no one.",
+      "why": "USDP (Pax Dollar) mint. Was in upstream cp-swap's MINT_WHITELIST, which let this coin skip the Token-2022 extension check. The list was deleted from our copy on 2026-11-03, as upstream itself deleted it (59fb845), and from the live binary by vault proposal #32 (2026-11). Named now only in the unit test that holds the four coins to the same check as every coin. Pays no one.",
       "only_in": ["solana/tegridy-amm/programs/cp-swap/src/utils/token.rs"]
     },
     "Crn4x1Y2HUKko7ox2EZMT6N2t2ZyH7eKtwkBGVnhEq1g": {

@@ -21,6 +21,10 @@
 c7f8f33b2a3fe593de41317f8a80548be07dfdbf:frontend/src/test/solanaGuardTampers.test.ts:generic-api-key:38
 c7f8f33b2a3fe593de41317f8a80548be07dfdbf:solana/guards/provenance.mjs:generic-api-key:26
 #
+# 2026-11-15. The same line 26 of provenance.mjs, re-pinned when SPL Memo left the deny list
+# (commit 9c40364a): again the sha256 of a public file, not a secret.
+9c40364a61549d44f6e2164047fb1ca8d9d12836:solana/guards/provenance.mjs:generic-api-key:26
+#
 # 2026-10-15, PR #839. A made-up Jupiter key used as test data, in a variable named
 # KEY ("test-jup-key-…", no real account). The variable is renamed FAKE_JUP in the
 # commit that adds this line, so the rule has nothing to read on the branch head.

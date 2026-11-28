@@ -37,6 +37,7 @@ const VAULT = 'GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd';
 const RAYDIUM_ADMIN = 'GThUX1Atko4tqhN2NaiTazWSeFWMuiUvfFnyJyUghFMJ';
 const STRANGER = '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM';
 const PLACEHOLDER = 'RangePoo1PLACEHo1DERnotDep1oyed111111111111';
+const MEMO = 'MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr';
 
 const made: string[] = [];
 function tree(files: Record<string, string>): string {
@@ -136,6 +137,14 @@ describe('the verdict', () => {
     expect(unused.problems.join('\n')).toContain(`${STRANGER} appears nowhere`);
     const bare = judge({ ours, upstream: UPSTREAM(), allow: allowOnly({ [VAULT]: '' }) });
     expect(bare.problems.join('\n')).toContain('has no explanation');
+  });
+
+  it('keeps a system address listed though no source writes it out, and off the deny list', () => {
+    const ours = { ours: scanTree(tree({ 'src/lib.rs': `pubkey!("${VAULT}")` })) };
+    const allow = { ours: { [VAULT]: 'the venue vault' }, system: { [MEMO]: 'the memo program, named through a library' } };
+    expect(judge({ ours, upstream: UPSTREAM(), allow }).problems).toEqual([]);
+    const spelled = { ours: scanTree(tree({ 'src/lib.rs': `pubkey!("${VAULT}"); // ${MEMO}` })) };
+    expect(judge({ ours: spelled, deny: [MEMO, RAYDIUM_ADMIN], allow }).problems).toEqual([]);
   });
 
   it('cannot pass on an upstream it failed to read', () => {
@@ -259,11 +268,13 @@ describe('the real tree', () => {
     expect(judge({ ours: OURS, deny: DENY, allow: ALLOW }).problems).toEqual([]);
   });
 
-  it('denies the 39 keys the two pinned Raydium repositories hard-code', () => {
-    expect(DENY).toHaveLength(39);
+  it('denies the 38 keys the two pinned Raydium repositories hard-code, and no system address', () => {
+    expect(DENY).toHaveLength(38);
     expect(DENY).toContain(RAYDIUM_ADMIN);
     expect(DENY).toContain('CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK');
-    expect(judge({ ours: OURS, deny: DENY, allow: ALLOW }).counts).toEqual({ found: 23, deny: 39, allowed: 23 });
+    expect(DENY.filter((k) => ALLOW.system[k])).toEqual([]);
+    expect(ALLOW.system[MEMO]).toBeTruthy();
+    expect(judge({ ours: OURS, deny: DENY, allow: ALLOW }).counts).toEqual({ found: 23, deny: 38, allowed: 24 });
   });
 
   it('finds no cargo config, toolchain file or source swap above any program', () => {
