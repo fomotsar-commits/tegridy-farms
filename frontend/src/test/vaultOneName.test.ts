@@ -11,8 +11,8 @@ const POOL_COPY = /^(components\/solana\/(lp|range)\/|components\/solana\/curve\
 /** Sections that name the team's vault before they say "the vault" (the pools' Risks and the vault card). */
 const ALLOWED = new Set(['components/solana/lp/LpDisclosures.tsx', 'components/solana/lp/SolanaLpSection.tsx']);
 // JSX text keeps its line breaks and entities, so any run of whitespace and either apostrophe.
-const TEAMS = /team(?:’|'|&apos;|&rsquo;)s\s+$/i;
-const NAMED = /team(?:’|'|&apos;|&rsquo;)s\s+vault/i;
+const TEAMS = /\bteam(?:’|'|&apos;|&rsquo;)s\s+$/i;
+const NAMED = /\bteam(?:’|'|&apos;|&rsquo;)s\s+vault/i;
 
 /** Each "vault" in `text` that names something other than the team's vault. */
 export function strayVaults(text: string, file: string): string[] {
@@ -22,7 +22,7 @@ export function strayVaults(text: string, file: string): string[] {
     const before = text.slice(0, m.index);
     if (TEAMS.test(before)) continue;
     // The Squads vault, named as such: "the known Squads vault", "vault 0 of the Squads multisig".
-    if (/Squads\s+$/.test(before) || /^vault\s+\d+\s+of\s+the\s+Squads\b/i.test(text.slice(m.index))) continue;
+    if (/\bSquads\s+$/.test(before) || /^vault\s+\d+\s+of\s+the\s+Squads\b/i.test(text.slice(m.index))) continue;
     const theVault = m[0].toLowerCase() === 'vault' && /\bthe\s+$/i.test(before);
     if (theVault && (NAMED.test(before) || ALLOWED.has(file))) continue;
     out.push(text.slice(Math.max(0, m.index - 50), m.index + 30).replace(/\s+/g, ' ').trim());
@@ -55,5 +55,7 @@ describe('one name for the team’s vault', () => {
     expect(strayVaults(', vault 0 of the Squads multisig', f)).toEqual([]);
     expect(strayVaults("it is not the platform's known Squads vault.", f)).toEqual([]);
     expect(strayVaults('Squads holds the admin keys. One of this pool’s vaults is frozen.', f)).toHaveLength(1);
+    expect(strayVaults('The pool uses OtherSquads vault.', f)).toHaveLength(1);
+    expect(strayVaults('A steam’s vault holds the coins.', f)).toHaveLength(1);
   });
 });
