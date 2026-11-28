@@ -211,7 +211,7 @@ describe('the lock ladder read is the one state.rs and lib.rs declare', () => {
     expect(r.position.layout).toEqual(rustLayout(state, 'Position'));
     expect(r.userStats.layout).toEqual(rustLayout(state, 'UserStats'));
     expect(r.pool.layout).toEqual(rustLayout(state, 'Pool'));
-    expect(end(r.position.layout, 64)).toBe(r.position.size);
+    expect(end(r.position.layout, 56)).toBe(r.position.size);
     expect([r.position.size, r.userStats.size, r.pool.size]).toEqual([205, 126, 508]);
   });
 

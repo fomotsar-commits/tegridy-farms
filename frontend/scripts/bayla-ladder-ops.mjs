@@ -274,11 +274,11 @@ const POOL_L = {
   lastUpdateTime: 291, rewardPerWeightStored: 299, rewardsEmitted: 315,
   rewardsPaid: 331, rewardFundedCumulative: 347, penaltyCollectedCumulative: 363,
   orphanedPenalty: 379, degraded: 387, rpwResidue: 388, emittedResidue: 404,
-  SIZE: 508,
+  degradedNoticeStart: 420, SIZE: 508,
 };
 const POSITION_L = {
   bump: 8, pool: 9, owner: 41, nonce: 73, amount: 77, weight: 85, lockEnd: 101,
-  rewardPerWeightPaid: 109, rewardsOwed: 125, SIZE: 205,
+  rewardPerWeightPaid: 109, rewardsOwed: 125, weightSetAt: 141, SIZE: 205,
 };
 const USER_L = {
   bump: 8, pool: 9, owner: 41, nextNonce: 73, openPositions: 77,
@@ -1203,9 +1203,11 @@ function ixExecuteCapRaise({ programId, pool }) {
   });
 }
 
-/** ONE-WAY. There is no instruction that clears it. */
-function ixDeclareDegraded({ programId, authority, pool }) {
-  return ixAuthorityOnly(programId, authority, pool, Buffer.from(IX.declareDegraded));
+/** ONE-WAY. There is no instruction that clears it. `noticeStart` has no default: the
+ *  time the vault proposal was made, in unix seconds. */
+function ixDeclareDegraded({ programId, authority, pool, noticeStart }) {
+  return ixAuthorityOnly(programId, authority, pool,
+    Buffer.concat([IX.declareDegraded, i64le(noticeStart)]));
 }
 
 /* What the program would refuse, said BEFORE a fee is paid.
@@ -1257,8 +1259,13 @@ function acceptAuthorityProblem(p, signerKey) {
     : `only the PROPOSED key ${p.pendingAuthority.toBase58()} can accept; this is ${signerKey.toBase58()} (Unauthorized)`;
 }
 
-function declareDegradedProblem(p) {
-  return p.degraded ? 'the pool is already degraded, and the flag is one-way (AlreadyDegraded)' : null;
+/** declare_degraded: once only, and its notice must have begun, above 0 and before the chain's now. */
+function declareDegradedProblem(p, noticeStart, nowSecs) {
+  if (p.degraded) return 'the pool is already degraded, and the flag is one-way (AlreadyDegraded)';
+  const n = BigInt(noticeStart);
+  return n > 0n && n < BigInt(nowSecs)
+    ? null
+    : `the notice start must be above 0 and before the chain's now (${nowSecs}), got ${n} (InvalidParameter)`;
 }
 
 /** Broadcasting a ONE-WAY flag needs a second, explicit word. A dry run never does.
@@ -1684,7 +1691,9 @@ const USAGE = `bayla-ladder ops
   raise-wallet-cap  --pool <addr> --max <t>     # authority; per-wallet limit, raise-only, <= the pool cap
   propose-authority --pool <addr> --new-authority <addr>   # authority; step 1 of 2
   accept-authority  --pool <addr>               # signed by the PROPOSED key; step 2
-  declare-degraded  --pool <addr> --confirm-permanent      # authority; ONE-WAY
+  declare-degraded  --pool <addr> --notice-start <unix secs> --confirm-permanent   # authority; ONE-WAY
+                                             #   --notice-start: when the vault proposal was made, in unix seconds.
+                                             #   Weight set after it pays the normal penalty to leave early.
 
   common: --program <id> --rpc <url> --keypair <path> --broadcast
           amounts are WHOLE TOKENS; dry run unless --broadcast`;
@@ -2058,18 +2067,21 @@ async function main() {
     case 'declare-degraded': {
       const authority = signer();
       const poolKey = new PublicKey(need(args, 'pool'));
-      const p = await loadPool(conn, programId, poolKey);
-      const bad = authorityProblem(p, authority.publicKey) ?? declareDegradedProblem(p);
+      const noticeStart = intArg(args, 'noticeStart', { max: Number.MAX_SAFE_INTEGER });
+      const snap = await loadSnapshot(conn, programId, poolKey);
+      const p = snap.pool;
+      const bad = authorityProblem(p, authority.publicKey) ?? declareDegradedProblem(p, noticeStart, snap.now);
       if (bad) throw new Error(bad);
       console.log(`\ndeclare-degraded  -- ONE-WAY: there is no instruction that clears it`);
-      console.log(`  After this the pool takes NO new stakes, and neither early exit nor the`);
-      console.log(`  emergency hatch charges a penalty while locked. Every existing position can`);
-      console.log(`  still exit.`);
+      console.log(`  notice start   ${new Date(noticeStart * 1000).toISOString()} (${noticeStart})`);
+      console.log(`  After this the pool takes NO new stakes, extensions or fresh reward tokens.`);
+      console.log(`  A position whose weight was set at or before the notice start leaves free`);
+      console.log(`  through either early door; weight set after it pays the normal penalty.`);
       // A dry run is always safe. Broadcasting an irreversible flag needs a second,
       // explicit word, so a --broadcast typed on the wrong line cannot set it.
       const unconfirmed = confirmPermanentProblem(broadcast, args);
       if (unconfirmed) throw new Error(unconfirmed);
-      await submit(conn, [ixDeclareDegraded({ programId, authority: authority.publicKey, pool: poolKey })],
+      await submit(conn, [ixDeclareDegraded({ programId, authority: authority.publicKey, pool: poolKey, noticeStart })],
         authority, { broadcast, label: 'declare-degraded' });
       return;
     }
