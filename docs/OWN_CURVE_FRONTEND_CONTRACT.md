@@ -303,20 +303,20 @@ mistake later. `paused` is the intended kill switch.
 
 ---
 
-### 2.3 `create_launch` — lib.rs:601-709
+### 2.3 `create_launch` — lib.rs:654-762
 
 Mints the whole supply onto a new curve, **pays the platform reserve** to the platform
 treasury, and **permanently revokes the mint authority**, all in the same instruction
-(lib.rs:613-709). The reserve (`platform_reserve_bps` of the supply, 3.69%) goes from
+(lib.rs:666-762). The reserve (`platform_reserve_bps` of the supply, 3.69%) goes from
 `curve_vault` to `treasury_token`, the associated token account of
-`global.fee_recipient` for this mint (lib.rs:655-675). It is paid even if the launch
+`global.fee_recipient` for this mint (lib.rs:708-728). It is paid even if the launch
 never graduates; `real_token_reserves` is the supply minus the reserve, and that is
 exactly what the vault holds afterwards.
 
 **Args: none.** Supply, virtual reserves, fee, target and reserve are all read from
 `global` and snapshotted onto the curve.
 
-Accounts (`CreateLaunch`, lib.rs:1754-1850). The first eight kept their positions; the
+Accounts (`CreateLaunch`, lib.rs:1729-1825). The first eight kept their positions; the
 three reserve accounts were appended after `rent`:
 
 | # | account | signer | writable | constraint |

@@ -36,38 +36,26 @@ pub const VAULT_SEED: &[u8] = b"vault";
 /// before returning — so a shared authority never accumulates value to steal.
 pub const MIGRATION_AUTH_SEED: &[u8] = b"migauth";
 
+/// Seed, with the mint, of the token account that stages a launch's coins inside
+/// `migrate_to_amm`. That instruction creates and closes it, so nothing can exist, or be
+/// frozen, at the address beforehand.
+pub const STAGING_SEED: &[u8] = b"staging";
+
+/// The most a funded curve may be short of `target + reserve` and still graduate, the
+/// caller paying the gap: a dust sell takes a few lamports off a full curve.
+pub const MAX_GRADUATION_GAP_LAMPORTS: u64 = 10_000;
+
 /// cp-swap's `PERMISSION_SEED`, restated so the derivation is visible at the call
 /// site rather than reached for through the dependency. Asserted equal to
 /// `raydium_cp_swap::states::PERMISSION_SEED` in the tests, so a fork bump that
 /// renames it fails here rather than at the first graduation.
 pub const CP_SWAP_PERMISSION_SEED: &[u8] = b"permission";
 
-/// Rent floor for `migration_reserve_lamports`, in lamports.
-///
-/// Exactly the rent cp-swap's pool creation charges its payer, computed from its
-/// own `LEN` constants at `minimum_balance = (128 + size) * 6960` — not estimated:
-///
-/// | account | bytes | lamports |
-/// |---|---|---|
-/// | `observation_state` | 4075 | 29,252,880 |
-/// | `pool_state` | 637 | 5,324,400 |
-/// | `token_0_vault` | 165 | 2,039,280 |
-/// | `token_1_vault` | 165 | 2,039,280 |
-/// | `lp_mint` | 82 | 1,461,600 |
-/// | `payer_lp_token` ATA | 165 | 2,039,280 |
-///
-/// ⚠️ **This is a FLOOR, not a sufficient value.** cp-swap also charges
-/// `create_pool_fee` as native SOL from the payer (0.15 SOL on Raydium mainnet),
-/// and that lives in a MUTABLE `AmmConfig` field, so it cannot be baked in here
-/// without risking a wrongly-rejected config if the fee changes. The practical
-/// minimum is this plus the fee — ~0.1922 SOL today. MAINNET_RUNBOOK.md §5b carries
-/// the arithmetic.
-///
-/// Why a floor at all: the reserve is snapshotted onto every curve at creation, so a
-/// too-small value makes every launch created under it permanently unmigratable —
-/// discovered at the finish line, when the pool is already half-built. This catches
-/// the zero and near-zero cases that no operator would choose deliberately.
-pub const MIN_MIGRATION_RESERVE_LAMPORTS: u64 = 42_156_720;
+/// Ceiling for `migration_reserve_lamports`. The reserve is raised from buyers on top of
+/// the target and what graduation does not spend goes to the venue, so it is bounded.
+/// Its floor is the rent of cp-swap's pool accounts at the rent of the moment
+/// (`cp_swap_rent` in lib.rs); a fee above what it covers is the caller's to pay.
+pub const MAX_MIGRATION_RESERVE_LAMPORTS: u64 = 500_000_000;
 
 /// Seed for the cp-swap pool a launch graduates into.
 ///
@@ -128,7 +116,7 @@ pub struct GlobalConfig {
     /// goes straight to `BondingCurve.creator`). Mainnet: the treasury's Squads
     /// vault.
     pub fee_recipient: Pubkey,
-    /// Trade fee in basis points, bounded by `curve::MAX_FEE_BPS`.
+    /// Trade fee in basis points, at most the pools' 4% (`MAX_TRADE_FEE_BPS` in lib.rs).
     pub trade_fee_bps: u64,
     /// The creator's share OF THE TRADE FEE, in bps of the fee (5_000 = half the
     /// fee), paid instantly and non-custodially to `BondingCurve.creator` on

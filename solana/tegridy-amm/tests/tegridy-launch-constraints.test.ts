@@ -422,18 +422,18 @@ describe("tegridy-launch security constraints", () => {
      * because the rehearsal creates the AmmConfig first and passes real values at
      * initialization, so the zero path was never followed to its conclusion.
      */
-    it("sets cp_swap_program and amm_config after the fact", async () => {
+    // A tier must be a real cp-swap fee tier (LCH-04) and no cp-swap runs in this suite:
+    // the rehearsal sets one after the fact, and refuses an account that is not one.
+    it("sets cp_swap_program after the fact", async () => {
       const cpProgram = Keypair.generate().publicKey;
-      const cfg = Keypair.generate().publicKey;
       await program.methods
-        .updateGlobal(null, null, null, null, null, null, cpProgram, cfg, null, null, null)
+        .updateGlobal(null, null, null, null, null, null, cpProgram, null, null, null, null)
         .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
         .rpc();
       const g: any = await (program.account as any).globalConfig.fetch(
         globalPda(program.programId)
       );
       assert.equal(g.cpSwapProgram.toBase58(), cpProgram.toBase58());
-      assert.equal(g.ammConfig.toBase58(), cfg.toBase58());
     });
 
     it("refuses to ZERO them — that reads as misconfiguration; `paused` is the switch", async () => {
@@ -482,11 +482,9 @@ describe("tegridy-launch security constraints", () => {
     });
 
     /**
-     * A reserve too small to cover cp-swap's rent does not fail at config time on
-     * its own — it fails at the FINISH LINE of every launch created afterwards,
-     * because the reserve is snapshotted per curve. By then the pool is half-built
-     * and there is no way back. Floor is the exact rent from cp-swap's own LEN
-     * constants (42,156,720); the real requirement adds create_pool_fee on top.
+     * The reserve is snapshotted per curve, so it must at least pay the rent of the
+     * accounts cp-swap opens at graduation: the program reads that from the chain's
+     * rent (cp_swap_rent), and the caller pays any opening fee the reserve cannot.
      */
     it("rejects a migration reserve below cp-swap's rent floor", async () => {
       await expectAnchorError(
@@ -498,12 +496,28 @@ describe("tegridy-launch security constraints", () => {
       );
     });
 
+    /**
+     * LCH-11: the reserve is buyers' money and what graduation does not spend goes to
+     * the venue, so it has a ceiling, 0.5 SOL: this suite's own reserve, accepted at
+     * initialize_global, sits on it. One lamport over is refused with the target still
+     * continuous, so only the ceiling can be what refuses it.
+     */
+    it("rejects a migration reserve above its ceiling", async () => {
+      await expectAnchorError(
+        program.methods
+          .updateGlobal(null, GRAD_TARGET, null, null, null, new BN(500_000_001), null, null, null, null, null)
+          .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
+          .rpc(),
+        "MigrationReserveTooHigh"
+      );
+    });
+
     /** POSITIVE CONTROL — a pair that fits is accepted, and BOTH fields land. */
     it("accepts a pair under the ceiling and stores both", async () => {
-      // Continuity pair for V_SOL=30 with a 5 SOL reserve — a bigger reserve pulls
-      // the target DOWN, because the reserve is raised from traders too.
-      const target = new BN(10_039_591_158);
-      const reserve = new BN(5).mul(new BN(LAMPORTS_PER_SOL));
+      // Continuity pair for V_SOL=30 with a 0.25 SOL reserve: a smaller reserve
+      // raises the target, because the reserve is raised from traders too.
+      const target = new BN(11_621_942_308);
+      const reserve = new BN(LAMPORTS_PER_SOL).div(new BN(4));
       await program.methods
         .updateGlobal(null, target, null, null, null, reserve, null, null, null, null, null)
         .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
@@ -877,6 +891,80 @@ describe("tegridy-launch security constraints", () => {
     });
   });
 
+  // ─── LCH-13: a sell that would leave the seller under its rent floor ───────
+
+  describe("a seller whose wallet would end under its rent floor", () => {
+    /**
+     * Crediting a wallet at 0 lamports with less than its rent floor fails the whole
+     * sell at the runtime's rent check, with an error that names nothing. The program
+     * refuses it first, by name. The wallet's fees are paid by the deployer.
+     */
+    it("is refused with SellerBelowRent, and sells once the wallet is funded", async () => {
+      const creator = Keypair.generate();
+      await fund(provider, creator.publicKey, 5);
+      const mint = await makeMint(provider, creator, null);
+      await program.methods
+        .createLaunch()
+        .accountsPartial(launchAccounts(creator.publicKey, mint))
+        .signers([creator])
+        .rpc();
+      const seller = Keypair.generate();
+      await fund(provider, seller.publicKey, 1);
+      const sellerAta = await createAssociatedTokenAccount(provider.connection, deployer, mint, seller.publicKey);
+      const trade = {
+        trader: seller.publicKey,
+        global: globalPda(program.programId),
+        feeRecipient,
+        creator: creator.publicKey,
+        mint,
+        curve: curvePda(program.programId, mint),
+        curveVault: vaultPda(program.programId, mint),
+        traderTokenAccount: sellerAta,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
+      };
+      await program.methods.buy(new BN(10_000_000), new BN(0)).accountsPartial(trade).signers([seller]).rpc();
+      const drain = new Transaction().add(
+        SystemProgram.transfer({
+          fromPubkey: seller.publicKey,
+          toPubkey: deployer.publicKey,
+          lamports: await provider.connection.getBalance(seller.publicKey),
+        })
+      );
+      drain.feePayer = deployer.publicKey;
+      await provider.sendAndConfirm!(drain, [seller]);
+      assert.equal(await provider.connection.getBalance(seller.publicKey), 0, "precondition: an empty wallet");
+
+      // A hundredth of the coins sells for about 99,000 lamports, under the 0-byte floor.
+      const held = BigInt((await provider.connection.getTokenAccountBalance(sellerAta)).value.amount);
+      const sell = () =>
+        program.methods.sell(new BN((held / 100n).toString()), new BN(0)).accountsPartial(trade).signers([seller]).rpc();
+      await expectAnchorError(sell(), "SellerBelowRent");
+
+      // POSITIVE CONTROL: the same sell, once the wallet holds its rent floor.
+      await fund(provider, seller.publicKey, 1);
+      await sell();
+    });
+  });
+
+  // ─── XCH-14: the trade fee's ceiling is the pools' 4% ──────────────────────
+
+  describe("the trade fee ceiling is the pools' 4%", () => {
+    const setFee = (bps: number) =>
+      program.methods
+        .updateGlobal(new BN(bps), null, null, null, null, null, null, null, null, null, null)
+        .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
+        .rpc();
+
+    it("refuses 401 bps and stores 400", async () => {
+      await expectAnchorError(setFee(401), "FeeTooHigh");
+      await setFee(400);
+      const g: any = await (program.account as any).globalConfig.fetch(globalPda(program.programId));
+      assert.equal(g.tradeFeeBps.toString(), "400", "the pools' own ceiling is accepted");
+      await setFee(TRADE_FEE_BPS.toNumber());
+    });
+  });
+
   // ─── The creator-share setter ──────────────────────────────────────────────
 
   describe("creator_fee_share_bps is settable and bounded", () => {
@@ -965,6 +1053,7 @@ describe("tegridy-launch security constraints", () => {
       program.methods
         .updateGlobal(null, null, null, null, k, null, null, null, null, null, null)
         .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
+        .remainingAccounts([{ pubkey: k, isSigner: false, isWritable: false }])
         .rpc();
 
     it("pays exactly the reserve to the treasury ATA at create, and the creator pays its rent", async () => {
@@ -1163,8 +1252,9 @@ describe("tegridy-launch security constraints", () => {
 
     it("pays a ROTATED fee_recipient on later launches, and refuses the old one", async () => {
       // The recipient is read at create time: rotating it changes where FUTURE
-      // launches pay, and nothing already paid moves.
+      // launches pay, and nothing already paid moves. A new recipient must be funded.
       const rotated = Keypair.generate().publicKey;
+      await fund(provider, rotated, 1);
       await setFeeRecipient(rotated);
       try {
         const [who, m] = await freshCreator();
@@ -1185,6 +1275,49 @@ describe("tegridy-launch security constraints", () => {
       } finally {
         await setFeeRecipient(feeRecipient);
       }
+    });
+  });
+
+  // ─── LCH-04: update_global cannot lose the admin key or the fee stream ──────
+  //
+  // Last in the file: on a build without these checks each refusal below is a write
+  // that sticks, and nothing after it should depend on it.
+  describe("update_global refuses an address that would lose control or fees", () => {
+    const update = (args: Record<string, unknown>, extra: PublicKey[] = []) => {
+      const a = { authority: null, recipient: null, tier: null, ...args } as any;
+      return program.methods
+        .updateGlobal(null, null, null, a.authority, a.recipient, null, null, a.tier, null, null, null)
+        .accountsPartial({ global: globalPda(program.programId), authority: deployer.publicKey })
+        .remainingAccounts(extra.map((pubkey) => ({ pubkey, isSigner: false, isWritable: false })))
+        .rpc();
+    };
+
+    it("never moves the admin key, even to itself", async () => {
+      await expectAnchorError(update({ authority: deployer.publicKey }), "AdminMovesOnlyByUpgrade");
+    });
+
+    it("takes only a funded wallet as the fee recipient", async () => {
+      const empty = Keypair.generate().publicKey;
+      await expectAnchorError(update({ recipient: empty }, [empty]), "NotAFundedWallet");
+      // The settings account: rent-exempt, but a program's account with data.
+      const settings = globalPda(program.programId);
+      await expectAnchorError(update({ recipient: settings }, [settings]), "NotAFundedWallet");
+      const wallet = Keypair.generate().publicKey;
+      await fund(provider, wallet, 1);
+      await expectAnchorError(update({ recipient: wallet }), "NotAFundedWallet");
+      // POSITIVE CONTROL: the same funded wallet, passed.
+      await update({ recipient: wallet }, [wallet]);
+      const g: any = await (program.account as any).globalConfig.fetch(settings);
+      assert.equal(g.feeRecipient.toBase58(), wallet.toBase58());
+      await update({ recipient: feeRecipient }, [feeRecipient]);
+    });
+
+    it("takes only a fee tier of the pool program as the tier", async () => {
+      // No cp-swap runs here, so nothing can be a tier; the rehearsal holds the
+      // positive control, a real tier accepted.
+      const stranger = Keypair.generate().publicKey;
+      await expectAnchorError(update({ tier: stranger }, [stranger]), "NotAFeeTier");
+      await expectAnchorError(update({ tier: stranger }), "NotAFeeTier");
     });
   });
 });

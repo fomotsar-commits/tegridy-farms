@@ -109,8 +109,7 @@ configuration past the curve's ceiling and make graduation unreachable again.
 **How big, exactly.** Computed from cp-swap's own `LEN` constants
 (`states/oracle.rs`, `states/pool.rs`). Mainnet rent is `minimum_balance = (128 + size) * 5080`,
 read with `getMinimumBalanceForRentExemption` on 2026-10-14 (slot 456,823,210). This table
-was first written at the old rate of 6,960 a byte; that column is kept because the program
-constant below still carries it.
+was first written at the old rate of 6,960 a byte; that column is kept for comparison.
 
 | what the authority pays for | bytes | lamports today (5,080/byte) | at the old 6,960/byte |
 | --- | --- | --- | --- |
@@ -124,21 +123,22 @@ constant below still carries it.
 | `create_pool_fee` (Raydium mainnet 0.15 SOL) | | 150,000,000 | 150,000,000 |
 | **REQUIRED MINIMUM** | | **180,769,560** (~0.1808 SOL) | 192,156,720 |
 
-So `migration_reserve_lamports` must be **at least ~0.1808 SOL** on mainnet today, and
-`observation_state` alone is ~69% of the rent. At today's rent 0.25 SOL leaves
-69,230,440 lamports (~0.069 SOL) of headroom; the surplus is swept back to
-the caller (decision 8), so over-provisioning costs nothing but the raise.
+On a tier that charges the 0.15 SOL fee the reserve must be **about 0.1808 SOL** for the
+buyers' reserve to pay for graduation alone; `observation_state` is ~69% of the rent. The
+surplus does NOT go to the caller: what the reserve does not spend goes to `fee_recipient`
+(decision 8), so every lamport of over-provisioning is a charge on buyers that the venue
+keeps. On the launch tier (no opening fee) the live 0.05 SOL leaves 19,230,440 lamports.
 
-**The program's own floor is a constant at the old rate.** `MIN_MIGRATION_RESERVE_LAMPORTS`
-(`src/state.rs`) is 42,156,720, the old-rate subtotal. `initialize_global` refuses any reserve
-below it, which is stricter than today's rent needs and harmless, since the practical minimum
-(180,769,560) is above it anyway. Changing the constant needs a program upgrade.
+**The program's bounds (2026-11-15, LCH-11).** `initialize_global` and `update_global` refuse
+a reserve below the table's rent subtotal at the rent of the moment (`cp_swap_rent`, read
+from the chain, not compiled in) and above `MAX_MIGRATION_RESERVE_LAMPORTS` (0.5 SOL,
+`src/state.rs`). A fee the reserve cannot cover no longer strands a curve: the caller of
+graduation pays the difference (decision 8).
 
-⚠️ **A too-small reserve fails at the finish line**, after the pool exists. The
-rehearsal now charges the real 0.15 SOL fee and asserts the fee receiver was
-credited exactly that, so an undersized reserve fails in CI. It ran at ZERO for a
-long time, which meant this entire cost was untested and the reserve could have
-been arbitrarily wrong while CI stayed green.
+The rehearsal charges the real 0.15 SOL fee and asserts the fee receiver was credited
+exactly that, and a second case raises the fee past the reserve and asserts the caller
+paid exactly the difference. The fee ran at ZERO in CI for a long time, which left this
+whole cost untested.
 
 ### 2. Mint ordering — RESOLVED
 
@@ -233,15 +233,18 @@ dust-funded PDA survives too, via the allocate+assign branch.
 
 Constraining it also stops the CALLER choosing where a launch's liquidity lands.
 
-### 8. Migration costs — RESOLVED: **reimburse the caller**
+### 8. Migration costs: **the caller ends even, the venue keeps the rest**
 
-Migration is permissionless, so `payer` fronts rent for `auth_wsol`/`auth_token`
-plus the authority's rent-exempt floor, and the authority absorbs whatever
-`migration_reserve_lamports` over-provisioned. None of it is reachable afterwards
-(only this program signs for the authority; a `complete` curve never releases
-lamports), so the instruction closes all three token accounts and sweeps the
-authority to zero, destination `payer`. Otherwise every migration is a permanent
-leak AND a guaranteed loss for whoever calls it.
+Migration is permissionless, so `payer` fronts the rent of the two staging accounts
+(`auth_wsol`, `auth_token`) and gets exactly that back when they close. The share
+account's rent and whatever `migration_reserve_lamports` did not spend were raised from
+buyers, so they go to `fee_recipient`, and the authority is swept to zero. Nothing is
+left behind, and calling migration neither pays nor costs the caller (LCH-08, 2026-11-15).
+
+One exception, by design: when the reserve a curve saved at creation cannot cover what
+cp-swap charges at graduation (rent for its six accounts plus the tier's opening fee, read
+live), the caller pays the difference, so a fee raised after launch never strands a funded
+curve (LCH-05, 2026-11-15).
 
 ## Implemented and RUNTIME-PROVEN
 
@@ -346,17 +349,13 @@ PRICE is only about ±0.7% on the TARGET. Both test suites now use exact continu
 values, and the rehearsal is finally economically representative rather than merely
 fast.
 
-### 11. A dust `sell` can stall migration — accepted
+### 11. A dust `sell` no longer stalls migration (LCH-06, 2026-11-15)
 
-On a fully funded curve the lamport budget check is satisfied at exact equality, so a
-1-lamport `sell` front-run makes `migrate_to_amm` revert with
-`MigrationReserveTooLow`/`NotReadyToGraduate` until someone buys again. `sell` is
-unpausable by design (a halt must never trap holders), so this cannot be switched off.
-
-Accepted, not fixed: it is a stall, not a brick. The griefer pays a trade fee every
-time, any buy restores the balance, and no funds are at risk. Worth knowing about
-because it makes migration a retry-until-it-lands operation for keepers rather than a
-single shot.
+A sell of a few lamports takes a full curve just under `target + reserve`, and `sell` is
+unpausable by design (a halt must never trap holders). `migrate_to_amm` now graduates a
+curve short by at most `MAX_GRADUATION_GAP_LAMPORTS` (10,000), the caller paying the gap,
+so a graduation sent to a full curve lands even after such a sell. A curve short by more
+is a real sale, not dust: it waits for a buy, and graduation answers `NotReadyToGraduate`.
 
 ## Still not proven, even with CI green
 
