@@ -92,7 +92,7 @@ export async function fetchVenueTvl(fetchImpl: typeof fetch = fetch): Promise<Ve
 
 /**
  * BAYLA's liberation bar, from the same answer (api/_lib/venueTvl.js, PUMP_BAYLA_POOL): the whole
- * BAYLA in all our pools, and in her graduated pump.fun pool. Null when the answer carries no reading:
+ * BAYLA in our BAYLA/SOL pools, and in her graduated pump.fun pool (also BAYLA/SOL). Null when the answer carries no reading:
  * the server sends it only when both sides were read, so a missing one is an outage, never a zero.
  */
 export interface BaylaFlip {

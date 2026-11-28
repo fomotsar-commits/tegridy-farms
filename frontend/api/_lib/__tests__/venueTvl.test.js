@@ -310,17 +310,20 @@ describe("BAYLA's liberation bar: the BAYLA in our pools against her pump.fun po
     expect(SOL_BASKET.find((c) => c.room === "bayla").pool).toEqual({ dex: "pumpswap", address: PUMP_BAYLA_POOL, jupiterLabel: "Pump.fun Amm" });
   });
 
-  it("counts every BAYLA vault of ours, on both programs and against any coin, beside the total", async () => {
+  it("counts only our BAYLA/SOL pools, on both programs and either side's order, beside the total", async () => {
     const w = world();
     w.pool(CP, [SOL, 10], [BAYLA, 1_000]);
+    w.pool(RANGE, [SOL, 1], [BAYLA, 50]);
+    w.pool(CP, [BAYLA, 7], [SOL, 2]); // BAYLA as the pool's first coin
+    // Her other pairings are not her SOL market (owner, 2026-11-28): none of these counts.
     w.pool(CP, [USDC, 5], [BAYLA, 200]);
     w.pool(CP, [BAYLA, 30], [MEME, 5]); // BAYLA against a coin of the venue's own
-    w.pool(CP, [BAYLA, 40], [BOBO, 400]); // two island coins: her side still counts
-    w.pool(RANGE, [SOL, 1], [BAYLA, 50]);
+    w.pool(CP, [BAYLA, 40], [BOBO, 400]); // against another island coin
+    w.pool(RANGE, [USDC, 1], [BAYLA, 60]);
     w.pool(CP, [SOL, 3], [MEME, 9]); // no BAYLA
     pumpVault(w, 4_000);
     const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
-    expect(body.baylaFlip).toEqual({ ours: 1_320, pump: 4_000 });
+    expect(body.baylaFlip).toEqual({ ours: 1_057, pump: 4_000 });
     expect(chain(body, "solana")).toMatchObject({ read: true });
   });
 
@@ -370,9 +373,10 @@ describe("BAYLA's liberation bar: the BAYLA in our pools against her pump.fun po
     expect(body.baylaFlip).toBeUndefined();
   });
 
-  it("reads our side as zero only when the scan found no BAYLA pool at all", async () => {
+  it("reads our side as zero when the scan found no BAYLA/SOL pool, however much BAYLA sits in others", async () => {
     const w = world();
     w.pool(CP, [SOL, 3], [MEME, 9]);
+    w.pool(CP, [USDC, 5], [BAYLA, 9_000]);
     pumpVault(w, 4_000);
     expect((await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW })).baylaFlip).toEqual({ ours: 0, pump: 4_000 });
   });
