@@ -3,7 +3,7 @@ import { Eth } from "./Icons";
 import NftImage from "./NftImage";
 import { getFriendlyError, isUserRejection } from "../lib/errorMessages";
 import { isTxNotice } from "../lib/txOutcome";
-import { getProvider } from "../api";
+import { getProvider, shortenAddress } from "../api";
 
 // ═══ STEPS ═══
 const STEPS = {
@@ -561,6 +561,7 @@ function PendingMonitor({ txHash, startTime, onConfirmed, onError }) {
   // keys this component by `txHash`, so a new purchase starts a new list.
   const hashesRef = useRef([txHash]);
   const [latestHash, setLatestHash] = useState(txHash);
+  const [speedUpNote, setSpeedUpNote] = useState(null);
   const pollRef = useRef(null);
   const speedUpTimerRef = useRef(null);
   const mountedRef = useRef(true);
@@ -626,6 +627,14 @@ function PendingMonitor({ txHash, startTime, onConfirmed, onError }) {
       // again would be the purchase a second time.
       if (!tx || tx.blockNumber != null) return;
       const signer = await provider.getSigner();
+      // Only the account that sent it can speed it up. From any other account the
+      // same call is a second, separate purchase paid by that account.
+      const from = await signer.getAddress();
+      if (String(from).toLowerCase() !== String(tx.from).toLowerCase()) {
+        if (mountedRef.current) setSpeedUpNote(`Switch your wallet back to ${shortenAddress(tx.from)} to speed this up.`);
+        return;
+      }
+      if (mountedRef.current) setSpeedUpNote(null);
       // Resubmit with 20% higher gas
       const newMaxFee = tx.maxFeePerGas ? tx.maxFeePerGas * 120n / 100n : undefined;
       const newMaxPriority = tx.maxPriorityFeePerGas ? tx.maxPriorityFeePerGas * 120n / 100n : undefined;
@@ -665,6 +674,11 @@ function PendingMonitor({ txHash, startTime, onConfirmed, onError }) {
         <ElapsedTimer startTime={startTime} />
       </div>
       <SpeedUpButton txHash={latestHash} onSpeedUp={handleSpeedUp} visible={showSpeedUp} />
+      {speedUpNote && (
+        <div role="status" style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--yellow, #f2c14e)", marginTop: 6 }}>
+          {speedUpNote}
+        </div>
+      )}
     </div>
   );
 }

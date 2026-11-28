@@ -56,6 +56,7 @@ const WALLET = "0x" + "a".repeat(40);
 
 const h = vi.hoisted(() => ({
   chainId: 1n,
+  signerAddress: null,
   account: null,
   connectorGetProvider: null,
   providerRequest: null,
@@ -88,7 +89,7 @@ vi.mock("ethers", async (importOriginal) => {
     async getSigner() {
       return {
         provider: this,
-        getAddress: async () => WALLET,
+        getAddress: async () => h.signerAddress ?? WALLET,
         sendTransaction: (...a) => h.sendTransaction(...a),
         signTypedData: (...a) => h.signTypedData(...a),
         signMessage: async () => "0xauth",
@@ -152,6 +153,7 @@ function disconnectWallet() {
 beforeEach(() => {
   vi.resetModules();
   h.chainId = 1n;
+  h.signerAddress = null;
   h.browserProviders = 0;
   h.contractCalls = [];
   h.providerRequest = vi.fn(async () => null);
@@ -1158,5 +1160,105 @@ describe("a fill is held to the trade on screen", () => {
       expect((await bid()).success).toBe(true);
       expect(h.signTypedData).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+// ═══ The wallet that signs is the wallet on screen ═══
+//
+// Until 2026-11-15 the venue's own order book (buy, list, list a bundle,
+// cancel) and every P2P trade action signed through the first injected wallet
+// and never compared accounts, so a purchase or a trade could be paid or signed
+// by a different account than the one the site showed. Each now refuses with
+// the same "Wrong wallet" answer the OpenSea paths give (api.js assertSameWallet),
+// before any approval, signature or transaction.
+describe("an action signed by another account than the connected one is refused", () => {
+  const OTHER = "0x" + "e".repeat(40);
+  const nativeOrder = (token, offerer = "0x" + "c".repeat(40)) => ({
+    order_hash: "0x" + "a".repeat(64),
+    contract_address: token.toLowerCase(),
+    protocol_address: SEAPORT_16,
+    signature: "0xsig",
+    parameters: {
+      offerer,
+      zone: "0x0000000000000000000000000000000000000000",
+      offer: [{ itemType: 2, token, identifierOrCriteria: "1", startAmount: "1", endAmount: "1" }],
+      consideration: [{ itemType: 0, token: "0x0000000000000000000000000000000000000000", identifierOrCriteria: "0", startAmount: "1000", endAmount: "1000", recipient: offerer }],
+      orderType: 0,
+      startTime: String(Math.floor(Date.now() / 1000) - 60),
+      endTime: String(Math.floor(Date.now() / 1000) + 3600),
+      zoneHash: "0x" + "0".repeat(64),
+      salt: "1",
+      conduitKey: "0x" + "0".repeat(64),
+      totalOriginalConsiderationItems: 1,
+    },
+  });
+  const tradeOf = (offerer) => ({
+    protocol_address: SEAPORT_16,
+    signature: "0xsig",
+    offerer,
+    parameters: {
+      offerer,
+      zone: "0x0000000000000000000000000000000000000000",
+      offer: [{ itemType: 2, token: VENUE, identifierOrCriteria: "1", startAmount: "1", endAmount: "1" }],
+      consideration: [{ itemType: 2, token: GOLD, identifierOrCriteria: "2", startAmount: "1", endAmount: "1", recipient: offerer }],
+      orderType: 0,
+      startTime: String(Math.floor(Date.now() / 1000) - 60),
+      endTime: String(Math.floor(Date.now() / 1000) + 3600),
+      salt: "1",
+    },
+  });
+
+  function expectWrongWalletAndNothingSent(res) {
+    expect(res.error).toBe("wallet-mismatch");
+    expect(res.message).toMatch(/Wrong wallet/);
+    expect(h.sendTransaction, "a transaction was sent").not.toHaveBeenCalled();
+    expect(h.signTypedData, "an order was signed").not.toHaveBeenCalled();
+    expect(h.contractCalls.map((c) => c.method).filter((m) => !["isApprovedForAll", "getCounter", "getOrderStatus", "ownerOf"].includes(m)), "a contract was written").toEqual([]);
+  }
+
+  beforeEach(() => { h.signerAddress = OTHER; });
+
+  it("buying from the order book", async () => {
+    const ob = await import("./lib/orderbook");
+    expectWrongWalletAndNothingSent(await ob.fulfillNativeOrder(nativeOrder(VENUE)));
+  });
+
+  it("listing on the order book", async () => {
+    const ob = await import("./lib/orderbook");
+    expectWrongWalletAndNothingSent(await ob.createNativeListing({ contract: VENUE, tokenId: "1", priceEth: 0.1 }));
+  });
+
+  it("listing a bundle on the order book", async () => {
+    const ob = await import("./lib/orderbook");
+    expectWrongWalletAndNothingSent(await ob.createNativeBundleListing({
+      items: [{ contract: VENUE, tokenId: "1" }, { contract: VENUE, tokenId: "2" }], priceEth: 0.2,
+    }));
+  });
+
+  it("cancelling an order-book listing", async () => {
+    const ob = await import("./lib/orderbook");
+    expectWrongWalletAndNothingSent(await ob.cancelNativeListing(nativeOrder(VENUE, WALLET)));
+  });
+
+  it("offering a trade", async () => {
+    const t = await import("./lib/trades");
+    expectWrongWalletAndNothingSent(await t.createTradeOffer({ give: [{ contract: GOLD, tokenId: "1" }], get: [{ contract: VENUE, tokenId: "2" }], taker: "0x" + "d".repeat(40) }));
+  });
+
+  it("accepting a trade", async () => {
+    const t = await import("./lib/trades");
+    expectWrongWalletAndNothingSent(await t.acceptTrade(tradeOf("0x" + "c".repeat(40))));
+  });
+
+  it("revoking a trade on chain", async () => {
+    const t = await import("./lib/trades");
+    expectWrongWalletAndNothingSent(await t.cancelTradeOnChain(tradeOf(WALLET)));
+  });
+
+  it("control: the same order-book buy from the connected account is not refused for its wallet", async () => {
+    h.signerAddress = null;
+    const ob = await import("./lib/orderbook");
+    const res = await ob.fulfillNativeOrder(nativeOrder(VENUE));
+    expect(res.error).not.toBe("wallet-mismatch");
   });
 });

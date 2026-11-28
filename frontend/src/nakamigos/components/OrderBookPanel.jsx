@@ -2,13 +2,11 @@ import { useMemo, useState, useEffect, useCallback } from "react";
 import { Eth } from "./Icons";
 import { useActiveCollection } from "../contexts/CollectionContext";
 import { useWalletState, useWalletActions } from "../contexts/WalletContext";
-import { fetchNativeListings, fetchNativeBundles, fulfillNativeOrder } from "../lib/orderbook";
+import { fetchNativeListings, fetchNativeBundles, fulfillNativeOrder, cancelNativeListing } from "../lib/orderbook";
 import { recordTransaction } from "../lib/transactions";
-import { PLATFORM_FEE_BPS, SEAPORT_ADDRESS, BUNDLE_LISTING_ENABLED } from "../constants";
-import { getProvider } from "../api";
-import { cancelSeaportOrder } from "../lib/seaportCancel";
+import { PLATFORM_FEE_BPS, BUNDLE_LISTING_ENABLED } from "../constants";
 import { getFriendlyError } from "../lib/errorMessages";
-import { waitForTxOutcome, toastTxOutcome, toastTxNotice } from "../lib/txOutcome";
+import { toastTxNotice } from "../lib/txOutcome";
 import { computeBookSides } from "../lib/bookDepth";
 import NativeListingsList from "./NativeListingsList";
 
@@ -45,88 +43,35 @@ function NativeListingsTable({ wallet, onConnect, addToast, floorPrice }) {
     return () => mq.removeEventListener?.("change", onChange);
   }, []);
 
+  // The same cancel every other screen uses (lib/orderbook.js cancelNativeListing):
+  // on the order's own chain and Seaport, only from the wallet that listed it,
+  // and nothing is called cancelled until the chain says so. This panel used to
+  // carry its own copy, which skipped the on-chain cancel for a row without
+  // order parameters and still told the seller "Listing cancelled!" while the
+  // signed order stayed fillable (fixed 2026-11-15).
   const handleCancel = useCallback(async (order) => {
-    // R-CHAINID: mirror MyListings.jsx wrong-network short-circuit so a Seaport
-    // cancel never lands on the wrong chain.
-    if (isWrongNetwork) { addToast?.("Wrong network — please switch to Ethereum Mainnet", "error"); switchChain?.(); return; }
-    const provider = getProvider();
-    if (!provider) {
-      addToast?.("Wallet not connected", "error");
-      return;
-    }
     setCancelling(order.order_hash);
     addToast?.("Cancelling listing...", "info");
     try {
-      const { ethers } = await import("ethers");
-      const browserProvider = new ethers.BrowserProvider(provider);
-      const signer = await browserProvider.getSigner();
-
-      // On-chain cancel via Seaport if parameters available.
-      // F630: shared helper reads the live counter + rebuilds OrderComponents so
-      // the cancel targets the real order hash (not a phantom that stays fillable).
-      if (order.parameters) {
-        const tx = await cancelSeaportOrder({
-          ethers, signer,
-          params: order.parameters,
-          seaportAddress: order.protocol_address || SEAPORT_ADDRESS,
-        });
-        // Anything but a confirmed cancel leaves the row on screen and the
-        // backend untouched: the order may still be live.
-        const done = await waitForTxOutcome(tx);
-        if (done.kind !== "success") {
-          toastTxOutcome(addToast, done, {
-            reverted: { error: "reverted", message: "The cancel reverted on-chain. The listing is still live." },
-            ifLanded: "the listing is already cancelled and a second cancel only costs gas.",
-          });
-          return;
-        }
-      }
-
-      // Update backend
-      // AUDIT FIX D-FE-M2: chainId + 5-minute timestamp binding to defeat
-      // captured-signature replay (see api/orderbook.js cancel handler).
-      // The on-chain cancel has ALREADY succeeded by this point; everything below
-      // is a best-effort backend notification. signMessage used to sit OUTSIDE this
-      // try, so a user rejecting the *notify* signature threw to the outer catch and
-      // was reported as "Cancellation declined in wallet" — while the order was in
-      // fact cancelled on-chain — leaving the row rendered as still active.
-      try {
-        const _cancelTs = Math.floor(Date.now() / 1000);
-        const _cancelChainId = 1;
-        const cancelMessage = `Cancel order ${order.order_hash} | Chain: ${_cancelChainId} | Time: ${_cancelTs}`;
-        const cancelSignature = await signer.signMessage(cancelMessage);
-        await fetch("/api/orderbook", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "cancel",
-            orderHash: order.order_hash,
-            signature: cancelSignature,
-            chainId: _cancelChainId,
-            timestamp: _cancelTs,
-          }),
-        });
-      } catch {
-        console.warn("Backend cancel notify failed (on-chain cancel succeeded)");
-      }
-
-      addToast?.("Listing cancelled!", "success");
-      // Prune BOTH lists: bundles live in their own state, so cancelling a bundle
-      // used to leave it on screen with a live Cancel button until the 60s poll —
-      // inviting a second, redundant on-chain cancel the seller pays gas for.
-      setOrders((prev) => prev.filter((o) => o.order_hash !== order.order_hash));
-      setBundles((prev) => prev.filter((o) => o.order_hash !== order.order_hash));
-    } catch (err) {
-      if (err.code === 4001 || err.code === "ACTION_REJECTED") {
+      const result = await cancelNativeListing(order);
+      if (result.success) {
+        addToast?.("Listing cancelled!", "success");
+        // Prune BOTH lists: bundles live in their own state, so cancelling a bundle
+        // used to leave it on screen with a live Cancel button until the 60s poll —
+        // inviting a second, redundant on-chain cancel the seller pays gas for.
+        setOrders((prev) => prev.filter((o) => o.order_hash !== order.order_hash));
+        setBundles((prev) => prev.filter((o) => o.order_hash !== order.order_hash));
+      } else if (result.error === "rejected") {
         addToast?.("Cancellation declined in wallet.", "info");
-      } else {
-        console.error("Cancel error:", err);
-        addToast?.("Failed to cancel listing.", "error");
+      } else if (!toastTxNotice(addToast, result)) {
+        addToast?.(getFriendlyError(result.message || "Failed to cancel listing."), "error");
+        // The wallet switch here only knows Ethereum Mainnet.
+        if (result.error === "wrong-chain" && result.chainId === 1) switchChain?.();
       }
     } finally {
       setCancelling(null);
     }
-  }, [addToast, isWrongNetwork, switchChain]);
+  }, [addToast, switchChain]);
 
   const fetchOrders = useCallback(() => {
     if (!collection?.contract) return;

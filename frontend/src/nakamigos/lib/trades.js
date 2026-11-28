@@ -23,7 +23,7 @@
  */
 
 import { SEAPORT_ADDRESS, SEAPORT_DOMAIN, SEAPORT_ORDER_TYPES, CONDUIT_KEY, CONDUIT_ADDRESS, WETH, resolveSeaportTarget } from "../constants";
-import { getProvider } from "../api";
+import { getActiveWalletProvider, assertSameWallet } from "../api";
 import { ethereumCancelRefusal, venueRefusalForAll } from "./venue";
 import { getWethBalance, getWethAllowance, approveWeth, wrapEth } from "./weth";
 import { waitForTxOutcome, txOutcomeResult, txOutcomeError } from "./txOutcome";
@@ -88,8 +88,13 @@ const TRADE_WORDS = {
   ifLanded: "the trade is already done and sending it again will not go through.",
 };
 
+// Every trade action signs through here: the ACTIVE connector's wallet, and
+// refused when the account that would sign is not the one the app is connected
+// as (api.js assertSameWallet). Until 2026-11-15 this took the first injected
+// wallet and never compared accounts, so a trade could be signed, wrapped for,
+// approved and accepted by a different wallet than the one on screen.
 async function getMainnetSigner() {
-  const ethProvider = getProvider();
+  const { provider: ethProvider, address: connectedAddress } = await getActiveWalletProvider();
   if (!ethProvider) return { error: "no-wallet", message: "No wallet found" };
   const { ethers } = await import("ethers");
   const provider = new ethers.BrowserProvider(ethProvider);
@@ -98,7 +103,10 @@ async function getMainnetSigner() {
     return { error: "wrong-chain", message: "Switch to Ethereum Mainnet to trade" };
   }
   const signer = await provider.getSigner();
-  return { ethers, provider, signer, address: (await signer.getAddress()).toLowerCase() };
+  const address = await signer.getAddress();
+  const mismatch = assertSameWallet(address, connectedAddress);
+  if (mismatch) return mismatch;
+  return { ethers, provider, signer, address: address.toLowerCase() };
 }
 
 // Approve every distinct collection in `items` for the Seaport conduit.

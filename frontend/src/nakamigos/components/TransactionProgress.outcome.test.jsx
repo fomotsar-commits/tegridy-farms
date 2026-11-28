@@ -12,14 +12,18 @@ import { txOutcomeResult } from "../lib/txOutcome";
 const SENT = "0x" + "11".repeat(32);
 const TOOK = "0x" + "22".repeat(32);
 
-const h = vi.hoisted(() => ({ receipts: {}, transaction: null, sendTransaction: null }));
+const SENDER = "0x" + "aa".repeat(20);
+const h = vi.hoisted(() => ({ receipts: {}, transaction: null, sendTransaction: null, signerAddress: null }));
 
-vi.mock("../api", () => ({ getProvider: () => ({ request: () => {} }) }));
+vi.mock("../api", () => ({
+  getProvider: () => ({ request: () => {} }),
+  shortenAddress: (a) => `${a.slice(0, 6)}...${a.slice(-4)}`,
+}));
 vi.mock("ethers", () => {
   class MockBrowserProvider {
     async getTransactionReceipt(hash) { return h.receipts[hash] ?? null; }
     async getTransaction() { return h.transaction; }
-    async getSigner() { return { sendTransaction: (...a) => h.sendTransaction(...a) }; }
+    async getSigner() { return { getAddress: async () => h.signerAddress, sendTransaction: (...a) => h.sendTransaction(...a) }; }
   }
   return { ethers: { BrowserProvider: MockBrowserProvider } };
 });
@@ -29,10 +33,11 @@ let TransactionProgress;
 beforeEach(async () => {
   h.receipts = {};
   h.transaction = {
-    to: "0x00000000000000000000000000000000000c0de1", value: 5n, data: "0xd0e30db0", nonce: 7,
+    from: SENDER, to: "0x00000000000000000000000000000000000c0de1", value: 5n, data: "0xd0e30db0", nonce: 7,
     maxFeePerGas: 100n, maxPriorityFeePerGas: 10n, gasLimit: 100000n, blockNumber: null,
   };
   h.sendTransaction = vi.fn(async () => ({ hash: TOOK }));
+  h.signerAddress = SENDER;
   vi.spyOn(console, "warn").mockImplementation(() => {});
   // Loaded once up front, so the overlay's own `import("ethers")` is a cache hit.
   await import("ethers");
@@ -125,5 +130,16 @@ describe("the pending monitor follows a speed-up it sent", () => {
     fireEvent.click(screen.getByRole("button", { name: "SPEED UP" }));
     await tick(0);
     expect(h.sendTransaction).not.toHaveBeenCalled();
+  });
+
+  it("sends nothing from another account, and names the one to switch back to", async () => {
+    // The wallet moved to another account while the purchase was pending. The
+    // same call from it is not a speed-up: it is a second purchase, paid by it.
+    h.signerAddress = "0x" + "bb".repeat(20);
+    await pendingFor(120_000, vi.fn());
+    fireEvent.click(screen.getByRole("button", { name: "SPEED UP" }));
+    await tick(0);
+    expect(h.sendTransaction).not.toHaveBeenCalled();
+    expect(screen.getByRole("status").textContent).toMatch(/Switch your wallet back to 0xaaaa\.\.\.aaaa/);
   });
 });

@@ -209,6 +209,11 @@ const timeLeft = (iso) => {
 
 const short = (addr) => addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : "";
 
+// Removing a trade from the inbox or the board is free and leaves the signed
+// order valid until it expires: whoever already has it can still accept it.
+// Only "Revoke on-chain" ends it. The toast used to say "Trade cancelled".
+const STILL_SIGNED = (done) => `${done} It can still be accepted until it expires. Revoke on-chain ends it now.`;
+
 const STATUS_COLOR = {
   active: "var(--naka-blue)", accepted: "var(--green)", declined: "var(--red)",
   cancelled: "var(--text-muted)", expired: "var(--text-muted)", countered: "var(--gold)",
@@ -345,10 +350,10 @@ function TradeCard({ trade, direction, addToast, onChanged, onCounter, onPickPro
                 className="btn-secondary"
                 style={{ fontSize: 11, padding: "8px 16px" }}
                 disabled={!!busy}
-                onClick={() => run("cancel", () => updateTradeStatus(trade, "trade-cancel"), "Trade cancelled")}
+                onClick={() => run("cancel", () => updateTradeStatus(trade, "trade-cancel"), STILL_SIGNED("Removed from their inbox."))}
                 title="Free — removes it from their inbox. The signature itself stays valid until expiry."
               >
-                {busy === "cancel" ? "…" : "Cancel"}
+                {busy === "cancel" ? "…" : "Remove"}
               </button>
               <button
                 className="btn-secondary"
@@ -393,7 +398,7 @@ function BoardOwnerActions({ trade, addToast, onChanged }) {
         className="btn-secondary"
         style={{ fontSize: 11, padding: "8px 16px" }}
         disabled={!!busy}
-        onClick={() => run("cancel", () => updateTradeStatus(trade, "trade-cancel"), "Post removed")}
+        onClick={() => run("cancel", () => updateTradeStatus(trade, "trade-cancel"), STILL_SIGNED("Post removed."))}
         title="Free — removes it from the board. The signature stays valid until expiry."
       >
         {busy === "cancel" ? "…" : "Remove post"}
