@@ -71,7 +71,7 @@
       "address": "Dcjink4RGNUBpRVV4AX8mzxNLpUF2ik5h8Em6usv7kZ7",
       "role": "Program deploy authority for the own-venue mainnet deploy of 2026-08-08. Both programs it deployed were closed on 2026-08-13, so it currently authorises nothing; it is kept registered because losing it is how this registry started. It is NOT the restart's deploy key (that is tegridy-launch-deployer, 2026-09-25), and it was cp-swap admin::ID in source until 2026-09-26; verify-program-constants forbids it in both restart binaries.",
       "custody": "single key, operator-held. No seed phrase — generated --no-bip39-passphrase --silent, so the keyfile IS the backup.",
-      "status": "🔴 EMPTY. getAccountInfo returns value:null on mainnet-beta (checked twice, slot 438,844,123/4 — 2026-08-12). The account does not exist: 0 lamports. The previous text here said '3.53 SOL left. Keep it funded' and was stale; the text after that called the empty balance a graduation BLOCKER, which stopped being true on 2026-08-13 when both programs were closed — there is no initialize_global left to call and no cp-swap upgrade left to ship. What remains true: it deployed both programs 2026-08-08 (8.41 SOL of rent, not recovered to any address this registry knows), and NO SEED PHRASE EXISTS — the keyfile is the only backup. The `expect` block below used to say {wallet, funded:true} — asserting the exact opposite of this paragraph — and nothing caught it, because the chain read never ran in CI. It is now `absent`, which is both what is true and the useful tripwire: this is the key a restart deploys from, so the account going non-empty again should force a deliberate registry edit rather than pass silently.",
+      "status": "🔴 EMPTY. getAccountInfo returns value:null on mainnet-beta (checked twice, slot 438,844,123/4 — 2026-08-12). The account does not exist: 0 lamports. The previous text here said '3.53 SOL left. Keep it funded' and was stale; the text after that called the empty balance a graduation BLOCKER, which stopped being true on 2026-08-13 when both programs were closed — there is no initialize_global left to call and no cp-swap upgrade left to ship. What remains true: it deployed both programs 2026-08-08 (8.41 SOL of rent, which vault proposal #4 sent to squads-member-a when it closed them on 2026-08-13), and NO SEED PHRASE EXISTS — the keyfile is the only backup. The `expect` block below used to say {wallet, funded:true} — asserting the exact opposite of this paragraph — and nothing caught it, because the chain read never ran in CI. It is now `absent`, which is both what is true and the useful tripwire: this is the key a restart deploys from, so the account going non-empty again should force a deliberate registry edit rather than pass silently.",
       "expect": {
         "type": "absent"
       }
@@ -149,9 +149,13 @@
       "address": "EQ8GJTuNRuwcpMuAPSkWU2osMfLaMjJqyspFXjwe1LD4",
       "role": "ProgramData account for tegridy-launch-program-restart: PDA of BPFLoaderUpgradeab1e11111111111111111111111, seeds [64WBTeNcrSHfmBpiqymyifW6FUNNLvJcuiqF9rXmz4q2]. Holds the bytecode and the upgrade authority. THIS is the account that answers 'is the launcher live', because `solana program close` deletes it and leaves the program stub executable-flagged. Pinned against the code's own derivation by src/lib/launcher/solana/restartRegistry.test.ts.",
       "custody": "upgrade authority = squads-vault GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd after the §8 handover (never the multisig account EVGSnRZ…, which cannot sign).",
-      "status": "LIVE (post-deploy truth for website release 2). Recorded as deployed by website release 2 (branch ship/solana-launch-on), which the owner deploys only after website-release-2/precheck.mjs has read it on mainnet (MAINNET_GO_LIVE.md §3-§8 done). Written 2026-09-29 as the state this release REQUIRES, not as a read of it. What precheck.mjs read that day: both programs on mainnet with the tested bytes (last deployed slots 451,687,458 cp-swap and 451,687,658 tegridy-launch), their upgrade authority still tegridy-launch-deployer, and global, AmmConfig and Permission not created yet. If this branch is built before the rest is done, an entry here is wrong and the daily registry-onchain job fails on it, which is the point.",
+      "status": "LIVE (post-deploy truth for website release 2). `expect.holdsProgram` pins the build tegridy-launch-program-restart names (470,728 bytes, sha256 a3c41afaf9dce3ee5dd5d30061c09d8dfb0bf581ba8f39e1d24524dbb43d3f4d), which this account still held on 2026-11-15 (last deployed slot 451,687,658, never upgraded), so an upgrade to any other build turns the daily chain read red. Recorded as deployed by website release 2 (branch ship/solana-launch-on), which the owner deploys only after website-release-2/precheck.mjs has read it on mainnet (MAINNET_GO_LIVE.md §3-§8 done). Written 2026-09-29 as the state this release REQUIRES, not as a read of it. What precheck.mjs read that day: both programs on mainnet with the tested bytes (last deployed slots 451,687,458 cp-swap and 451,687,658 tegridy-launch), their upgrade authority still tegridy-launch-deployer, and global, AmmConfig and Permission not created yet. If this branch is built before the rest is done, an entry here is wrong and the daily registry-onchain job fails on it, which is the point.",
       "expect": {
-        "type": "program-owned"
+        "type": "program-owned",
+        "holdsProgram": {
+          "bytes": 470728,
+          "sha256": "a3c41afaf9dce3ee5dd5d30061c09d8dfb0bf581ba8f39e1d24524dbb43d3f4d"
+        }
       }
     },
     {
@@ -159,12 +163,16 @@
       "address": "F475omgJMd5mnDXJFyjHTkg9zs7WSb6ek9dFoUmUvi5V",
       "role": "ProgramData account for cp-swap-program-restart: PDA of BPFLoaderUpgradeab1e11111111111111111111111, seeds [EKS4C6xvV9A5DMWaWtVnFvi7ru78EhqRAoddEMpQ2BtT]. Same liveness role as the entry above. Pinned by restartRegistry.test.ts.",
       "custody": "upgrade authority = squads-vault GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd after the §8 handover.",
-      "status": "LIVE (post-deploy truth for website release 2). Since the pool program's keeper-fee upgrade (proposal #35) this account holds the 715,224-byte build (sha256 9f0150e3349cc415a23c37185ee77f17667b0d433b2ccf7506a9a2e814666146; see cp-swap-program-restart), followed by zeros. Written as the state the website release that ships with that upgrade REQUIRES, not as a read. From the swap-guard upgrade (proposal #32, 2026-11-14) until then it held the 714,776-byte build (sha256 01fe923bd9ba3435212d015c2b0d7549592a601ab5707c6222bd0252166e9938), followed by zeros, because that build is smaller than the one before it. Before that the account held the 725,176-byte build (sha256 1e55bcdcb10c39ee9678efb697b453cb23415621bded4968c01950629de4fd22): since the third upgrade (proposal #31, 2026-11-06), and earlier from the upgrade of 2026-10-23 until the roll-back of 2026-10-24 and from the re-upgrade of 2026-11-03 until the roll-back of 2026-11-04 (each roll-back left the 691,640-byte build followed by zeros). The account itself stays 725,221 bytes: an ordinary wallet enlarged it to that, from 691,685, before the first upgrade, and an account never shrinks. Its size and the slot of each execute are recorded in solana/tegridy-amm/MAINNET_RUNBOOK.md section 4b. `expect.holdsProgram` is that claim in a form the chain read checks: verify-addresses.mjs --onchain fetches the first 715,224 bytes of program behind this account's 45-byte header and hashes them, so the registry's chain job is red for as long as mainnet holds any other build, and no edit to a paper can turn it green. It is a hash and not a slot or a size on purpose: an enlarge moves the last-deployed slot and the size while the old program still runs. After a roll-back, put the size and hash of the build it put back here (the build before this one: 714,776 bytes, 01fe923bd9ba3435212d015c2b0d7549592a601ab5707c6222bd0252166e9938). The rest of this status is what was written for the first deploy. Recorded as deployed by website release 2 (branch ship/solana-launch-on), which the owner deploys only after website-release-2/precheck.mjs has read it on mainnet (MAINNET_GO_LIVE.md §3-§8 done). Written 2026-09-29 as the state this release REQUIRES, not as a read of it. What precheck.mjs read that day: both programs on mainnet with the tested bytes (last deployed slots 451,687,458 cp-swap and 451,687,658 tegridy-launch), their upgrade authority still tegridy-launch-deployer, and global, AmmConfig and Permission not created yet. If this branch is built before the rest is done, an entry here is wrong and the daily registry-onchain job fails on it, which is the point.",
+      "status": "LIVE (post-deploy truth for website release 2). Since the pool program's keeper-fee upgrade (proposal #35) this account holds the 715,224-byte build (sha256 9f0150e3349cc415a23c37185ee77f17667b0d433b2ccf7506a9a2e814666146; see cp-swap-program-restart), followed by zeros. Written as the state the website release that ships with that upgrade REQUIRES, not as a read. From the swap-guard upgrade (proposal #32, 2026-11-14) until then it held the 714,776-byte build (sha256 01fe923bd9ba3435212d015c2b0d7549592a601ab5707c6222bd0252166e9938), followed by zeros, because that build is smaller than the one before it. Before that the account held the 725,176-byte build (sha256 1e55bcdcb10c39ee9678efb697b453cb23415621bded4968c01950629de4fd22): since the third upgrade (proposal #31, 2026-11-06), and earlier from the upgrade of 2026-10-23 until the roll-back of 2026-10-24 and from the re-upgrade of 2026-11-03 until the roll-back of 2026-11-04 (each roll-back left the 691,640-byte build followed by zeros). The account itself stays 725,221 bytes: an ordinary wallet enlarged it to that, from 691,685, before the first upgrade, and an account never shrinks. Its size and the slot of each execute are recorded in solana/tegridy-amm/MAINNET_RUNBOOK.md section 4b. `expect.holdsProgram` is that claim in a form the chain read checks: verify-addresses.mjs --onchain fetches the first 715,224 bytes of program behind this account's 45-byte header and hashes them, so the registry's chain job is red for as long as mainnet holds any other build, and no edit to a paper can turn it green. A build that a vault proposal is staged or packed to install goes beside it as `expect.stagedProgram`, so the job stays green between that upgrade and the release that names it. It names the swap pools' one upgrade (pull requests #1309 and #1321, merged 2026-11-21 and 2026-11-27): the 749,000-byte build, sha256 4082fcfbdab6fab9e84af2d0aa6c91cbed680a7e5fa36e7f7ef15dee67429022, trunk's own build. That upgrade first grows this account to 749,045 bytes (its 45-byte header and 749,000 of program); the grow keeps the build it holds, so the job stays green through the grow and the execute. It is a hash and not a slot or a size on purpose: an enlarge moves the last-deployed slot and the size while the old program still runs. After a roll-back, put the size and hash of the build it put back here (the build before this one: 714,776 bytes, 01fe923bd9ba3435212d015c2b0d7549592a601ab5707c6222bd0252166e9938). The rest of this status is what was written for the first deploy. Recorded as deployed by website release 2 (branch ship/solana-launch-on), which the owner deploys only after website-release-2/precheck.mjs has read it on mainnet (MAINNET_GO_LIVE.md §3-§8 done). Written 2026-09-29 as the state this release REQUIRES, not as a read of it. What precheck.mjs read that day: both programs on mainnet with the tested bytes (last deployed slots 451,687,458 cp-swap and 451,687,658 tegridy-launch), their upgrade authority still tegridy-launch-deployer, and global, AmmConfig and Permission not created yet. If this branch is built before the rest is done, an entry here is wrong and the daily registry-onchain job fails on it, which is the point.",
       "expect": {
         "type": "program-owned",
         "holdsProgram": {
           "bytes": 715224,
           "sha256": "9f0150e3349cc415a23c37185ee77f17667b0d433b2ccf7506a9a2e814666146"
+        },
+        "stagedProgram": {
+          "bytes": 749000,
+          "sha256": "4082fcfbdab6fab9e84af2d0aa6c91cbed680a7e5fa36e7f7ef15dee67429022"
         }
       }
     },
@@ -181,7 +189,7 @@
     {
       "id": "cp-swap-amm-config-restart",
       "address": "BHMteE8u6LAppswQmFmd2h7hp1fCfWtGahvVJnhRk8jW",
-      "role": "cp-swap AmmConfig index 0 under cp-swap-program-restart, seeds [\"amm_config\", 0u16 big-endian]: the launch tier, the fee sheet of graduated pools. READ on mainnet-beta at finalized slot 455,314,217 (2026-10-10), before the revenue split below, 236 bytes: trade_fee_rate 2,500 per million (0.25% of each swap), protocol_fee_rate 200,000 per million OF THAT TRADE FEE (20% of it, so 0.05% of the swap), fund_fee_rate 0, creator_fee_rate 500 per million of the swap (0.05%, charged on top of the trade fee where a pool has its creator fee switched on), create_pool_fee 0 lamports, disable_create_pool false; protocol_owner and fund_owner are both squads-vault. HISTORY, from this account's first three transactions, each a Squads vault transaction: created 2026-09-30T02:10:29Z (slot 451,825,863) as create_amm_config(0, 2500, 120000, 0, 0, 0), which is the '12% of it to the protocol' and no creator fee this row described until 2026-10-10; update_amm_config(7, 500) set the creator fee on 2026-10-01T06:09:01Z (slot 452,202,367); update_amm_config(1, 200000) raised the protocol share from 12% to 20% of the trade fee on 2026-10-01T06:09:13Z (slot 452,202,414). Then the revenue split agreed with Jungle Bay Island on 2026-10-18, in one Squads vault proposal (#13, executed 2026-10-19T07:58:54Z, slot 458,758,629): protocol_fee_rate 200,000 to 130,000 and fund_fee_rate 0 to 70,000 per million of the trade fee, so the take stays 20% of it (0.05% of each swap: 0.0325% protocol fee to squads-vault, 0.0175% fund fee), and fund_owner squads-vault to island-workshop-wallet, which collects the fund fee (as can cp-swap's admin, squads-vault: collect_fund_fee.rs). Then update_amm_config(7, 5000) raised the creator fee from 0.05% to 0.50% of the swap (Squads #12, executed 2026-10-19T07:59:04Z, slot 458,758,678), while no pool used this tier and launches were paused. Created by Squads proposal 1 (MAINNET_GO_LIVE.md §4). Pinned by restartRegistry.test.ts.",
+      "role": "cp-swap AmmConfig index 0 under cp-swap-program-restart, seeds [\"amm_config\", 0u16 big-endian]: the launch tier, the fee sheet of graduated pools. READ on mainnet-beta at finalized slot 455,314,217 (2026-10-10), before the revenue split below, 236 bytes: trade_fee_rate 2,500 per million (0.25% of each swap), protocol_fee_rate 200,000 per million OF THAT TRADE FEE (20% of it, so 0.05% of the swap), fund_fee_rate 0, creator_fee_rate 500 per million of the swap (0.05%, charged on top of the trade fee where a pool has its creator fee switched on), create_pool_fee 0 lamports, disable_create_pool false; protocol_owner and fund_owner are both squads-vault. HISTORY, from this account's first three transactions, each a Squads vault transaction: created 2026-09-30T02:10:29Z (slot 451,825,863) as create_amm_config(0, 2500, 120000, 0, 0, 0), which is the '12% of it to the protocol' and no creator fee this row described until 2026-10-10; update_amm_config(7, 500) set the creator fee on 2026-10-01T06:09:01Z (slot 452,202,367); update_amm_config(1, 200000) raised the protocol share from 12% to 20% of the trade fee on 2026-10-01T06:09:13Z (slot 452,202,414). Then the revenue split agreed with Jungle Bay Island on 2026-10-18, in one Squads vault proposal (#13, executed 2026-10-19T07:58:54Z, slot 458,758,629): protocol_fee_rate 200,000 to 130,000 and fund_fee_rate 0 to 70,000 per million of the trade fee, so the take stays 20% of it (0.05% of each swap: 0.0325% protocol fee to squads-vault, 0.0175% fund fee), and fund_owner squads-vault to island-workshop-wallet, which collects the fund fee. Only a tier's fund owner can (collect_fund_fee.rs), so the vault cannot collect it. Then update_amm_config(7, 5000) raised the creator fee from 0.05% to 0.50% of the swap (Squads #12, executed 2026-10-19T07:59:04Z, slot 458,758,678), while no pool used this tier and launches were paused. Created by Squads proposal 1 (MAINNET_GO_LIVE.md §4). Pinned by restartRegistry.test.ts.",
       "custody": "program-derived, no key. Only cp-swap's compiled admin (squads-vault) can change it.",
       "status": "CREATED (post-deploy truth for website release 2). Recorded as deployed by website release 2 (branch ship/solana-launch-on), which the owner deploys only after website-release-2/precheck.mjs has read it on mainnet (MAINNET_GO_LIVE.md §3-§8 done). Written 2026-09-29 as the state this release REQUIRES, not as a read of it. What precheck.mjs read that day: both programs on mainnet with the tested bytes (last deployed slots 451,687,458 cp-swap and 451,687,658 tegridy-launch), their upgrade authority still tegridy-launch-deployer, and global, AmmConfig and Permission not created yet. If this branch is built before the rest is done, an entry here is wrong and the daily registry-onchain job fails on it, which is the point.",
       "expect": {
@@ -191,11 +199,21 @@
     {
       "id": "cp-swap-amm-config-public-restart",
       "address": "CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy",
-      "role": "cp-swap AmmConfig index 1 under cp-swap-program-restart, seeds [\"amm_config\", 1u16 big-endian], bump 255, derived and matched: the public tier, the fee sheet of every pool opened from the site (venue-pool-bayla-sol and venue-pool-bayla-usdc both name it). READ on mainnet-beta at finalized slot 455,314,217 (2026-10-10), before the revenue split below, 236 bytes: trade_fee_rate 10,000 per million (1% of each swap), protocol_fee_rate 160,000 per million OF THAT TRADE FEE (16% of it, so 0.16% of the swap; the other 0.84% stays in the pool for its liquidity providers), fund_fee_rate 0, creator_fee_rate 0, create_pool_fee 150,000,000 lamports (0.15 SOL to open a pool, paid into cpswap-fee-receiver-wsol-ata), disable_create_pool false; protocol_owner and fund_owner are both squads-vault. Created 2026-10-01T06:08:37Z (slot 452,202,278) by a Squads vault transaction as create_amm_config(1, 10000, 160000, 0, 150000000, 0) and not changed up to that read: its other five transactions then were the two pool openings and three swaps. Then the revenue split agreed with Jungle Bay Island on 2026-10-18, in one Squads vault proposal (#13, executed 2026-10-19T07:58:54Z, slot 458,758,629): protocol_fee_rate 160,000 to 104,000 and fund_fee_rate 0 to 56,000 per million of the trade fee, so the take stays 16% of it (0.16% of each swap: 0.104% protocol fee to squads-vault, 0.056% fund fee), and fund_owner squads-vault to island-workshop-wallet, which collects the fund fee (as can cp-swap's admin, squads-vault: collect_fund_fee.rs). Pinned against the code's own derivation by src/lib/solana/feeRowsRegistry.test.ts.",
+      "role": "cp-swap AmmConfig index 1 under cp-swap-program-restart, seeds [\"amm_config\", 1u16 big-endian], bump 255, derived and matched: the public tier, the fee sheet of every pool opened from the site (venue-pool-bayla-sol and venue-pool-bayla-usdc both name it). READ on mainnet-beta at finalized slot 455,314,217 (2026-10-10), before the revenue split below, 236 bytes: trade_fee_rate 10,000 per million (1% of each swap), protocol_fee_rate 160,000 per million OF THAT TRADE FEE (16% of it, so 0.16% of the swap; the other 0.84% stays in the pool for its liquidity providers), fund_fee_rate 0, creator_fee_rate 0, create_pool_fee 150,000,000 lamports (0.15 SOL to open a pool, paid into cpswap-fee-receiver-wsol-ata), disable_create_pool false; protocol_owner and fund_owner are both squads-vault. Created 2026-10-01T06:08:37Z (slot 452,202,278) by a Squads vault transaction as create_amm_config(1, 10000, 160000, 0, 150000000, 0) and not changed up to that read: its other five transactions then were the two pool openings and three swaps. Then the revenue split agreed with Jungle Bay Island on 2026-10-18, in one Squads vault proposal (#13, executed 2026-10-19T07:58:54Z, slot 458,758,629): protocol_fee_rate 160,000 to 104,000 and fund_fee_rate 0 to 56,000 per million of the trade fee, so the take stays 16% of it (0.16% of each swap: 0.104% protocol fee to squads-vault, 0.056% fund fee), and fund_owner squads-vault to island-workshop-wallet, which collects the fund fee. Only a tier's fund owner can (collect_fund_fee.rs), so the vault cannot collect it. Pinned against the code's own derivation by src/lib/solana/feeRowsRegistry.test.ts.",
       "custody": "program-derived, no key. Only cp-swap's compiled admin (squads-vault) can change it.",
       "status": "CREATED, and read: at finalized slot 455,314,217 (2026-10-10) it is owned by cp-swap-program-restart and holds 1,849,120 lamports. Registered 2026-10-10; until then the registry named this address only inside the two venue-pool rows, so nothing asserted it against the chain.",
       "expect": {
         "type": "program-owned"
+      }
+    },
+    {
+      "id": "price-keeper-wallet",
+      "address": "9WAugU3g3YECwuEuoPy3NEH5Co475fHATGdjr2dy2Fcz",
+      "role": "The price keeper's wallet: the robot that trades the venue's pools back toward the market price. Vault proposal #34 named it the keeper of both swap-pool fee tiers (cp-swap-amm-config-restart and cp-swap-amm-config-public-restart). A tier's keeper may swap past the swap guard, and since the pool program runs the build with the keeper's fee (proposal #35) it pays no trade fee and no creator fee on that tier, so its trades earn nothing for liquidity providers, the vault, the island's Workshop or a coin's creator, and its profit stays in this wallet. solanaFields lets each tier's keeper be this wallet or nobody, and nothing else.",
+      "custody": "single key, operator-held: it signs the price keeper's trades. Not a Squads key.",
+      "status": "live, system-owned; its balance moves with every trade it makes, so none is written here. Read on mainnet-beta 2026-11-20 (finalized slot 471,608,946): the keeper of both tiers, each with the swap guard on. It paid the rent of squads-vault-usdt-ata on 2026-11-02.",
+      "expect": {
+        "type": "wallet"
       }
     },
     {
@@ -254,6 +272,26 @@
       }
     },
     {
+      "id": "squads-member-a",
+      "address": "5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz",
+      "role": "One of the two members of squads-multisig (2 of 2): every vault proposal needs its approval. It executed proposals #19 and #21, and vault proposal #4 (executed 2026-08-13) sent it the rent of the two programs closed that day.",
+      "custody": "single key, operator-held. Alone it can only execute a proposal both members approved.",
+      "status": "live, system-owned. No balance is written here, because every vote moves it. The rule: an approval, a cancel vote or an execute costs 5,000 lamports, and making a new proposal also costs its maker the rent of two Squads records. The chain check fails if this wallet is emptied.",
+      "expect": {
+        "type": "wallet"
+      }
+    },
+    {
+      "id": "squads-member-b",
+      "address": "6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY",
+      "role": "The other member of squads-multisig (2 of 2): every vault proposal needs its approval too. It created proposals #19, #21 and #30.",
+      "custody": "single key, operator-held. Alone it can only execute a proposal both members approved.",
+      "status": "live, system-owned. No balance is written here, for the same reason and under the same rule as squads-member-a. The chain check fails if this wallet is emptied.",
+      "expect": {
+        "type": "wallet"
+      }
+    },
+    {
       "id": "system-program",
       "address": "11111111111111111111111111111111",
       "role": "The System Program. Registered because it WAS tegridy-launch's FAIL-CLOSED deployer::ID sentinel on the non-devnet arm until 2026-09-26 (now tegridy-launch-deployer) — a binary still carrying it can never be initialized, because nobody can sign for this address. Also pins the base58 decoder: 32 leading zero bytes is the one input that used to decode to 33 bytes and be rejected as a fabrication.",
@@ -268,10 +306,7 @@
       "address": "27AC7YwwAULHQcQXGErV7rHMsLZAUBWF6ozDNhSpTQE9",
       "role": "cp-swap create_pool_fee_reveiver::ID on the `--features devnet` arm — the devnet admin's WSOL ATA. Registered so verify-program-constants can carry it as a FORBIDDEN key: baked into a mainnet binary, every pool-creation fee is paid to an account that does not exist on mainnet.",
       "custody": "owned by devnet-admin",
-      "status": "devnet only — 0 on mainnet",
-      "expect": {
-        "type": "token-account"
-      }
+      "status": "devnet only, 0 on mainnet: no account exists at this address there (read 2026-11-15). The mainnet chain read skips devnet- rows, so this row carries no expect; until 2026-11-15 it carried a token-account expect that described devnet and was never read."
     },
     {
       "id": "devnet-tegridy-launch-deployer",
@@ -321,6 +356,16 @@
       }
     },
     {
+      "id": "squads-vault-bayla-ata",
+      "address": "4HUXwHSie4q52eZiazheRqTHCABQZXJ4Yx3GkdBAwavy",
+      "role": "The Squads vault's $BAYLA account: ATA(bayla-mint, squads-vault) under TOKEN-2022, bump 255, derived and matched. A refill of the BAYLA ladder's rewards (notify_reward) is paid from this account, so the BAYLA must be here before that vault proposal runs.",
+      "custody": "owned by the Squads vault",
+      "status": "live, Token-2022. Read on mainnet-beta 2026-11-15: no delegate, no close authority, not frozen. No balance is written here: a refill puts BAYLA in and notify_reward takes it out.",
+      "expect": {
+        "type": "token-account"
+      }
+    },
+    {
       "id": "swap-fee-account",
       "address": "DVGiHe98CzEf7VuCS6YpVDFnp38ubJmKNLt6aMJwAyER",
       "role": "NOT the swap-fee receiver any more; the id is kept because older notes use it. It WAS VITE_SOLANA_FEE_ACCOUNT, the owner of the Jupiter platform-fee accounts for /solana, and this row said 'the live Jupiter platform-fee receiver ... Verified present in the deployed bundle' until 2026-10-10. What the live build carries now, read 2026-10-10T16:07Z from https://memetics.finance/assets/solana-Etwqv48D.js (the site's front page was last modified 2026-10-09T07:57:39Z): the fee owner is squads-vault GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd, the fee is 50 bps, and this address is not in that file. The chain agrees: four swap fees have landed in cpswap-fee-receiver-wsol-ata, the first on 2026-10-06, and none has ever landed in this wallet's two fee accounts. The fee accounts in use are cpswap-fee-receiver-wsol-ata, squads-vault-usdc-ata and, since 2026-11-02, squads-vault-usdt-ata. The day the setting changed is not recorded in this repo, and no read here returned it.",
@@ -363,8 +408,8 @@
     {
       "id": "meteora-locker-program",
       "address": "LocpQgucEQHbqNABEYvBvwoxCPsSbG91A1QaQhQQqjn",
-      "role": "Meteora locker program. Third-party, never ours. RETIRED alongside the DBC rail on 2026-08-23 — it locked the LP of launches that graduated into DAMM v2, and no Tegridy launch graduates there any more. Still live on mainnet as a third-party program.",
-      "custody": "Meteora",
+      "role": "The locker program the Meteora DBC rail used. Third-party, never ours, and not Meteora's: see custody. RETIRED alongside the DBC rail on 2026-08-23: it locked the LP of launches that graduated into DAMM v2, and no Tegridy launch graduates there any more. Still live on mainnet as a third-party program.",
+      "custody": "upgrade authority CvQZZ23qYDWF2RUpxYJ8y9K4skmuvYEEjH7fK58jtipQ, the same key that holds Jupiter's swap program JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4 (both read on mainnet-beta 2026-11-15 at slot 469,917,042). This row said Meteora until then.",
       "status": "live third-party program — RETIRED as a Tegridy rail 2026-08-23",
       "expect": {
         "type": "executable"
@@ -438,7 +483,7 @@
       "address": "EJLP5GEJXEyPTdoKbGtp2xJiREJpE4DkHSWbVEs9FfUQ",
       "role": "`bayla-ladder` program id — the venue's own lock-ladder staking program on Solana, the port of LighthouseLadder.sol. Executable, owned by BPFLoaderUpgradeab1e11111111111111111111111; its 36-byte stub names ProgramData FormQpVVwmM3Rpyh6qrpCLmMRuPamTvV6vx7VD8yt3Dw, which is registered below. Charges Yearn's veYFI early-exit schedule, amount × min(time left / 4 years, 75%).",
       "custody": "the program id keypair is spent — it claimed the address at first deploy and authorises nothing afterwards. What can still change this program is the UPGRADE AUTHORITY on its ProgramData account, which is squads-vault since 2026-09-30 (the multisig's vault, threshold 2). From the deploy on 2026-09-20 until then it was the deployer wallet, one key, and this row said so until 2026-10-10. See bayla-ladder-programdata.",
-      "status": "LIVE ON MAINNET 2026-09-20. Deployed from tag `bayla-ladder-mainnet` (50065ef03b7eae4ec955ec40ffd32aaf4181b3c2); the artifact's sha256 is b21e1277e104817886a31d6f5b16ba2a35fa6732558cbd6d227e4fb8e21bb0a1 at 515,352 bytes, and the ProgramData account carries exactly 515,352 bytes of bytecode after its 45-byte header. `expect.type: executable` below is NOT on its own evidence that this program can run — a closed program keeps that flag, which is why the two ids above still pass it. The entry that actually holds the liveness claim is bayla-ladder-programdata, whose `program-owned` assertion fails the moment the ProgramData account is closed.",
+      "status": "LIVE ON MAINNET 2026-09-20, and upgraded by vault proposal #25 on 2026-11-03 at 15:59:26 UTC (slot 464,957,900) to the build with the wallet limit and extend_lock: expected bytecode sha256 1b91609c5f565013d1da33cdd639e158e1e497510ef0f6c9d45dbcc4a7e384ef, 532,344 bytes (pack ladder-wallet-cap-upgrade-2026-10; frontend/scripts/bayla-ladder-ops.mjs pins the same build). bayla-ladder-programdata holds that pin. First deployed from tag `bayla-ladder-mainnet` (50065ef03b7eae4ec955ec40ffd32aaf4181b3c2), sha256 b21e1277e104817886a31d6f5b16ba2a35fa6732558cbd6d227e4fb8e21bb0a1 at 515,352 bytes. `expect.type: executable` below is NOT on its own evidence that this program can run — a closed program keeps that flag, which is why the two ids above still pass it. The entry that actually holds the liveness claim is bayla-ladder-programdata, whose `program-owned` assertion fails the moment the ProgramData account is closed.",
       "expect": {
         "type": "executable"
       }
@@ -448,9 +493,13 @@
       "address": "FormQpVVwmM3Rpyh6qrpCLmMRuPamTvV6vx7VD8yt3Dw",
       "role": "ProgramData account for bayla-ladder — PDA of the BPF upgradeable loader, seeds [program id]. Holds the deployed bytecode and the upgrade authority. THIS is the account that answers 'is the ladder live', because `solana program close` deletes it and leaves the program stub executable-flagged.",
       "custody": "UPGRADE AUTHORITY IS squads-vault `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd`, the vault of the Squads multisig (threshold 2; time_lock 0 at this read, 172,800 s since Squads #14 on 2026-10-19). Read at finalized slot 455,314,128 (2026-10-10): option byte 1, authority GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd. HISTORY: from the deploy on 2026-09-20 until 2026-09-30 it was `Fu7mNAv67sRbKynEp7gpPLaaEGHcE2R5Sq89AMTEtTb6` (bayla-ladder-deployer), a single operator-held key, and this row carried a red mark saying the handover had not happened; that was the read at finalized slot 448,901,426. The deployer handed it over itself with the loader's SetAuthority at slot 451,986,389 (2026-09-30T14:05:22Z). A Squads vault cannot hand it on by accident: any further change needs two of the multisig's members.",
-      "status": "LIVE. 515,397 bytes, 2,618,867,000 lamports of rent, last deployed slot 448,851,661; all three unchanged at finalized slot 455,314,128 (2026-10-10), so the program has not been upgraded since its deploy. `expect.type: program-owned` is the tripwire the closed programs above needed and did not have: if this program is ever closed, the account goes to value:null and the chain read fails with 'registry expects this account to exist and it DOES NOT' rather than passing on a stale executable flag.",
+      "status": "LIVE. Read on mainnet-beta 2026-11-15: 532,389 bytes (the 45-byte header and the 532,344-byte build bayla-ladder-program names), last deployed slot 464,957,900 (vault proposal #25, 2026-11-03). Before that upgrade it was 515,397 bytes holding the 515,352-byte first build, last deployed slot 448,851,661. `expect.holdsProgram` makes the daily chain read hash the program, so an upgrade to any other build turns the job red. `expect.type: program-owned` is the tripwire the closed programs above needed and did not have: if this program is ever closed, the account goes to value:null and the chain read fails with 'registry expects this account to exist and it DOES NOT' rather than passing on a stale executable flag.",
       "expect": {
-        "type": "program-owned"
+        "type": "program-owned",
+        "holdsProgram": {
+          "bytes": 532344,
+          "sha256": "1b91609c5f565013d1da33cdd639e158e1e497510ef0f6c9d45dbcc4a7e384ef"
+        }
       }
     },
     {
@@ -632,7 +681,7 @@
       "address": "7ghzbbmq59QEbdweSzM1ggpeBH1Q2CyxZg4Tr2x8Aso",
       "role": "`tegridy-clmm` program id: the venue's range-pool program, Raydium CLMM at upstream ed1eb41519d5355755f7df52b43fa9610938b60b with only its identity changed (solana/guards/provenance.mjs pins the difference). Executable, owned by BPFLoaderUpgradeab1e11111111111111111111111; its 36-byte stub names ProgramData 5MsddzsfUWfEWixTynrss4MMjnD3dneFFkdm4XpCqMWG, registered below. Its admin and its fee and spare-SOL owners are compiled in as squads-vault (solana/tegridy-clmm/README.md).",
       "custody": "the program id keypair is spent: it claimed the address at the deploy and authorises nothing afterwards. What can still change this program is the UPGRADE AUTHORITY on its ProgramData, squads-vault since one second after the deploy. See range-clmm-programdata.",
-      "status": "DEPLOYED 2026-10-21T07:01:36Z (slot 459,538,347, transaction 3r9igyYDGHzW8g8NWfrFMvFuRiveyb3rP4UPj3JrWH52MaRzghXKgHPCEJtJmxChoyb8rYMyXqqK5o3hcBpUNgKa, paid by tegridy-launch-deployer). The build is 1,522,736 bytes, sha256 fcb88758fdd6280f6035859c00b963c9285a7c5291393043a57051c86c37e8cc, from the source mvp-launch carries since d8adfe97b384aa354456b0ad40e5508e0b094c52 (#931). solana/clmm-deploy/ci-matches-chain.mjs on CI run 39637529423 (the solana-ci push run of d8adfe97) found CI's own build byte for byte the program on chain. NOT WIRED: see the block's note; range-clmm-amm-config-0 and -1 below do not exist yet. `expect.type: executable` alone does not show it can run (a closed program keeps the flag); range-clmm-programdata holds that claim.",
+      "status": "DEPLOYED 2026-10-21T07:01:36Z (slot 459,538,347, transaction 3r9igyYDGHzW8g8NWfrFMvFuRiveyb3rP4UPj3JrWH52MaRzghXKgHPCEJtJmxChoyb8rYMyXqqK5o3hcBpUNgKa, paid by tegridy-launch-deployer), and upgraded by vault proposal #22 on 2026-11-04 at 02:52:50 UTC (slot 465,140,737): expected bytecode sha256 1e896e1ec8ebd2b7a8d55c56fdd0ee4e4815a908bde42bc31e965a317ff8d95e, 1,527,072 bytes, the build CI printed for commit 1ddb4ad835d2a908b346e8678f8bace8cb220bff. That is NOT the fix build trunk carries (sha256 d627cf99d31f402dd0eda993e63a8d3361b7ccf87a0c673b0d4c9fea12738d56, 1,375,384 bytes), which on 2026-11-15 was neither uploaded nor proposed. range-clmm-programdata holds both pins. The first deploy was 1,522,736 bytes, sha256 fcb88758fdd6280f6035859c00b963c9285a7c5291393043a57051c86c37e8cc, from d8adfe97b384aa354456b0ad40e5508e0b094c52 (#931); solana/clmm-deploy/ci-matches-chain.mjs on CI run 39637529423 found CI's own build byte for byte the program on chain then. Its two fee tiers, range-clmm-amm-config-0 and -1, exist since 2026-10-27. `expect.type: executable` alone does not show it can run (a closed program keeps the flag); range-clmm-programdata holds that claim.",
       "expect": {
         "type": "executable"
       }
@@ -642,9 +691,17 @@
       "address": "5MsddzsfUWfEWixTynrss4MMjnD3dneFFkdm4XpCqMWG",
       "role": "ProgramData account for tegridy-clmm: PDA of the BPF upgradeable loader, seeds [range-clmm-program], derived and matched. Holds the deployed bytecode and the upgrade authority, and answers 'is the range program live': closing a program deletes this account and leaves the stub executable-flagged.",
       "custody": "UPGRADE AUTHORITY IS squads-vault `GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd` (squads-multisig: 2 of 2, time lock 172,800 s). The deployer handed it over in the next transaction: the loader's SetAuthority at slot 459,538,353 (2026-10-21T07:01:37Z, transaction 4N7tBZzhJhb8hqefgPie1VjsHSZ5oEtqz2dFVB66XGbRN61cSUzkg2uB29b6YxijDQRHuX9GN6QGakVYVD7zFz7f), logged 'New authority Some(GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd)'. Read at finalized slot 459,709,863: option byte 1, authority GRMtSxgseKdesExU1BQ22abEspTXV55UPcLaHCd18osd. solanaFields asserts it on every chain read.",
-      "status": "LIVE. 1,522,781 bytes (the 45-byte header and the 1,522,736-byte build), 7,736,377,720 lamports of rent, last deployed slot 459,538,347; unchanged at finalized slot 459,711,538, so the program has not been upgraded since its deploy. `expect.type: program-owned` fails the moment this account is closed.",
+      "status": "LIVE. Read on mainnet-beta 2026-11-15: 1,533,021 bytes (the 45-byte header and room for 1,532,976 bytes of program), last deployed slot 465,140,737 (vault proposal #22, 2026-11-04). It holds the 1,527,072-byte build range-clmm-program names, followed by zeros. Before that upgrade it was 1,522,781 bytes holding the 1,522,736-byte first build, last deployed slot 459,538,347. `expect.holdsProgram` makes the daily chain read hash the program. `expect.stagedProgram` also accepts the fix build trunk carries (1,375,384 bytes, sha256 d627cf99d31f402dd0eda993e63a8d3361b7ccf87a0c673b0d4c9fea12738d56), so the job stays green between that upgrade and the release that names it, and still fails on any other bytes; that release moves holdsProgram to it and drops stagedProgram. `expect.type: program-owned` fails the moment this account is closed.",
       "expect": {
-        "type": "program-owned"
+        "type": "program-owned",
+        "holdsProgram": {
+          "bytes": 1527072,
+          "sha256": "1e896e1ec8ebd2b7a8d55c56fdd0ee4e4815a908bde42bc31e965a317ff8d95e"
+        },
+        "stagedProgram": {
+          "bytes": 1375384,
+          "sha256": "d627cf99d31f402dd0eda993e63a8d3361b7ccf87a0c673b0d4c9fea12738d56"
+        }
       }
     },
     {
@@ -672,20 +729,16 @@
       "address": "CL6cZ2zDsmA72f6ncLYz1UcSLcQ41kL4WRTtFGy5BmNM",
       "role": "Squads v4 vault transaction 19 of squads-multisig, seeds [\"multisig\", multisig, \"transaction\", 19u64 little-endian] under SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf, derived and matched: the fee-tier proposal. Its stored message is byte for byte the one solana/clmm-deploy/scripts/lib/tiers.mjs compiles (the page's `isOurs`, read 2026-10-21T17:22:43Z): both tiers above, then each tier's fund owner set to island-workshop-wallet.",
       "custody": "program-derived, owned by the Squads v4 program; only a member of squads-multisig can execute it.",
-      "status": "LIVE, created 2026-10-21T13:42:48Z (slot 459,649,865, transaction 5XZuPgxthnJZyBCtcaPw5p1xnqyetb9phudUSurr1uCkNXtsuXRB69xg3LkcV71AJqNHJvUvPFw6ECWiqZo2uzzk, signed by squads member 6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY). 416 bytes. EXECUTED 2026-10-27T03:52:39Z: see range-clmm-tiers-proposal-19. Read at finalized slot 462,122,645: still open (416 bytes), as Squads leaves an executed transaction until its rent is reclaimed.",
-      "expect": {
-        "type": "program-owned"
-      }
+      "status": "LIVE, created 2026-10-21T13:42:48Z (slot 459,649,865, transaction 5XZuPgxthnJZyBCtcaPw5p1xnqyetb9phudUSurr1uCkNXtsuXRB69xg3LkcV71AJqNHJvUvPFw6ECWiqZo2uzzk, signed by squads member 6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY). 416 bytes. EXECUTED 2026-10-27T03:52:39Z: see range-clmm-tiers-proposal-19. Read at finalized slot 462,122,645: still open (416 bytes), as Squads leaves an executed transaction until its rent is reclaimed. `onchain: false` since 2026-11-15: once vault proposal #30 makes the vault the multisig's rent collector, anyone may close this finished record (its rent goes to the vault), so the daily chain read must not expect it to exist.",
+      "onchain": false
     },
     {
       "id": "range-clmm-tiers-proposal-19",
       "address": "DvGQ2Hhdqn8i9TJMTkMC7adxiWujxeSJEm77ctZkWBfg",
       "role": "Squads v4 proposal for vault transaction 19, seeds [\"multisig\", multisig, \"transaction\", 19u64 little-endian, \"proposal\"] under SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf, derived and matched.",
       "custody": "program-derived, owned by the Squads v4 program.",
-      "status": "EXECUTED 2026-10-27T03:52:39Z by squads member 5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz (slot 461,924,979, transaction 5t4B2D81y5Gvj8uLkEKVZ8L8T3CUW4Akf68X2PWZqi2C4Hy8USUYwtz21hhaNZ2rR4c67aUE8xTfoGYRyXFvFa3v; the owner confirmed it was theirs). Read at finalized slot 462,122,645: status Executed at 03:52:39Z. It made both tiers (range-clmm-amm-config-0 and -1). Before that: approved 2 of 2. Member 6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY created and approved it at 2026-10-21T13:42:48Z; member 5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz approved at 13:45:21Z (slot 459,650,577, transaction 2CXCRAHzRGhTniquvdecQugMSfoZw56BdndVcuQs2sRGmzR6FhvWVMvZxeYYKonqjfZVNfFCkhDK8gU312XqHCc8). Read at finalized slot 459,710,510: status Approved at 13:45:21Z. So the chain's 48-hour lock is over at 2026-10-23T13:45:21Z, five days before the seven days the first notice (#929) promised. The owner then moved the promise (2026-10-22, 'update the promise date'; #938): the notice now says no sooner than 2026-10-23 14:00 UTC, and it executes from the deploy pack's page no sooner than 2026-10-23T14:00:00Z (tiers.mjs `decide`, gated at the later of the lock's end and that time). The Squads app does not read the notice: from the lock's end it would execute it at once.",
-      "expect": {
-        "type": "program-owned"
-      }
+      "status": "EXECUTED 2026-10-27T03:52:39Z by squads member 5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz (slot 461,924,979, transaction 5t4B2D81y5Gvj8uLkEKVZ8L8T3CUW4Akf68X2PWZqi2C4Hy8USUYwtz21hhaNZ2rR4c67aUE8xTfoGYRyXFvFa3v; the owner confirmed it was theirs). Read at finalized slot 462,122,645: status Executed at 03:52:39Z. It made both tiers (range-clmm-amm-config-0 and -1). Before that: approved 2 of 2. Member 6VHowW4pnD4WTGsXhqBp6yxGgC3EExVmYgebSrRNu2tY created and approved it at 2026-10-21T13:42:48Z; member 5QHzAqbGk3W8qGRBHCMyWjhLXf8YJcs3yPEh14Ymcwgz approved at 13:45:21Z (slot 459,650,577, transaction 2CXCRAHzRGhTniquvdecQugMSfoZw56BdndVcuQs2sRGmzR6FhvWVMvZxeYYKonqjfZVNfFCkhDK8gU312XqHCc8). Read at finalized slot 459,710,510: status Approved at 13:45:21Z. So the chain's 48-hour lock is over at 2026-10-23T13:45:21Z, five days before the seven days the first notice (#929) promised. The owner then moved the promise (2026-10-22, 'update the promise date'; #938): the notice now says no sooner than 2026-10-23 14:00 UTC, and it executes from the deploy pack's page no sooner than 2026-10-23T14:00:00Z (tiers.mjs `decide`, gated at the later of the lock's end and that time). The Squads app does not read the notice: from the lock's end it would execute it at once. `onchain: false` since 2026-11-15, for the reason range-clmm-tiers-transaction-19 gives: anyone may close this finished record once proposal #30 runs.",
+      "onchain": false
     },
     {
       "$comment": "The plant (island ruling 2, 2026-10-01): every Solana launch on /curve-launch burns 50,000 $BAYLA and sends 50,000 $BAYLA to the island's Workshop, in its own create transaction (frontend/src/lib/launcher/solana/write/plant.ts). These three addresses are pinned there and in plant.test.ts, which re-derives the Workshop's $BAYLA account. Read on mainnet-beta 2026-10-01 at slots 452,503,566 to 452,505,319. None of them is ours: the island owns the Workshop, and nobody owns the mint."
@@ -1179,6 +1232,46 @@
       "role": "Pool-share (LP) mint of venue-pool-usdt-sol: PDA seeds [\"pool_lp_mint\", pool] under cp-swap-program-restart, bump 255, derived and matched. A classic SPL Token mint, 9 decimals, no freeze authority; its mint authority is cp-swap-authority-restart. The site serves its name and picture at /mint/2FKSKBGStzrTfcF8evAEQkCwA6eXnMdKdCAvNfY9c1ux.json: \"USDT/SOL LP\", symbol USDT-SOL.",
       "custody": "program-derived, no key. Only the pool program mints it, on a deposit, and burns it, on a withdrawal.",
       "status": "live, supply 0.168311375 shares at confirmed slot 468,229,859 (2026-11-11T18:49Z). No on-chain name yet: it has no Metaplex record. Since the pool program's upgrade of 2026-11-06 its create_lp_metadata instruction can make one; nothing else can, because the record needs this mint's authority to sign.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "unlisted-pool-kwif-sol-signer",
+      "address": "H3ruuiAi2Z4kq51YaRjKFUDDh3wHwNLQF64QeDnA88Gp",
+      "role": "NOT a venue pool: a cp-swap PoolState under cp-swap-program-restart on the public tier (CapqvAA9HvERTwzmE26xrtFhMaNcaXXoQUADpBWqWjKy), opened 2026-10-28T21:44:20Z at a signer address by 2jDh1Nuzy8Zvc1NjfzmGhJRdRKCRV9XkDcP26DHW1wuF. Token 0 wrapped SOL, token 1 KWIF (6Rwcmkz9yiYVM5EzyMcr4JsQPGEAWhcUvLvfBperYnUt); share mint DWX8b2FH4ZcTTY1Zhz8KmZwHRX96hWtS48hQTR8pwuHF. The venue's KWIF/SOL pool is venue-pool-kwif-sol. Registered because every share in it was withdrawn (see status). The registry does not name every pool on the venue's program: anyone may open one on the public tier, and the site lists only venue-pool rows.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "every share withdrawn: share supply 0, the pool counts only the 100 shares locked at opening (read on mainnet-beta 2026-11-20, finalized slot 471,608,946). A few units of each coin are left for LPs, so a deposit into it is made at that leftover price. Any fees it owes the vault and the island wait in it until collected. No amount is written here: a deposit, a swap or a collection moves them.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "unlisted-pool-tbb-bayla",
+      "address": "6511GLnToAGtwVREnLXVJ5rgat4cm2Uvgvyoj5oaLoLD",
+      "role": "NOT a venue pool: a cp-swap PoolState under cp-swap-program-restart on the public tier, at its pair's standard address, opened 2026-11-05T23:59:21Z by 27t671aWXQvfUk6WugfLFEKkaXbJmT5yxpmrydEkjjo7. Token 0 TBB (42cXQvAAr7hcPBPWAS4ocVtDyeJ4Fa6gRR2uG4gppump), token 1 bayla-mint; share mint AqxvRhura3RjbqRyCiJeudzb1nHF7W6tHxNScK9V7r42. Registered because every share in it was withdrawn (see status). The registry does not name every pool on the venue's program: anyone may open one on the public tier, and the site lists only venue-pool rows.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "every share withdrawn: share supply 0, the pool counts only the 100 shares locked at opening (read on mainnet-beta 2026-11-20, finalized slot 471,608,946). A few units of each coin are left for LPs, so a deposit into it is made at that leftover price. Any fees it owes the vault and the island wait in it until collected. No amount is written here: a deposit, a swap or a collection moves them.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "unlisted-pool-tbb-sol",
+      "address": "6tNCdzjDAEKamjZQmKwdb5sm8yzyqa8FxCKidNbPz5AA",
+      "role": "NOT a venue pool: a cp-swap PoolState under cp-swap-program-restart on the public tier, opened 2026-11-06T00:15:47Z by 27t671aWXQvfUk6WugfLFEKkaXbJmT5yxpmrydEkjjo7. Token 0 wrapped SOL, token 1 TBB (42cXQvAAr7hcPBPWAS4ocVtDyeJ4Fa6gRR2uG4gppump); share mint CThuDRJN5NbnoMycTqgyXySpSsTvecRvToUZBeYRbLzx. It sits at the SOL/TBB pair's standard address on that tier, while the venue's SOL/TBB pool, venue-pool-tbb-sol, sits at a signer address: anything that derives the pool from the pair instead of reading this registry lands here. The registry does not name every pool on the venue's program: anyone may open one on the public tier, and the site lists only venue-pool rows.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "every share withdrawn: share supply 0, the pool counts only the 100 shares locked at opening (read on mainnet-beta 2026-11-20, finalized slot 471,608,946). A few units of each coin are left for LPs, so a deposit into it is made at that leftover price. Any fees it owes the vault and the island wait in it until collected. No amount is written here: a deposit, a swap or a collection moves them.",
+      "expect": {
+        "type": "program-owned"
+      }
+    },
+    {
+      "id": "unlisted-pool-9x9mkbh-sol",
+      "address": "AvYPHmnArhEH8JK5PNjRuhjTjQATEo3pSpe1CfBMVavw",
+      "role": "NOT a venue pool: a cp-swap PoolState under cp-swap-program-restart on the public tier, at its pair's standard address, opened 2026-11-12T21:36:31Z by 27t671aWXQvfUk6WugfLFEKkaXbJmT5yxpmrydEkjjo7. Token 0 wrapped SOL, token 1 9x9MKbh5pq8fsTAH6fpSi17UuBgGNAVJPwMYTyXLTRiX, a coin this registry has no other row for; share mint 3eG67ht6g9zruDcvXznEus3jqR89zM2CMFyECGB4Mi3e. Registered because every share in it was withdrawn (see status). The registry does not name every pool on the venue's program: anyone may open one on the public tier, and the site lists only venue-pool rows.",
+      "custody": "program-derived, no key. Only the pool program's own instructions change it.",
+      "status": "every share withdrawn: share supply 0, the pool counts only the 100 shares locked at opening (read on mainnet-beta 2026-11-20, finalized slot 471,608,946). A few units of each coin are left for LPs, so a deposit into it is made at that leftover price. Any fees it owes the vault and the island wait in it until collected. No amount is written here: a deposit, a swap or a collection moves them.",
       "expect": {
         "type": "program-owned"
       }
@@ -3094,11 +3187,11 @@
       "bayla-ladder-programdata": { "layout": "programdata", "upgradeAuthority": "squads-vault" },
       "range-clmm-programdata": { "layout": "programdata", "upgradeAuthority": "squads-vault" },
       "bayla-ladder-idl": { "layout": "anchor-idl", "owner": "bayla-ladder-program", "authority": "squads-vault" },
-      "bayla-ladder-pool": { "layout": "bayla-ladder-pool", "owner": "bayla-ladder-program", "authority": "squads-vault", "pendingAuthority": "system-program" },
-      "ladder-pool-bobo": { "layout": "bayla-ladder-pool", "owner": "bayla-ladder-program", "authority": "squads-vault", "pendingAuthority": "system-program" },
-      "ladder-pool-soy": { "layout": "bayla-ladder-pool", "owner": "bayla-ladder-program", "authority": "squads-vault", "pendingAuthority": "system-program" },
-      "ladder-pool-brainlet": { "layout": "bayla-ladder-pool", "owner": "bayla-ladder-program", "authority": "squads-vault", "pendingAuthority": "system-program" },
-      "ladder-pool-rizz": { "layout": "bayla-ladder-pool", "owner": "bayla-ladder-program", "authority": "squads-vault", "pendingAuthority": "system-program" },
+      "bayla-ladder-pool": { "layout": "bayla-ladder-pool", "owner": "bayla-ladder-program", "authority": "squads-vault", "pendingAuthority": "system-program", "degraded": 0 },
+      "ladder-pool-bobo": { "layout": "bayla-ladder-pool", "owner": "bayla-ladder-program", "authority": "squads-vault", "pendingAuthority": "system-program", "degraded": 0 },
+      "ladder-pool-soy": { "layout": "bayla-ladder-pool", "owner": "bayla-ladder-program", "authority": "squads-vault", "pendingAuthority": "system-program", "degraded": 0 },
+      "ladder-pool-brainlet": { "layout": "bayla-ladder-pool", "owner": "bayla-ladder-program", "authority": "squads-vault", "pendingAuthority": "system-program", "degraded": 0 },
+      "ladder-pool-rizz": { "layout": "bayla-ladder-pool", "owner": "bayla-ladder-program", "authority": "squads-vault", "pendingAuthority": "system-program", "degraded": 0 },
       "cp-swap-amm-config-restart": {
         "layout": "cp-swap-amm-config",
         "owner": "cp-swap-program-restart",
@@ -3110,7 +3203,9 @@
         "createPoolFee": 0,
         "protocolOwner": "squads-vault",
         "fundOwner": "island-workshop-wallet",
-        "creatorFeeRate": 5000
+        "creatorFeeRate": 5000,
+        "swapGuard": 1,
+        "keeper": ["system-program", "price-keeper-wallet"]
       },
       "cp-swap-amm-config-public-restart": {
         "layout": "cp-swap-amm-config",
@@ -3123,7 +3218,9 @@
         "createPoolFee": 150000000,
         "protocolOwner": "squads-vault",
         "fundOwner": "island-workshop-wallet",
-        "creatorFeeRate": 0
+        "creatorFeeRate": 0,
+        "swapGuard": 1,
+        "keeper": ["system-program", "price-keeper-wallet"]
       },
       "range-clmm-amm-config-0": {
         "layout": "clmm-amm-config",
@@ -3156,6 +3253,7 @@
         "creatorFeeShareBps": 5000,
         "cpSwapProgram": "cp-swap-program-restart",
         "ammConfig": "cp-swap-amm-config-restart",
+        "paused": 1,
         "platformReserveBps": 369
       }
     },
