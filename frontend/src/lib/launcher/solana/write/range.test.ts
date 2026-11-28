@@ -362,10 +362,10 @@ describe('the pool’s price against the outside market, asked fresh at Review',
     const p = ok(await prepareRangeOpen(W(ready(chainWith())), cfgLocal, PROG, reads, { owner: ME, pool: POOL, ...inRange, side: 'token', amount: 5_000_000n, toleranceBps: 100 }));
     // The price check's words; the accounts' notices are kept apart from them.
     const summary = p.summary as Extract<RangeSummary, { kind: 'range-open' }>;
-    expect(summary.notices.some((n) => /outside price|Anyone can open a range pool/.test(n))).toBe(false);
+    expect(summary.notices.some((n) => /market price|Anyone can open a range pool/.test(n))).toBe(false);
     return summary.warnings;
   };
-  const priceLine = (n: string[]) => n.find((x) => /outside price|Anyone can open a range pool/.test(x)) ?? null;
+  const priceLine = (n: string[]) => n.find((x) => /market price|Anyone can open a range pool/.test(x)) ?? null;
 
   it('agrees (within 3%): no warning, and the token’s price was asked fresh', async () => {
     asked.length = 0;
@@ -376,10 +376,10 @@ describe('the pool’s price against the outside market, asked fresh at Review',
 
   it('off by more: how far, which way, what a move back would cost, and that anyone can open a pool at any price', async () => {
     const line = priceLine(await notices(readsAt({ kind: 'ok', solPerToken: POOL_PRICE * 1.1, source: 'Jupiter' })));
-    expect(line).toMatch(/^This pool’s price is 9\.1% below the outside price/);
+    expect(line).toMatch(/^This pool’s price is 9\.1% below the market price/);
     expect(line).toMatch(/Anyone can open a range pool at any price/);
     expect(line).toMatch(/would take up to about [\d.,]+ SOL of what you put in/);
-    expect(priceLine(await notices(readsAt({ kind: 'ok', solPerToken: POOL_PRICE / 1.1, source: 'Jupiter' })))).toMatch(/10% above the outside price/);
+    expect(priceLine(await notices(readsAt({ kind: 'ok', solPerToken: POOL_PRICE / 1.1, source: 'Jupiter' })))).toMatch(/10% above the market price/);
   });
 
   it('what a move back would cost is a loss: rounded up at the sixth decimal, never below the estimate', async () => {
