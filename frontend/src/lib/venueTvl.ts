@@ -89,3 +89,49 @@ export async function fetchVenueTvl(fetchImpl: typeof fetch = fetch): Promise<Ve
     return UNREAD;
   }
 }
+
+/**
+ * BAYLA's liberation bar, from the same answer (api/_lib/venueTvl.js, PUMP_BAYLA_POOL): the whole
+ * BAYLA in all our pools, and in her graduated pump.fun pool. Null when the answer carries no reading:
+ * the server sends it only when both sides were read, so a missing one is an outage, never a zero.
+ */
+export interface BaylaFlip {
+  ours: number;
+  pump: number;
+}
+
+export function parseBaylaFlip(body: unknown): BaylaFlip | null {
+  const b = body as Record<string, unknown> | null;
+  if (!b || (b.state !== 'current' && b.state !== 'partial')) return null;
+  const f = b.baylaFlip as Record<string, unknown> | null | undefined;
+  if (!f || !isCount(f.ours) || !isCount(f.pump) || f.pump === 0) return null;
+  return { ours: f.ours, pump: f.pump };
+}
+
+export async function fetchBaylaFlip(fetchImpl: typeof fetch = fetch): Promise<BaylaFlip | null> {
+  try {
+    const r = await fetchImpl(VENUE_TVL_URL, { signal: AbortSignal.timeout(15_000) });
+    if (!r.ok) return null;
+    return parseBaylaFlip(await r.json());
+  } catch {
+    return null;
+  }
+}
+
+/** The flip: our pools hold MORE of her than pump.fun's does. A tie is not it. */
+export function isLiberated(f: BaylaFlip): boolean {
+  return f.ours > f.pump;
+}
+
+/** How full the bar is: our BAYLA over hers, 0 to 1. Full only once liberated; a tie stops at 0.99. */
+export function flipShare(f: BaylaFlip): number {
+  return isLiberated(f) ? 1 : Math.min(0.99, f.ours / f.pump);
+}
+
+/** The bar's figure, rounded DOWN so it never overstates: "32%", "under 1%", at most "99%" until liberated, then "100%". */
+export function flipPercent(f: BaylaFlip): string {
+  if (isLiberated(f)) return '100%';
+  if (f.ours === 0) return '0%';
+  const pct = Math.min(99, Math.floor((f.ours * 100) / f.pump));
+  return pct === 0 ? 'under 1%' : `${pct}%`;
+}

@@ -34,7 +34,7 @@ import { isRequestOriginAllowed } from "./aggregator-proxy.js";
 import { logSafe } from "./logSafe.js";
 import {
   MAX_SLOT_RANGE, MAX_TXS_PER_CALL, SETTLED_SLOTS, VENUE_PROGRAM, accountKeysOf, assetOf, decimal, eventsOf,
-  latestBlock, makeRpc, pairOf, parseKey, poolsFor, programEvents, signaturesIn, transaction, txnIndexIn, vaultAfter,
+  latestBlock, makeRpc, pairOf, parseKey, placeInBlock, poolsFor, programEvents, signaturesIn, transactionsOf, vaultAfter,
 } from "./geckoterminal.js";
 
 /**
@@ -127,14 +127,13 @@ export function dexToolsEventsOf(tx, pools, txnIndex) {
 export async function dexToolsEventsIn(rpc, fromBlock, toBlock) {
   const sigs = await signaturesIn(rpc, fromBlock, toBlock);
   if (sigs.length > MAX_TXS_PER_CALL) throw Object.assign(new Error(`${sigs.length} transactions in slots ${fromBlock}-${toBlock}: ask for a smaller range (at most ${MAX_TXS_PER_CALL} transactions a call)`), { tooMany: true });
-  const txs = [];
-  for (const s of sigs) txs.push(await transaction(rpc, s.signature));
+  const txs = await transactionsOf(rpc, sigs);
   const pools = await poolsFor(rpc, txs, opensUnknown(txs));
   const events = [];
   for (const [i, s] of sigs.entries()) {
     const tx = txs[i];
     if (!programEvents(tx, pools).length && !openedPools(tx, pools).length) continue;
-    events.push(...dexToolsEventsOf(tx, pools, await txnIndexIn(rpc, s.slot, s.signature)));
+    events.push(...dexToolsEventsOf(tx, pools, await placeInBlock(rpc, s)));
   }
   return events.sort((a, b) => a.block.blockNumber - b.block.blockNumber || a.eventIndex - b.eventIndex);
 }

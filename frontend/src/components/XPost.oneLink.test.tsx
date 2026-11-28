@@ -145,7 +145,7 @@ describe('the heat card’s post: one link, the reader’s own card', () => {
     await screen.findAllByText(/°/);
     const posts = Array.from(container.querySelectorAll('a[href^="https://x.com/intent/post"]'));
     expect(posts.length).toBeGreaterThan(0);
-    for (const a of posts) expectOneLink(posted(a.getAttribute('href')), `${SITE_URL}/read/${ADDR}`);
+    for (const a of posts) expectOneLink(posted(a.getAttribute('href')), `${SITE_URL}/read/${ADDR}?h=${served.degrees.toFixed(2)}`);
   });
 });
 
@@ -159,13 +159,13 @@ describe('the clock line’s post: one link, the buyer’s own card', () => {
   } as unknown as HeatReading;
 
   it.each([
-    ['no reading: "is running"', null],
-    ['a reading that holds the coin: "keeps running"', held],
-  ])('%s', (_name, served) => {
+    ['no reading: "is running", the day it was posted', null, 'd=20260906'],
+    ['a reading that holds the coin: "keeps running", its heat', held, 'h=12.00'],
+  ])('%s', (_name, served, d) => {
     setLastBuy(buy);
     h.peekHeat.mockReturnValue(served);
     render(<ClockLine />);
     const door = screen.getByRole('link', { name: 'Post' });
-    expectOneLink(posted(door.getAttribute('href')), `${SITE_URL}/read/${BUYER}`);
+    expectOneLink(posted(door.getAttribute('href')), `${SITE_URL}/read/${BUYER}?${d}`);
   });
 });
