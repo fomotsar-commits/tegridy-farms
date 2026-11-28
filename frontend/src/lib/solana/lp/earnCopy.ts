@@ -71,15 +71,22 @@ export interface VenueEarns {
 const VAULT_CAN = 'which can change fee rates if both keys approve';
 const VAULT_LABEL = 'Team’s vault';
 const WORKSHOP_LABEL = 'Island’s Workshop';
+/**
+ * What coin the venue's cut of a pool trade arrives in, and what a transfer fee on that coin
+ * takes of it: collecting the cut is a transfer of it (collect_protocol_fee.rs), so the
+ * coin's fee collector keeps its share (spec 2026-11-14, section 2).
+ */
+const PAID_IN = ', in the coin the trader pays. If that coin charges a transfer fee, part of the cut goes to its fee collector when collected.';
 
 export function howVenueEarns(tier: AmmConfigView | null, jupiter: JupiterFee | null): VenueEarns {
   const swap = jupiter
     ? `${pctText(jupiter.bps / 100)} of a swap sent through Jupiter${majorNote(jupiter, true)}, where the route allows it.`
     : 'No fee on a swap sent through Jupiter: none is set up.';
-  if (!tier) return { sources: ['A cut of each trade in its pools.', 'A fee when a public pool is opened.', swap], where: null, wallets: [], elsewhere: false };
+  // The cut is taken from what the trader pays in: SOL on a buy, the token on a sell, never always SOL.
+  if (!tier) return { sources: [`A cut of each trade in its pools${PAID_IN}`, 'A fee when a public pool is opened.', swap], where: null, wallets: [], elsewhere: false };
 
   const opening = tier.createPoolFee > 0n ? `${solOf(tier.createPoolFee)} SOL when a public pool is opened.` : 'No fee when a public pool is opened.';
-  const sources = [`${pctText(feeSplit(tier).venueTakesPct)} of each trade in a public pool.`, opening, swap];
+  const sources = [`${pctText(feeSplit(tier).venueTakesPct)} of each trade in a public pool${PAID_IN}`, opening, swap];
   const vault = PLATFORM_TREASURY_VAULT.toBase58();
   const workshop = WORKSHOP_WALLET.toBase58();
   // Each part follows the wallet that collects it (protocol owner, fund owner), summed when one

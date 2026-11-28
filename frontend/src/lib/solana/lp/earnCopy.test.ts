@@ -29,6 +29,10 @@ const WORKSHOP_ROW = { label: 'Island’s Workshop', address: WORKSHOP };
 const SPLIT_WHERE =
   'Of each trade’s fee, 10.4% (0.104% of the trade) goes to the team’s vault, which can change fee rates if both keys approve, and 5.6% (0.056% of the trade) to the island’s Workshop, the island’s agreed share.';
 const NOT_AGREED = 'The venue’s cut does not follow the agreed split (10.4% of each trade’s fee to the team’s vault, 5.6% to the island’s Workshop).';
+/** The venue's cut of a pool trade is taken from what the trader pays in: SOL on a buy, the token on a sell, never always SOL. */
+const PAID_IN = ', in the coin the trader pays.';
+/** A cut in a coin that charges a transfer fee pays that fee when collected (spec 2026-11-14, section 2). */
+const FEE_ON_COLLECT = ' If that coin charges a transfer fee, part of the cut goes to its fee collector when collected.';
 
 describe('the recorded chain says what the sentences say', () => {
   it('tier 1 on 2026-10-03: traders pay 1%, 16% of that is the venue’s, 0.15 SOL to open; its owner is the team’s 2-of-2 vault', () => {
@@ -89,7 +93,7 @@ describe('How the venue earns', () => {
 
   it('on the public tier as mainnet holds it since the split: three sources, and each part of the cut said as a share of the fee and of the trade', () => {
     expect(howVenueEarns(split1(), jupiter)).toEqual({
-      sources: ['0.16% of each trade in a public pool.', '0.15 SOL when a public pool is opened.', '0.5% of a swap sent through Jupiter (majors 0.05%), where the route allows it.'],
+      sources: [`0.16% of each trade in a public pool${PAID_IN}${FEE_ON_COLLECT}`, '0.15 SOL when a public pool is opened.', '0.5% of a swap sent through Jupiter (majors 0.05%), where the route allows it.'],
       where: `${SPLIT_WHERE} The swap fee goes to the team’s vault.`,
       wallets: [VAULT_ROW, WORKSHOP_ROW],
       elsewhere: false,
@@ -163,8 +167,20 @@ describe('How the venue earns', () => {
 
   it('every number is read: the cut, the fee to open and the swap fee each follow what they are given', () => {
     const other = howVenueEarns({ ...tier1(), tradeFeeRate: 2_500n, protocolFeeRate: 200_000n, createPoolFee: 2_000_000_000n }, { bps: 100, wallet: VAULT });
-    expect(other.sources).toEqual(['0.05% of each trade in a public pool.', '2 SOL when a public pool is opened.', '1% of a swap sent through Jupiter, where the route allows it.']);
+    expect(other.sources).toEqual([`0.05% of each trade in a public pool${PAID_IN}${FEE_ON_COLLECT}`, '2 SOL when a public pool is opened.', '1% of a swap sent through Jupiter, where the route allows it.']);
     expect(howVenueEarns({ ...tier1(), createPoolFee: 0n }, jupiter).sources[1]).toBe('No fee when a public pool is opened.');
+  });
+
+  // The island's share of a pool trade IS the fund part (0.056% of the trade on tier 1): no line
+  // may read as the island also sharing in the team's part (spec 2026-11-14, section 2).
+  it('the island is named only beside its own part, never beside the team’s', () => {
+    for (const t of [split1(), splitTier(0)]) {
+      const where = howVenueEarns(t, jupiter).where!;
+      const [teams, islands] = where.split(' to the island’s Workshop');
+      expect(teams).not.toMatch(/island/i);
+      expect(islands).toBe(', the island’s agreed share. The swap fee goes to the team’s vault.');
+    }
+    for (const line of howVenueEarns(split1(), jupiter).sources) expect(line).not.toMatch(/island/i);
   });
 
   it('no swap fee set up: said as that, never as a rate', () => {
@@ -201,7 +217,7 @@ describe('How the venue earns', () => {
 
   it('with no tier read: no pool number, no wallet and no claim about where it goes', () => {
     const v = howVenueEarns(null, null);
-    expect(v).toEqual({ sources: ['A cut of each trade in its pools.', 'A fee when a public pool is opened.', 'No fee on a swap sent through Jupiter: none is set up.'], where: null, wallets: [], elsewhere: false });
+    expect(v).toEqual({ sources: [`A cut of each trade in its pools${PAID_IN}${FEE_ON_COLLECT}`, 'A fee when a public pool is opened.', 'No fee on a swap sent through Jupiter: none is set up.'], where: null, wallets: [], elsewhere: false });
     expect(v.sources.join(' ')).not.toMatch(/\d/);
     // The swap fee is the build's own setting, not the tier's: it is still said.
     expect(howVenueEarns(null, jupiter).sources[2]).toBe('0.5% of a swap sent through Jupiter (majors 0.05%), where the route allows it.');
@@ -217,12 +233,15 @@ describe('short, and promising nothing', () => {
 
   // Owner, 2026-10-09: "no need to be too wordy but be transparent". 90 words of sentences,
   // 100 with titles and labels, until the island split (2026-10-19) put two wallets' shares,
-  // each of the fee and of the trade, in the sentence: 120 and 135 since.
+  // each of the fee and of the trade, in the sentence: 120 and 135 since. 2026-11-14: the coin
+  // the cut is paid in (6 words) and what a transfer fee takes of it (18), spec 2026-11-14
+  // section 2: 139 and 151 measured, plus the 2 words #877 added to the Jupiter line
+  // ("(majors 0.05%)"): 141 and 153, both texts merged.
   it('the two blocks as the live site prints them stay short', () => {
     const count = (lines: string[]) => lines.reduce((n, s) => n + words(s), 0);
     const v = howVenueEarns(split1(), jupiter);
-    expect(count([...howYouEarn(split1()), ...v.sources, v.where ?? ''])).toBeLessThanOrEqual(120);
-    expect(count(all(split1(), jupiter))).toBeLessThanOrEqual(135);
+    expect(count([...howYouEarn(split1()), ...v.sources, v.where ?? ''])).toBeLessThanOrEqual(141);
+    expect(count(all(split1(), jupiter))).toBeLessThanOrEqual(153);
   });
 
   it('no line forecasts a return or carries an em dash, in any of its forms', () => {

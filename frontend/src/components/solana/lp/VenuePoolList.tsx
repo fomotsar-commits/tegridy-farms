@@ -1,12 +1,14 @@
 import { useEffect, type Ref } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { LITTLE_MONEY_TEXT, byWorth, marketGap, offersRestart, pairSwapLink, poolTags, poolWorthUsd, refusesDeposits, tokenDecimalsOf, type MarketPrices, type PoolListRead } from '../../../lib/solana/lp/poolList';
 import { PRICE_TOLERANCE, poolPricePerToken } from '../../../lib/solana/lp/poolHealth';
 import { quoteText, tokenText, turnedDiff, usdText } from '../../../lib/solana/lp/format';
 import { pairLabel, siteNamed, tokenTicker } from '../../../lib/solana/lp/identity';
-import { QUOTE_COINS_IN_TURN, QUOTE_COINS_OR } from '../../../lib/solana/lp/quotes';
+import { QUOTE_COINS_IN_TURN, QUOTE_COINS_OR, searchedCoinsOr, type QuoteCoin } from '../../../lib/solana/lp/quotes';
+import { everyPoolSearch, pricedInPools } from '../../../lib/solana/lp/pricedIn';
+import { feeSplitText } from '../../../lib/solana/cpswap/venue';
 import { publishFieldPools, setFieldHot, setFieldView, useFieldHot } from '../../../lib/solana/lp/fieldStore';
 import { fieldPoolsOf } from '../../../lib/solana/lp/fieldPools';
 import { waterLevel } from '../../dwg/tankFarm';
@@ -36,6 +38,13 @@ import { usePriceSide } from './priceSide';
  *
  * A list that could not be read says that, never "no pools". A reader without
  * `listPools` (every component test's fake) renders nothing.
+ *
+ * PRICED IN X (spec 2026-11-14, community quote coins): with `pricedIn`, the same card in the
+ * same place lists only the pools priced in that coin, the oldest first (pricedIn.ts), under a
+ * line naming the coin by its ticker and whole address, with its risk line, and an "Every pool"
+ * link back to this full list, and says once how LPs and the venue earn: a row repeats it only
+ * when its own pool's fee settings differ. It is the list already read, filtered here: nothing
+ * more is read.
  */
 export function VenuePoolList({
   readers,
@@ -43,6 +52,8 @@ export function VenuePoolList({
   onView,
   onAdd,
   sectionRef,
+  pricedIn = null,
+  onEveryPool,
 }: {
   readers: LpReaders;
   reloadKey?: number;
@@ -51,24 +62,32 @@ export function VenuePoolList({
   onAdd?: (tokenMint: string, pool: string, quoteMint: string) => void;
   /** Set by the section: "Add to another pool" after a withdrawal scrolls here and sends focus here. */
   sectionRef?: Ref<HTMLElement>;
+  /** The pairing coin of a ?priced= link (pricedIn.ts `pricedInCoin`): list only the pools priced in it. Null: every pool. */
+  pricedIn?: QuoteCoin | null;
+  /** Pressed with "Every pool", before it goes there: the section drops the coin it holds. */
+  onEveryPool?: () => void;
 }) {
   const live = useLivePoolList(readers, reloadKey);
   const read = live.read;
   const market = useMarketPrices(readers, read?.kind === 'ok' ? read.list.pools : null);
-  // The page's tank farm (components/dwg/PoolField.tsx) draws what this list read, in its rows' order.
+  const { pathname, search } = useLocation();
+  // The page's tank farm (components/dwg/PoolField.tsx) draws what this list shows, in its rows' order: on a
+  // "Priced in X" link, that coin's pools alone, the oldest first (`listedPools`, which the rows read too).
   const usd = market.prices?.kind === 'ok' ? market.prices.usd : null;
   useEffect(() => {
     if (read?.kind !== 'ok') return;
-    publishFieldPools(fieldPoolsOf(usd ? byWorth(read.list.pools, usd) : read.list.pools, usd, read.list.safety));
-  }, [read, usd]);
+    publishFieldPools(fieldPoolsOf(listedPools(read.list.pools, usd, pricedIn), usd, read.list.safety));
+  }, [read, usd, pricedIn]);
   useEffect(() => () => publishFieldPools(null), []);
   useEffect(() => setFieldView(onView), [onView]);
   if (!readers.listPools) return null;
+  const title = pricedIn ? `Priced in ${pricedIn.symbol}` : 'All pools';
   return (
     <>
       {/* The list is the first card under the finder; the Arbitrage board, a trader's card, sits under it (answer twenty-seven, cut 4). */}
-      <section ref={sectionRef} tabIndex={sectionRef ? -1 : undefined} className="outline-none" data-testid="lp-all-pools" aria-label="All pools">
-        <Card title="All pools" art={<CardArt pageId="solana-lp" idx={13} />}>
+      <section ref={sectionRef} tabIndex={sectionRef ? -1 : undefined} className="outline-none" data-testid="lp-all-pools" data-priced-in={pricedIn?.symbol} aria-label={title}>
+        <Card title={title} art={<CardArt pageId="solana-lp" idx={13} />}>
+          {pricedIn && <PricedInCoin coin={pricedIn} everyPool={`${pathname}${everyPoolSearch(search)}`} onEveryPool={onEveryPool} />}
           {read === null ? (
             <p className="text-white/70 text-[13px]">Reading the pools from the chain…</p>
           ) : read.kind === 'unread' ? (
@@ -79,19 +98,38 @@ export function VenuePoolList({
               </FinePrint>
             </>
           ) : (
-            <PoolRows list={read.list} prices={market.prices} onView={onView} onAdd={onAdd} />
+            <PoolRows list={read.list} prices={market.prices} onView={onView} onAdd={onAdd} pricedIn={pricedIn} />
           )}
           <FinePrint summary="How this list works">
-            <p>
-              Our pool index names every pool paired with {QUOTE_COINS_OR}, and each one is then read and checked on chain. Past what the
-              list can hold it shows the deepest, and a search finds the rest. The dollars beside a pair are what the pool holds at
-              Jupiter’s listed prices, the read the Arbitrage card below is stamped with; a coin Jupiter does not price gets none.
-            </p>
-            <p>
-              The pools with the most money in come first. A pool priced over {PRICE_TOLERANCE * 100}% below Jupiter is ranked by its{' '}
-              {QUOTE_COINS_OR} side, since anyone can print more of their own coin, and a coin Jupiter does not price is counted at the
-              pool’s own price. Until Jupiter’s prices are read, {QUOTE_COINS_IN_TURN}, the deepest of each first.
-            </p>
+            {pricedIn ? (
+              <>
+                <p>
+                  Every pool here is priced in {pricedIn.symbol}. Our pool index names them, and each one is then read and checked on
+                  chain. The oldest comes first, by when its trading opened. Past what the list can hold, a search finds the rest.{' '}
+                  {pricedIn.symbol}’s own pools with {searchedCoinsOr(pricedIn.mint)} are priced in that coin, so the search above shows
+                  them, not this list.
+                </p>
+                <p>
+                  What LPs keep of every trade and what the venue takes is read from each pool’s own fee settings on chain; a pool whose
+                  settings differ says its own. Both are paid in the coin the trader pays in: {pricedIn.symbol} on a buy, the token on a
+                  sell. The dollars beside a pair are what the pool holds at Jupiter’s listed prices; a coin Jupiter does not price gets
+                  none.
+                </p>
+              </>
+            ) : (
+              <>
+                <p>
+                  Our pool index names every pool paired with {QUOTE_COINS_OR}, and each one is then read and checked on chain. Past what the
+                  list can hold it shows the deepest, and a search finds the rest. The dollars beside a pair are what the pool holds at
+                  Jupiter’s listed prices, the read the Arbitrage card below is stamped with; a coin Jupiter does not price gets none.
+                </p>
+                <p>
+                  The pools with the most money in come first. A pool priced over {PRICE_TOLERANCE * 100}% below Jupiter is ranked by its{' '}
+                  {QUOTE_COINS_OR} side, since anyone can print more of their own coin, and a coin Jupiter does not price is counted at the
+                  pool’s own price. Until Jupiter’s prices are read, {QUOTE_COINS_IN_TURN}, the deepest of each first.
+                </p>
+              </>
+            )}
             <p>Anyone can open a pool, at any price. View one to see its checks before adding to it. Swap opens the swap page on the pair.</p>
             <p>
               A coin that is not one of ours shows the ticker it gives itself, with its whole address under it. Anyone can give a coin
@@ -119,27 +157,98 @@ export function VenuePoolList({
   );
 }
 
+/**
+ * The "Priced in X" line under the card's title: the coin by its ticker, a press that copies its
+ * address, then its whole address (a ticker is a claim, the address is the coin), its risk line
+ * when pairing with it adds one (quotes.ts `risk`), and the way back to every pool.
+ */
+function PricedInCoin({ coin, everyPool, onEveryPool }: { coin: QuoteCoin; everyPool: string; onEveryPool?: () => void }) {
+  return (
+    <div data-testid="lp-priced-in-coin" className="space-y-1">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+        <CoinName name={coin.symbol} address={coin.mint} nameClassName="text-white text-[13px]" />
+        <Link to={everyPool} onClick={onEveryPool} className="btn-secondary min-h-[44px] px-4 text-[13px] inline-flex items-center">
+          Every pool
+        </Link>
+      </div>
+      <p className="font-mono text-white/55 text-[11px] break-all">{coin.mint}</p>
+      {coin.risk && <Notice tone="warn">{coin.risk}</Notice>}
+    </div>
+  );
+}
+
+/** What a pool's LPs keep of each trade and what the venue takes, from its own fee settings on chain. Null: not read. */
+function earnText(view: PoolView): string | null {
+  return view.config ? `${feeSplitText(view.config, view.snapshot.pool.enableCreatorFee)}.` : null;
+}
+
+/** The earn line most of the pools share, the oldest's on a tie: the "Priced in" list says it once. Null with none read. */
+function sharedEarn(pools: readonly PoolView[]): string | null {
+  const counts = new Map<string, number>();
+  let best: string | null = null;
+  for (const view of pools) {
+    const text = earnText(view);
+    if (text === null) continue;
+    const n = (counts.get(text) ?? 0) + 1;
+    counts.set(text, n);
+    if (best === null || n > (counts.get(best) ?? 0)) best = text;
+  }
+  return best;
+}
+
+/** A row's own earn line: only where the list's shared line is not this pool's, and never quiet when it was not read. */
+function ownEarn(view: PoolView, shared: string | null): string | null {
+  const text = earnText(view);
+  if (text === null) return 'This pool’s fee settings could not be read.';
+  return text === shared ? null : text;
+}
+
+/**
+ * The pools the list shows, in its rows' order, which the page's tank farm draws too. Most money in first once Jupiter's
+ * prices are read (poolList.ts `byWorth`); until then, the order read. In every room alike: the room's own coin is no
+ * longer pinned on top (owner, 2026-11-01: "Pure TVL order", over island answer twenty). Priced in X: that coin's pools
+ * alone, the oldest first, whatever they hold (pricedIn.ts).
+ */
+function listedPools(read: readonly PoolView[], usd: ReadonlyMap<string, number> | null, pricedIn: QuoteCoin | null): readonly PoolView[] {
+  return pricedIn ? pricedInPools(read, pricedIn) : usd ? byWorth(read, usd) : read;
+}
+
 function PoolRows({
   list,
   prices,
   onView,
   onAdd,
+  pricedIn,
 }: {
   list: Extract<PoolListRead, { kind: 'ok' }>['list'];
   prices: MarketPrices | null;
   onView: (tokenMint: string) => void;
   onAdd?: (tokenMint: string, pool: string, quoteMint: string) => void;
+  pricedIn: QuoteCoin | null;
 }) {
   const { pools: read, unread, truncated, chainNow, safety } = list;
   const usd = prices?.kind === 'ok' ? prices.usd : null;
-  // Most money in first once Jupiter's prices are read (poolList.ts `byWorth`); until then, the order read. In every room
-  // alike: the room's own coin is no longer pinned on top (owner, 2026-11-01: "Pure TVL order", over island answer twenty).
-  const pools = usd ? byWorth(read, usd) : read;
+  const pools = listedPools(read, usd, pricedIn);
+  const named = pricedIn
+    ? `Priced in ${pricedIn.symbol}: the oldest pool first`
+    : usd
+      ? 'All pools: the most money in first'
+      : `All pools: ${QUOTE_COINS_IN_TURN}, the deepest of each first`;
+  // How LPs and the venue earn, said once for the pools that share it; a row says its own only when it differs.
+  const shared = pricedIn ? sharedEarn(pools) : null;
   return (
     <div className="space-y-3">
-      {pools.length === 0 && unread === 0 && !truncated && <p data-testid="lp-all-pools-none">No pools yet.</p>}
+      {shared && (
+        <p data-testid="lp-priced-in-earn" className="text-white/85 text-[12.5px] [overflow-wrap:anywhere]">
+          {shared}
+        </p>
+      )}
+      {pools.length === 0 &&
+        unread === 0 &&
+        !truncated &&
+        (pricedIn ? <p data-testid="lp-priced-in-none">No pool is priced in {pricedIn.symbol} yet.</p> : <p data-testid="lp-all-pools-none">No pools yet.</p>)}
       {pools.length > 0 && (
-        <ul className="space-y-2" aria-label={usd ? 'All pools: the most money in first' : `All pools: ${QUOTE_COINS_IN_TURN}, the deepest of each first`}>
+        <ul className="space-y-2" aria-label={named}>
           {pools.map((view) => (
             <PoolRow
               key={view.address}
@@ -149,6 +258,7 @@ function PoolRows({
               usd={usd}
               onView={onView}
               onAdd={onAdd}
+              earn={pricedIn ? ownEarn(view, shared) : null}
             />
           ))}
         </ul>
@@ -160,9 +270,13 @@ function PoolRows({
         </p>
       )}
       {unread > 0 && <Notice tone="warn">{unread === 1 ? 'One more pool' : `${unread} more pools`} could not be read just now.</Notice>}
+      {/* The index flags only that SOME coin had more pools than it holds, not which (pool-index.js `answerAll`): a coin's
+          own flag is phase-2 work, so the "Priced in" list says one MAY be missing, never that there are more of its coin's. */}
       {truncated && (
         <p data-testid="lp-all-pools-truncated" className="text-amber-300/90 text-[12.5px]">
-          There are more pools than this list holds. Search a token above to find the rest.
+          {pricedIn
+            ? `The pool index could not hold every pool, so one priced in ${pricedIn.symbol} may be missing. Search its token above.`
+            : 'There are more pools than this list holds. Search a token above to find the rest.'}
         </p>
       )}
     </div>
@@ -176,6 +290,7 @@ function PoolRow({
   usd,
   onView,
   onAdd,
+  earn = null,
 }: {
   view: PoolView;
   safety: TokenSafety | null;
@@ -184,6 +299,8 @@ function PoolRow({
   usd: ReadonlyMap<string, number> | null;
   onView: (tokenMint: string) => void;
   onAdd?: (tokenMint: string, pool: string, quoteMint: string) => void;
+  /** How this pool's LPs and the venue earn, when the "Priced in" list's own line does not say it (`ownEarn`). */
+  earn?: string | null;
 }) {
   const side = usePriceSide();
   const tokenDecimals = tokenDecimalsOf(view);
@@ -235,6 +352,12 @@ function PoolRow({
         <p className="text-white/75 text-[12.5px] [overflow-wrap:anywhere]">
           {price === null ? 'No price: one side is empty' : <PriceFlip perToken={price} quote={view.quote} unit={symbol ? { one: symbol, many: symbol } : { one: 'token', many: 'tokens' }} />}
         </p>
+        {/* The pool card's own line (PoolCard.tsx lp-pool-split): how LPs earn and what the venue takes stays in view (owner, 2026-10-09). */}
+        {earn && (
+          <p data-testid="lp-all-pools-earn" className="text-white/85 text-[12.5px] [overflow-wrap:anywhere]">
+            {earn}
+          </p>
+        )}
         {tags.length > 0 && (
           <ul className="flex flex-wrap gap-1.5 pt-1" aria-label={`${label}: warnings`}>
             {tags.map((t) => (

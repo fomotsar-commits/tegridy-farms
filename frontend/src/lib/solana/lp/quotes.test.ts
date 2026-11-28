@@ -21,11 +21,16 @@ import {
   SOL_QUOTE,
   SOY_QUOTE,
   USDC_QUOTE,
+  WITHDRAW_ONLY_LINE,
   canPair,
+  isWithdrawOnly,
   quoteCoin,
   quotesFor,
   readPair,
+  withdrawOnlyRefusal,
+  withdrawOnlyWhy,
 } from './quotes';
+import { whileDelisted } from './delisted.fixture';
 
 const stranger = () => Keypair.generate().publicKey.toBase58();
 const SOL = SOL_QUOTE.mint;
@@ -49,6 +54,24 @@ describe('the pairing coins', () => {
     expect(ISLAND_QUOTES).toEqual([BAYLA_QUOTE, BOBO_QUOTE, SOY_QUOTE, BRAINLET_QUOTE, RIZZ_QUOTE]);
     expect(QUOTE_COINS_OR).toBe('SOL, USDC, BAYLA, BOBO, SOY, BRAINLET or RIZZ');
     expect(QUOTE_COINS_IN_TURN).toBe('SOL pools first, then USDC, then BAYLA, then BOBO, then SOY, then BRAINLET, then RIZZ');
+  });
+
+  // Spec 2026-11-14 (rule 12): a coin is only ever APPENDED. The earlier of two coins is a
+  // pool's quote (readPair), so a coin inserted between two, or two swapped, would flip how
+  // every existing pool of theirs reads. Today's seven, written out here and never imported,
+  // stay the exact prefix of the list, at these mints, in this order, whatever comes after.
+  it('today’s seven rows are the exact prefix of the list: a new coin can only be appended', () => {
+    const TODAY: ReadonlyArray<readonly [string, string]> = [
+      ['SOL', 'So11111111111111111111111111111111111111112'],
+      ['USDC', 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'],
+      ['BAYLA', '7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump'],
+      ['BOBO', '4nV5gNwwP68zUDat26ySChREqVaQaLudfJBkSgEzpump'],
+      ['SOY', '8zsZESzrGoYVi1dVH4QNWXJ2EfW4v287aEGNiDvQpump'],
+      ['BRAINLET', '4XKGjKaKowFvL5sYwh2AKx72vj9iwC8MNvpL44E9pump'],
+      ['RIZZ', '5ad4puH6yDBoeCcrQfwV5s9bxvPnAeWDoYDj3uLyBS8k'],
+    ];
+    expect(QUOTE_COINS.length).toBeGreaterThanOrEqual(TODAY.length);
+    expect(QUOTE_COINS.slice(0, TODAY.length).map((q) => [q.symbol, q.mint])).toEqual(TODAY);
   });
 
   it('SOL is the classic native mint and the only native one', () => {
@@ -166,5 +189,42 @@ describe('quotesFor: what a token can be paired with', () => {
         expect(canPair(token, q), `${token} with ${q.symbol}`).toBe(r !== null && r.tokenMint === token && r.quote === q);
       }
     }
+  });
+});
+
+// A coin that goes bad is flagged `delisted`, never deleted (spec 2026-11-14, rule 16): its
+// pools become withdraw-only. Tests flag a row through `whileDelisted`; no real row is flagged.
+describe('a delisted coin: its pools are withdraw-only', () => {
+  it('no row is delisted today', () => {
+    for (const q of QUOTE_COINS) {
+      expect(q.delisted, q.symbol).toBeUndefined();
+      expect(isWithdrawOnly(q), q.symbol).toBe(false);
+    }
+  });
+
+  it('a flagged row reads withdraw-only by its mint, through any copy of it, and still reads its pools as before; the flag is put back', async () => {
+    const token = stranger();
+    await whileDelisted(BOBO_QUOTE, () => {
+      expect(isWithdrawOnly(BOBO_QUOTE)).toBe(true);
+      // A copy of the row with the flag dropped: a variable, so the copy keeps the row's own type.
+      const unflagged = { ...BOBO_QUOTE, delisted: undefined };
+      expect(isWithdrawOnly(unflagged)).toBe(true);
+      expect(isWithdrawOnly({ mint: BOBO })).toBe(true);
+      expect(QUOTE_COINS.filter(isWithdrawOnly)).toEqual([BOBO_QUOTE]);
+      // Still a pairing coin in its place: its pools read as before, so their holders find them and can leave.
+      expect(quoteCoin(BOBO)).toBe(BOBO_QUOTE);
+      expect(readPair(token, BOBO)).toEqual({ quote: BOBO_QUOTE, quoteIsToken0: false, tokenMint: token });
+      expect(QUOTE_COINS.map((q) => q.symbol)).toEqual(['SOL', 'USDC', 'BAYLA', 'BOBO', 'SOY', 'BRAINLET', 'RIZZ']);
+    });
+    expect(isWithdrawOnly(BOBO_QUOTE)).toBe(false);
+    expect(BOBO_QUOTE.delisted).toBeUndefined();
+  });
+
+  it('the line is short; why names the coin by its ticker and its whole address', () => {
+    expect(WITHDRAW_ONLY_LINE).toBe('Withdraw only: you can take your liquidity out of this pool, nothing more.');
+    expect(withdrawOnlyWhy(BOBO_QUOTE)).toBe(
+      `BOBO (${BOBO}) is no longer a pairing coin on this site, so the site does not add to, open or swap in pools priced in it. Taking liquidity out still works, here and with any other tool.`,
+    );
+    expect(withdrawOnlyRefusal(BOBO_QUOTE)).toBe('Pools priced in BOBO are withdraw-only: BOBO is no longer a pairing coin on this site. Nothing was built.');
   });
 });

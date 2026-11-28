@@ -17,7 +17,7 @@ import { OWN_ROUTE_COPY } from '../../../solana/swap/ownPoolRoute';
 import type { RawAccount } from '../../../solana/lp/accounts';
 import { LAUNCH_TIER_POOL } from '../../../solana/lp/poolFinder';
 import { poolFeesOf } from '../../../solana/lp/liquidityMath';
-import { QUOTE_COINS_OR, readPair } from '../../../solana/lp/quotes';
+import { QUOTE_COINS_OR, isWithdrawOnly, readPair, withdrawOnlyRefusal } from '../../../solana/lp/quotes';
 import { BUILDABLE_EXTENSIONS, EXACT_EXTENSIONS, decodeMintAccount, extensionPlain } from '../../../solana/lp/tokenSafety';
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { LP_COPY, POOL_READ_FAILED, accountCheck, coinAccount, feeLine, poolPins, readPoolForWrite, tokenFeeAt, type AccountWant } from './liquidity';
@@ -104,6 +104,8 @@ export async function prepareVenueSwap(rpc: WriteRpc, gate: SwapOpenGate, a: Ven
   if (a.amountIn <= 0n) return notSent('build', 'Enter an amount above zero.');
   const pair = readPair(a.inputMint.toBase58(), a.outputMint.toBase58());
   if (!pair) return notSent('build', VENUE_SWAP_COPY.notOurPair);
+  // No swap in our pool when it is priced in a delisted coin: withdraw-only (quotes.ts).
+  if (isWithdrawOnly(pair.quote)) return notSent('build', withdrawOnlyRefusal(pair.quote));
   const cfg = gate.cfg;
   const coin = pair.quote;
   const tokenMint = new PublicKey(pair.tokenMint);

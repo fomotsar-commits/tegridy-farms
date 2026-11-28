@@ -20,7 +20,7 @@ import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
 import { tokenReasons, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
 import type { PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { Position } from '../../../lib/solana/lp/positions';
-import { SOL_QUOTE, quotesFor, type QuoteCoin } from '../../../lib/solana/lp/quotes';
+import { SOL_QUOTE, isWithdrawOnly, quotesFor, type QuoteCoin } from '../../../lib/solana/lp/quotes';
 import type { SafetyReason, TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { isLpKind } from '../../../lib/launcher/solana/write/lpKinds';
 import type { CreateFacts } from '../../../lib/launcher/solana/write/types';
@@ -406,7 +406,8 @@ export function pairFacts(a: {
   advise: boolean;
 }): PairFacts[] {
   const paired = new Set(a.search.kind === 'ok' ? a.search.search.pools.flatMap((e) => (e.kind === 'pool' ? [e.view.quote.mint] : [])) : []);
-  return quotesFor(a.tokenMint).map((coin) => {
+  // A delisted coin is offered for no new pool: its pools are withdraw-only (quotes.ts).
+  return quotesFor(a.tokenMint).filter((coin) => !isWithdrawOnly(coin)).map((coin) => {
     const advice: CreateAdvice = a.advise ? createAdvice({ gate: a.gate, search: a.search, healths: a.healths, openedHere: a.openedHere, quote: coin }) : { kind: 'none' };
     // `createAdvice` names the taking pool itself ('exists'), unless this tab opened one,
     // and names none when there is none: so it is looked for again only after an opening

@@ -5,7 +5,7 @@ import { quoteOwnPool, type OwnPoolQuote } from '../cpswap/read';
 import { getMultipleAccounts, type RawAccount } from '../lp/accounts';
 import { findPools, type PoolView, type ReadPoolsOptions } from '../lp/poolFinder';
 import { poolFeesOf } from '../lp/liquidityMath';
-import { readPair, type QuoteCoin } from '../lp/quotes';
+import { isWithdrawOnly, readPair, type QuoteCoin } from '../lp/quotes';
 import { BUILDABLE_EXTENSIONS, decodeMintAccount, extensionPlain } from '../lp/tokenSafety';
 import { feeNow, type TransferFeeConfig } from '../lp/transferFee';
 import type { RouteCandidate } from '../route';
@@ -145,6 +145,8 @@ export function quoteVenuePools(
 ): { state: OwnPoolsState; candidates: VenuePoolCandidate[] } {
   if (read.kind === 'not-searched') return { state: 'not-searched', candidates: [] };
   if (read.kind === 'unread') return { state: 'error', candidates: [] };
+  // A pair priced in a delisted coin: its pools are withdraw-only (quotes.ts), so none is quoted.
+  if (isWithdrawOnly(read.quote)) return { state: read.pools.length ? 'unquotable' : read.complete ? 'absent' : 'error', candidates: [] };
   // The pool opens by the chain's clock. The viewer's stands in only for this estimate:
   // the builder reads the chain's again and refuses without it.
   const now = read.chainNow !== null ? Number(read.chainNow) : viewerNowSecs;

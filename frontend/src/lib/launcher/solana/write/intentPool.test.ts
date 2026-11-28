@@ -24,6 +24,7 @@ import { LIGHTHOUSE_PROGRAM_ID, PROGRAMS_BY_KIND, decodeIntent, isPoolIntent } f
 import { AMM_CONFIG, CPSWAP, VAULT, cfgLocal } from './testkit.fixture';
 import type { IntentContext, PoolIntent, PoolPins } from './types';
 import { SOL_QUOTE } from '../../../solana/lp/quotes';
+import { whileDelisted } from '../../../solana/lp/delisted.fixture';
 
 const ME = Keypair.generate().publicKey;
 const STRANGER = Keypair.generate().publicKey;
@@ -203,6 +204,19 @@ describe('the launch tier (fee tier 0): only the launch pool on it takes a depos
 
   it('accepts a deposit into the launch pool on the launch tier', () => {
     const p = pinsFor({ ammConfig: AMM_CONFIG, launchPool: true });
+    ok([deposit(p)], ctxFor('lp-deposit', p));
+  });
+});
+
+// Spec 2026-11-14: a pool priced in a delisted coin is withdraw-only. Refused from the site's
+// own row (looked up again by the pins' mint), whatever the builder did.
+describe('a pool priced in a delisted coin: withdraw-only', () => {
+  it('refuses a deposit, and still lets a holder take their liquidity out', async () => {
+    const p = pinsFor();
+    await whileDelisted(SOL_QUOTE, () => {
+      refused([deposit(p)], /priced in a coin this site no longer lists, so it is withdraw-only/, ctxFor('lp-deposit', p));
+      ok([withdraw(p)], ctxFor('lp-withdraw', p));
+    });
     ok([deposit(p)], ctxFor('lp-deposit', p));
   });
 });

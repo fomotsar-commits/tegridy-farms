@@ -617,9 +617,9 @@ function OfferLines({
     case 'token-refused': {
       // In the words of the check that refused it: every block on a blocked token (they say
       // whether the pool program or this site is the limit), or that the token does not
-      // exist. Each is a whole sentence. The one refusal with neither is SOL under the
+      // exist or has a transfer fee. Each is a whole sentence. The one refusal with none is SOL under the
       // newer token program.
-      const reasons = safety.kind === 'read' ? safety.blocks.map((b) => b.text) : tokenReasons(safety, 'pools').refused;
+      const reasons = safety.kind === 'read' && safety.blocks.length > 0 ? safety.blocks.map((b) => b.text) : tokenReasons(safety, 'pools').refused;
       return <p>This site does not open pools for this token: {reasons.length > 0 ? reasons.join(' ') : NATIVE_2022_LINE}</p>;
     }
     case 'token-unread':

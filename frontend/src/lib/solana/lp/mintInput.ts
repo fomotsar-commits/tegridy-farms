@@ -1,5 +1,6 @@
 import { PublicKey } from '@solana/web3.js';
 import { looksLikePubkey } from '../../launcher/solana/curve/format';
+import { QUOTE_COINS_OR } from './quotes';
 import { WSOL_MINT } from './tokenSafety';
 
 /** Parse what someone typed into a mint, or say why not. */
@@ -13,7 +14,7 @@ export function parseMintInput(raw: string): { ok: true; mint: string } | { ok: 
   } catch {
     return { ok: false, reason: 'That does not look like a Solana address.' };
   }
-  if (s === WSOL_MINT) return { ok: false, reason: 'That is SOL itself. Pools here pair a token with SOL, USDC or BAYLA: paste the other token.' };
+  if (s === WSOL_MINT) return { ok: false, reason: `That is SOL itself. Pools here pair a token with ${QUOTE_COINS_OR}: paste the other token.` };
   return { ok: true, mint: s };
 }
 

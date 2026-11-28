@@ -75,9 +75,9 @@ import type { RawAccount } from '../../../solana/lp/accounts';
 import { LOCKED_LP, LOCKED_SHARES_TEXT, U64_MAX, feeReserveFor, isqrt, lockedBehind, planCreate, solSetAside, spendableSol, type CreateProblem } from '../../../solana/lp/liquidityMath';
 import { TOKEN_2022_NATIVE_MINT, assessOpening, estimatedLoss } from '../../../solana/lp/opening';
 import { coinPriceDetail, type OutsidePrice } from '../../../solana/lp/outsidePrice';
-import { QUOTE_COINS_OR, canPair, quoteCoin, type QuoteCoin } from '../../../solana/lp/quotes';
+import { QUOTE_COINS_OR, canPair, isWithdrawOnly, quoteCoin, withdrawOnlyRefusal, type QuoteCoin } from '../../../solana/lp/quotes';
 import { CLOCK_SYSVAR, chainEpochOf } from '../../../solana/lp/poolFinder';
-import { BUILDABLE_EXTENSIONS, EXACT_EXTENSIONS, classifyToken, decodeMintAccount, extensionPlain } from '../../../solana/lp/tokenSafety';
+import { BUILDABLE_EXTENSIONS, EXACT_EXTENSIONS, EXTENSION, classifyToken, decodeMintAccount, extensionPlain } from '../../../solana/lp/tokenSafety';
 import { afterFee, epochFee, feeOf, feeRateText } from '../../../solana/lp/transferFee';
 import { MAX_OWN_PRIORITY_LAMPORTS } from './budget';
 import { CP_CREATE_POOL_FEE_RECEIVER, MAX_CREATE_FEE_LAMPORTS, feeAccountStateOf, tierStateOf } from './config';
@@ -110,6 +110,8 @@ export const CREATE_COPY = {
     `The account that receives the fee to open a pool is not set up (${detail}), so opening a pool would fail. Nothing was built.`,
   tokenUnread: 'We could not read the token just now, so we did not build the opening. Try again in a moment.',
   tokenRefused: (reason: string) => `This site does not open pools for this token: ${reason}`,
+  // Spec 2026-11-14: a fee at any rate, 0 included, can be raised later, and the venue's cut in the token pays it.
+  transferFee: 'This token takes a fee on every transfer, so a new pool of it cannot be opened here.',
   native2022: `This is SOL under the newer token program. Pools here pair a token with ${QUOTE_COINS_OR}.`,
   notAPairingCoin: `Pools opened from this site pair a token with ${QUOTE_COINS_OR} only.`,
   // The fee to open is most of this sum, so it is named first: "the network fee and the
@@ -150,7 +152,7 @@ export const CREATE_COPY = {
  */
 export function createPins(
   cfg: CurveWriteConfig,
-  a: { address: PublicKey; tokenMint: PublicKey; tokenProgram: PublicKey; signer: PublicKey; quote: QuoteCoin },
+  a: { address: PublicKey; tokenMint: PublicKey; tokenProgram: PublicKey; signer: PublicKey; quote: QuoteCoin; tokenExtensions?: readonly number[] },
 ): PoolPins | string {
   if (a.tokenMint.equals(WSOL_MINT)) return 'a pool here pairs a token with SOL, not SOL with itself';
   // A coin is only priced in the coins that outrank it (quotes.ts): BAYLA in SOL or USDC, never SOL in BAYLA.
@@ -182,6 +184,8 @@ export function createPins(
     quote: a.quote,
     quoteIsToken0,
     lpAccount: associatedTokenAddress(lpMint, a.signer, TOKEN_PROGRAM_ID),
+    // The decoder refuses an opening of a token with a transfer fee from this list (intent.ts).
+    ...(a.tokenExtensions ? { tokenExtensions: [...a.tokenExtensions] } : {}),
   };
 }
 
@@ -433,6 +437,8 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
   if (a.quote > U64_MAX || a.token > U64_MAX) return notSent('build', CREATE_COPY.tooLarge);
   const quote = quoteCoin(a.quoteMint.toBase58());
   if (!quote) return notSent('build', CREATE_COPY.notAPairingCoin);
+  // No new pool priced in a delisted coin: its pools are withdraw-only (quotes.ts).
+  if (isWithdrawOnly(quote)) return notSent('build', withdrawOnlyRefusal(quote));
   if (!canPair(a.tokenMint.toBase58(), quote) && !a.tokenMint.equals(WSOL_MINT)) return notSent('build', CREATE_COPY.cannotPair(quote.symbol));
   const quoteMintKey = new PublicKey(quote.mint);
   const cfg = gate.cfg;
@@ -487,6 +493,11 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
   // pool for a token this site could not let back out.
   const outsideSet = facts.extensions.find((e) => !BUILDABLE_EXTENSIONS.has(e));
   if (outsideSet !== undefined) return notSent('build', CREATE_COPY.tokenRefused(`It uses ${extensionPlain(outsideSet)}.`));
+  // No NEW pool for a token with a transfer fee, at any rate, 0 included: whoever controls the
+  // fee can raise it, up to all of every transfer, and the venue's cut of each trade paid in the
+  // token pays it on the way out (spec 2026-11-14). Its pools that already exist keep every way
+  // in and out: the one set (BUILDABLE_EXTENSIONS) still holds the extension.
+  if (facts.extensions.includes(EXTENSION.TransferFeeConfig)) return notSent('build', CREATE_COPY.transferFee);
   if (mintText === TOKEN_2022_NATIVE_MINT) return notSent('build', CREATE_COPY.native2022);
   const vaultSize = vaultAccountSize(mint);
   if (typeof vaultSize === 'string') return notSent('build', CREATE_COPY.cannotSizeVault(vaultSize));
@@ -650,7 +661,7 @@ export async function prepareLpCreate(rpc: WriteRpc, gate: LpOpenGate, reads: Lp
   if ('problem' in planned) return notSent('build', createProblemCopy(planned, decimals, quote));
 
   // 13. Pins.
-  const pins = createPins(cfg, { address, tokenMint: a.tokenMint, tokenProgram, signer: a.owner, quote });
+  const pins = createPins(cfg, { address, tokenMint: a.tokenMint, tokenProgram, signer: a.owner, quote, tokenExtensions: facts.extensions });
   if (typeof pins === 'string') return notSent('build', CREATE_COPY.tokenRefused(pins));
   if (pins.origin !== origin) return notSent('build', CREATE_COPY.signerMismatch);
   const extraSigners = origin === 'other' ? [kp] : [];

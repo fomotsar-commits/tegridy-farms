@@ -102,6 +102,7 @@ import {
 } from './plant';
 import type { CurveIntent, IntentContext, IntentStep, LpKind, PoolIntent, PoolPins, RangeIntent, SwapIntent, TxConfig, TxKind } from './types';
 import { canPair, quoteCoin, type QuoteCoin } from '../../../solana/lp/quotes';
+import { EXTENSION } from '../../../solana/lp/tokenSafety';
 
 /** Phantom's Lighthouse guard program: assertion-only instructions a wallet may append. */
 export const LIGHTHOUSE_PROGRAM_ID = new PublicKey('L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95');
@@ -568,23 +569,57 @@ function noPoolInstructionFor(_ctx: never): never {
   return refuse('it is a liquidity kind this page has no pool instruction for');
 }
 
+/**
+ * A pool priced in a delisted coin is withdraw-only (quotes.ts `delisted`): this refuses the
+ * kinds that put money in or trade in it (an opening, a deposit, a restart, a swap, a range
+ * opening or swap), from the site's own row, which `pinnedQuote` looked up again. Taking out
+ * never asks.
+ */
+function notWithdrawOnly(q: QuoteCoin): void {
+  if (q.delisted) refuse('the pool is priced in a coin this site no longer lists, so it is withdraw-only');
+}
+
+/**
+ * What a NEW pool may hold, whatever its bytes say, checked on every pool-program call of an
+ * opening. Never a token with a transfer fee, at any rate, 0 included: whoever controls the
+ * fee can raise it, and the venue's cut of a trade paid in the token pays it on the way out
+ * (spec 2026-11-14). From the token's extensions as prepare read them (`pins.tokenExtensions`):
+ * a Token-2022 token whose list is missing is refused, never assumed clean. A classic token
+ * has no extensions at all. Adding to and taking out of such a token's pools stay open.
+ */
+function openingRules(ctx: PoolIntent): void {
+  const p = ctx.pins;
+  const ext = p.tokenExtensions;
+  if (ext === undefined && !p.tokenProgram.equals(TOKEN_PROGRAM_ID)) refuse('the opening does not say which extensions its token carries');
+  if (ext?.includes(EXTENSION.TransferFeeConfig)) refuse('the token takes a fee on every transfer, and this site opens no new pool for such a token');
+}
+
 function cpswap(ix: TransactionInstruction, ctx: IntentContext): IntentStep {
   if (isPoolIntent(ctx)) {
     switch (ctx.kind) {
       case 'lp-deposit':
+        notWithdrawOnly(pinnedQuote(ctx));
         return poolDeposit(ix, ctx);
       case 'lp-withdraw':
         return poolWithdraw(ix, ctx);
       case 'lp-create':
+        // The coin first (the pins must name the site's own row, on the side they say), then what the opening may hold.
+        notWithdrawOnly(pinnedQuote(ctx));
+        openingRules(ctx);
         return startsWith(ix.data, IX_CREATE_LP_METADATA) ? poolName(ix, ctx) : poolInitialize(ix, ctx);
       case 'lp-restart':
-        // The deposit, and the check-back that holds its price from below (restart.ts).
+        // A restart puts money in: never into a pool priced in a delisted coin. Every restart holds exactly one deposit,
+        // so this runs on each one. Then the deposit, and the check-back that holds its price from below (restart.ts).
+        notWithdrawOnly(pinnedQuote(ctx));
         return startsWith(ix.data, IX_WITHDRAW) ? poolWithdraw(ix, ctx) : poolDeposit(ix, ctx);
       default:
         return noPoolInstructionFor(ctx);
     }
   }
-  if (isSwapIntent(ctx)) return venueSwap(ix, ctx);
+  if (isSwapIntent(ctx)) {
+    notWithdrawOnly(pinnedQuote(ctx));
+    return venueSwap(ix, ctx);
+  }
   if (isRangeIntent(ctx)) return refuse('a range-position transaction never calls the constant-product pool program');
   const d = ix.data;
   if (!startsWith(d, IX_SWAP_BASE_INPUT) || d.length !== 24) refuse('a pool instruction other than a swap');
@@ -870,7 +905,9 @@ function range(ix: TransactionInstruction, c: IntentContext): IntentStep {
   if (!isRangeIntent(c)) return refuse('it calls the range program, and this kind of transaction never does');
   const ctx = c;
   const p = ctx.pins;
-  pinnedQuote(ctx);
+  const quote = pinnedQuote(ctx);
+  // Putting money in or trading: never in a pool priced in a delisted coin. Taking out and closing stay open.
+  if (ctx.kind === 'range-open' || ctx.kind === 'range-create' || ctx.kind === 'range-swap') notWithdrawOnly(quote);
   const d = ix.data;
   const pool = rangePoolRef(ctx);
   const own0 = associatedTokenAddress(p.token0Mint, ctx.signer, p.token0Program);

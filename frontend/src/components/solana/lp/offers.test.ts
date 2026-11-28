@@ -8,13 +8,14 @@ import { POOL_STATUS_DISABLE_DEPOSIT, POOL_STATUS_DISABLE_SWAP, POOL_STATUS_DISA
 import { assessPool, FAR_FUTURE_SECS, tokenReasons, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
 import type { PoolSearch, PoolSearchRead, PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { Position } from '../../../lib/solana/lp/positions';
-import type { SafetyReason, TokenSafety } from '../../../lib/solana/lp/tokenSafety';
+import { EXTENSION, type SafetyReason, type TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { TOKEN_2022_NATIVE_MINT } from '../../../lib/solana/lp/opening';
 import { PROGRAM, buildPool, key, viewOf } from '../../../lib/solana/lp/testkit.fixture';
 import type { CreateFacts } from '../../../lib/launcher/solana/write/types';
 import type { PendingTrade } from '../curve/pendingTrade';
 import type { CurveWriteConfig, LpGate } from '../curve/ports';
 import { BAYLA_QUOTE, BOBO_QUOTE, QUOTE_COINS, SOL_QUOTE, USDC_QUOTE, type QuoteCoin } from '../../../lib/solana/lp/quotes';
+import { whileDelisted } from '../../../lib/solana/lp/delisted.fixture';
 import { POOL_RISK_CODES, createAdvice, createHeld, createOffer, depositOffer, depositWarned, lpHeld, openingCautions, pairFacts, poolListCut, priceWarned, standardState, withdrawOffer, type CreateOffer } from './offers';
 
 const mint = key();
@@ -661,6 +662,15 @@ describe('createOffer', () => {
         expect(facts(base(), { tokenMint: SOL_QUOTE.mint })).toEqual([]);
       });
 
+      // Spec 2026-11-14: no new pool is priced in a delisted coin, so the Open form does not offer it.
+      it('a delisted coin is not offered for a new pool; every other coin still is, in rank order', async () => {
+        await whileDelisted(USDC_QUOTE, () => {
+          expect(facts(base()).map((x) => x.coin)).toEqual(QUOTE_COINS.filter((q) => q !== USDC_QUOTE));
+          expect(facts(base(), { tokenMint: BAYLA_QUOTE.mint }).map((x) => x.coin)).toEqual([SOL_QUOTE]);
+        });
+        expect(facts(base()).map((x) => x.coin)).toEqual([...QUOTE_COINS]);
+      });
+
       it('each coin gets its own pool to add to, and whether it has any pool at all', () => {
         const sol = poolOn(1);
         const failingUsdc = pairedOn(USDC_QUOTE, USDC_UNIT);
@@ -832,6 +842,16 @@ describe('createOffer', () => {
       expect(createOffer({ ...base(), safety: both })).toBe('token-refused');
     });
 
+    // Spec 2026-11-14: no NEW pool for a token with a transfer fee, at any rate. Refused before
+    // the form opens, as the opening's builder refuses it, never only after Review is pressed.
+    it('a token with a transfer fee, or only the setting for one: refused before the form', () => {
+      for (const code of ['transfer-fee', 'transfer-fee-mutable'] as const) {
+        expect(createOffer({ ...base(), safety: warnedWith(code) }), code).toBe('token-refused');
+      }
+      const zeroFee = { ...okToken, facts: { extensions: [EXTENSION.TransferFeeConfig] } } as TokenSafety;
+      expect(createOffer({ ...base(), safety: zeroFee })).toBe('token-refused');
+    });
+
     it('by type: "no route" is not an answer the card can give any more', () => {
       expectTypeOf<'no-route'>().not.toMatchTypeOf<CreateOffer>();
     });
@@ -877,7 +897,9 @@ describe('createOffer', () => {
     it('every code the form leaves out of its top list has a line from the opening check', () => {
       expect([...POOL_RISK_CODES].sort()).toEqual(['copies-known-name', 'freeze-authority', 'interest-bearing', 'scaled-amount', 'transfer-fee', 'transfer-fee-mutable']);
       for (const code of POOL_RISK_CODES) {
-        expect(tokenReasons(warnedWith(code), 'pools').warned, code).toHaveLength(1);
+        // A transfer fee is said as the reason no pool is opened (spec 2026-11-14), before any form.
+        const r = tokenReasons(warnedWith(code), 'pools');
+        expect(code.startsWith('transfer-fee') ? r.refused : r.warned, code).toHaveLength(1);
       }
       // And a warning the check does not repeat is not left out.
       for (const code of ['mint-authority', 'metadata-mutable', 'lookalike-letters', 'no-metadata'] as const) {

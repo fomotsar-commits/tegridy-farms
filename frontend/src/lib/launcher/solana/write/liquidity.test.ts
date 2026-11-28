@@ -62,7 +62,8 @@ import {
 } from './testkit.fixture';
 import { poolInverseFee } from '../../../solana/lp/transferFee';
 import type { LpOpenGate, PreparedTx, WriteRpc, LpDepositSummary, LpWithdrawSummary, IntentStep } from './types';
-import { SOL_QUOTE } from '../../../solana/lp/quotes';
+import { SOL_QUOTE, withdrawOnlyRefusal } from '../../../solana/lp/quotes';
+import { whileDelisted } from '../../../solana/lp/delisted.fixture';
 
 const W = (c: FakeChain) => c as unknown as WriteRpc;
 const ME = Keypair.generate().publicKey;
@@ -445,6 +446,16 @@ describe('prepareLpDeposit', () => {
     const w = holding();
     expect(refused(await deposit(w, {}, priced(), WITHDRAW_ONLY))).toBe(LP_COPY.depositPaused);
     ok(await withdraw(w, {}, WITHDRAW_ONLY));
+  });
+
+  // Spec 2026-11-14: a pool priced in a delisted coin is withdraw-only.
+  it('a pool priced in a delisted coin takes no deposit; a withdrawal from it still prepares', async () => {
+    const w = holding();
+    await whileDelisted(SOL_QUOTE, async () => {
+      expect(refused(await deposit(w))).toBe(withdrawOnlyRefusal(SOL_QUOTE));
+      ok(await withdraw(w));
+    });
+    ok(await deposit(w));
   });
 
   // The loss is worked out with the TOKEN's own decimals. Every other loss test here uses
@@ -1632,6 +1643,12 @@ describe('prepareLpWithdraw: a claim (Claim fees)', () => {
   const liq = (shares: bigint) => (shares * L) / LP_SUPPLY;
   // Deposits that bought 99% of the liquidity the shares hold now: 1% of the shares are growth.
   const basisOf = (o: Partial<LpClaimBasis> = {}): LpClaimBasis => ({ basis: (liq(HELD) * 99n) / 100n, provenShares: HELD, heldAtRead: HELD, ...o });
+
+  it('a pool priced in a delisted coin (withdraw-only): its fees are still claimed', async () => {
+    await whileDelisted(SOL_QUOTE, async () => {
+      expect((ok(await withdraw(holding(), { pctBps: undefined, claim: basisOf() })).summary as LpWithdrawSummary).claim).toBe(true);
+    });
+  });
 
   it('takes out exactly the shares that are growth at the fresh read, and what was put in stays', async () => {
     const w = holding();

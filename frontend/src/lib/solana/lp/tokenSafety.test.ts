@@ -36,6 +36,7 @@ import { tokenReasons } from './poolHealth';
 import { BAYLA_MINT as SITE_BAYLA_MINT, BUNGALOWS } from '../../bungalows';
 import type { RawAccount } from './accounts';
 import { METAPLEX_TOKEN_METADATA_ID, metadataPda } from '../../launcher/solana/write/metaplex';
+import { QUOTE_COINS } from './quotes';
 
 const key = () => Keypair.generate().publicKey;
 
@@ -315,6 +316,29 @@ describe('classifyToken', () => {
     );
   });
 
+  // Spec 2026-11-14: no NEW pool for a token with a transfer fee, at any rate, 0 included. The Open
+  // form says so before Review, as the opening's builder does (createPool.ts), and never asks the
+  // opener to weigh the risks of a pool it will not open. A deposit into a pool that exists is unchanged.
+  it('a token with a transfer-fee setting: no pool is opened for it, whatever the rate; a deposit is still only warned', () => {
+    const REFUSED = 'It uses a transfer-fee setting, which lets the token take a fee out of every transfer.';
+    const charging = classifyToken(mint.toBase58(), acct(mint, TOKEN_2022_PROGRAM, t22Mint(classicMint(), [feeExt({ configAuthority: key() })])), null);
+    // 0%, and nobody can change it: the token says nothing of a fee, yet the setting is there.
+    const zero = classifyToken(
+      mint.toBase58(),
+      acct(mint, TOKEN_2022_PROGRAM, t22Mint(classicMint(), [pointer(null, mint), feeExt({ configAuthority: null, older: [0n, 0n, 0], newer: [0n, 0n, 0] }), metadataExt(mint, null)])),
+      null,
+    );
+    expect(reasons(zero)).toEqual({ blocks: [], warnings: [], verdict: 'ok' });
+    for (const s of [charging, zero]) {
+      expect(tokenReasons(s, 'pools')).toEqual({ refused: [REFUSED], unchecked: [], warned: [] });
+      expect(tokenReasons(s, 'deposits').refused).toEqual([]);
+    }
+    expect(tokenReasons(charging, 'deposits').warned).toHaveLength(2);
+    // A token without the setting opens as before.
+    const plain = classifyToken(mint.toBase58(), acct(mint, TOKEN_2022_PROGRAM, t22Mint(classicMint(), [])), null);
+    expect(tokenReasons(plain, 'pools').refused).toEqual([]);
+  });
+
   it('warns on interest-bearing and scaled amounts, never blocks them, and says this site moves raw units', () => {
     const cases: [number, string, RegExp][] = [
       [ExtensionType.InterestBearingConfig, 'interest-bearing', /interest-bearing amounts/],
@@ -365,13 +389,26 @@ describe('classifyToken', () => {
     expect(s.kind === 'read' && [s.name, s.symbol, s.metadataSource]).toEqual(['Harvest', 'HRVST', 'token-2022']);
   });
 
+  // tokenSafety.ts names the pairing coins from quotes.ts, whose rows are built from the mints:
+  // with the mints kept here that was an import cycle, and this file (which loads tokenSafety.ts
+  // first) read every row's mint as undefined. They live in mints.ts, which imports nothing.
+  it('loading this module first leaves every pairing coin whole (no import cycle with quotes.ts)', () => {
+    expect(QUOTE_COINS.map((q) => q.mint)).toEqual([WSOL_MINT, USDC_MINT, SITE_BAYLA_MINT, ...QUOTE_COINS.slice(3).map((q) => q.mint)]);
+    for (const q of QUOTE_COINS) {
+      expect(q.mint).toMatch(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/);
+      expect([TOKEN_PROGRAM, TOKEN_2022_PROGRAM]).toContain(q.program);
+    }
+  });
+
   it('warns on a live mint authority and on a name that can change (either kind of record)', () => {
     const s1 = classifyToken(mint.toBase58(), acct(mint, TOKEN_PROGRAM, classicMint({ mintAuthority: key() })), immutableName());
     expect(reasons(s1)).toEqual({ blocks: [], warnings: ['mint-authority'], verdict: 'warn' });
-    // A pool is paired with SOL, USDC or BAYLA, and this sentence is printed on the review
-    // of all three: it must not tell the holder of a USDC pool that SOL is what is at risk.
+    // A pool is paired with any of the pairing coins (quotes.ts), and this sentence is printed on
+    // the review of every one: it must not tell the holder of a USDC pool that SOL is what is at
+    // risk, and it names every coin the list holds, not the first three it once held.
     const said = s1.kind === 'read' ? s1.warnings[0]!.text : '';
-    expect(said).toContain('New tokens sold into a pool take out what it is paired with (SOL, USDC or BAYLA).');
+    expect(said).toContain('New tokens sold into a pool take out what it is paired with (SOL, USDC, BAYLA, BOBO, SOY, BRAINLET or RIZZ).');
+    for (const q of QUOTE_COINS) expect(said).toContain(q.symbol);
     expect(said).not.toMatch(/take SOL out/);
     const s2 =classifyToken(mint.toBase58(), acct(mint, TOKEN_PROGRAM, classicMint()), acct(metadataPda(mint), METAPLEX_TOKEN_METADATA_ID.toBase58(), metaplexRecord(mint, true)));
     expect(reasons(s2)).toEqual({ blocks: [], warnings: ['metadata-mutable'], verdict: 'warn' });

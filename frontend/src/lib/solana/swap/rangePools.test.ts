@@ -3,6 +3,8 @@ import { describe, it, expect } from 'vitest';
 import { Keypair, PublicKey } from '@solana/web3.js';
 import type { SolanaRpc } from '../../launcher/solana/curve/rpc';
 import { BAYLA_MINT, WSOL_MINT } from '../lp/tokenSafety';
+import { SOL_QUOTE } from '../lp/quotes';
+import { whileDelisted } from '../lp/delisted.fixture';
 import { getSqrtPriceAtTick } from '../clmm/math';
 import { POOL_STATE_OFFSETS, deriveAmmConfig, deriveObservation, derivePool, deriveTickArray, deriveVault, sortMints } from '../clmm/program';
 import { quoteSwap } from '../clmm/quote';
@@ -129,6 +131,14 @@ describe('reading range pools for a swap', () => {
     if (want.kind !== 'ok') throw new Error('quote');
     expect(q.candidates[0]).toMatchObject({ venue: 'own-pool', poolAddress: POOL.toBase58(), outAmount: want.amountOut });
     expect(q.candidates[0]!.priceImpact).toBeGreaterThan(0);
+  });
+
+  // Spec 2026-11-14: a pool priced in a delisted coin is withdraw-only, so it is never a route.
+  it('a pool priced in a delisted coin gives no candidate: it cannot be traded here', async () => {
+    const c = chain();
+    const read = await readRangeRoutePools(c.rpc, WSOL_MINT, BAYLA_MINT, { programId: PROG, visible: true });
+    await whileDelisted(SOL_QUOTE, () => expect(quoteRangePools(read, WSOL_MINT, 1_000_000n)).toEqual({ state: 'unquotable', candidates: [] }));
+    expect(quoteRangePools(read, WSOL_MINT, 1_000_000n).state).toBe('quoted');
   });
 
   it('a trade larger than the bands read gives no candidate, and says the pool cannot take it', async () => {

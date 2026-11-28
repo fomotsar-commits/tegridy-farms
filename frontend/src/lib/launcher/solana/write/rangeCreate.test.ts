@@ -24,6 +24,8 @@ import { encodeAmmConfig, encodePool } from '../../../solana/clmm/encode.fixture
 import { pairOf, sqrtAtPrice, type Price } from '../../../solana/clmm/rangeMath';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
 import { decodeIntent } from './intent';
+import { SOL_QUOTE, withdrawOnlyRefusal } from '../../../solana/lp/quotes';
+import { whileDelisted } from '../../../solana/lp/delisted.fixture';
 import { V1_TX_SIZE_LIMIT, decodeV1 } from './v1';
 import { RANGE_COPY, prepareRangeCreate, type RangeCreateArgs, type RangeOpenReads } from './range';
 import { FakeChain, VAULT, cfgLocal, openAccount, rent, type SimHandler } from './testkit.fixture';
@@ -266,6 +268,18 @@ function body(p: PreparedTx): TransactionInstruction[] {
 const intentOf = (p: PreparedTx) => p.check.intent as RangeIntent;
 const createAt = (p: PreparedTx) => body(p).findIndex((ix) => ix.programId.equals(PROG) && is(ix.data, IX_CREATE_POOL));
 const withIx = (list: TransactionInstruction[], i: number, ix: TransactionInstruction) => list.map((x, j) => (j === i ? ix : x));
+
+// Spec 2026-11-14: no new range pool priced in a delisted coin, from the builder or past the checker.
+describe('a range pool priced in a delisted coin', () => {
+  it('is not opened', async () => {
+    const p = ok(await prepareRangeCreate(W(chainWith()), cfgLocal, PROG, MARKET, ARGS));
+    await whileDelisted(SOL_QUOTE, async () => {
+      expect(said(await prepareRangeCreate(W(chainWith()), cfgLocal, PROG, MARKET, ARGS))).toBe(withdrawOnlyRefusal(SOL_QUOTE));
+      const r = decodeIntent(body(p), intentOf(p));
+      expect(r.ok ? 'accepted' : r.reason).toMatch(/priced in a coin this site no longer lists, so it is withdraw-only/);
+    });
+  });
+});
 
 describe('the checker holds the pool opening to what was worked out', () => {
   it('passes what was built; refuses another fee receiver, price, tier, a later open, the wrong order, or none', async () => {

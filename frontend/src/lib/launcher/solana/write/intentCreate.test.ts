@@ -34,6 +34,11 @@ import { CP_CREATE_POOL_FEE_RECEIVER } from './config';
 import { AMM_CONFIG, CPSWAP, VAULT, cfgLocal } from './testkit.fixture';
 import type { IntentContext, PoolIntent, PoolPins } from './types';
 import { SOL_QUOTE } from '../../../solana/lp/quotes';
+import { EXTENSION } from '../../../solana/lp/tokenSafety';
+import { whileDelisted } from '../../../solana/lp/delisted.fixture';
+
+/** A Token-2022 token's name and picture: the extensions BAYLA carries, and nothing that changes a transfer. */
+const NAME_ONLY = [EXTENSION.MetadataPointer, EXTENSION.TokenMetadata];
 
 const ME = Keypair.generate().publicKey;
 const STRANGER = Keypair.generate().publicKey;
@@ -47,10 +52,10 @@ const standardOf = (tokenMint: PublicKey) => {
 };
 
 /** The pins prepare would make: the standard address, or a fresh key of its own. */
-function pinsFor(o: { tokenProgram?: PublicKey; oneOff?: boolean; tokenMint?: PublicKey } = {}): PoolPins {
+function pinsFor(o: { tokenProgram?: PublicKey; oneOff?: boolean; tokenMint?: PublicKey; tokenExtensions?: readonly number[] } = {}): PoolPins {
   const tokenMint = o.tokenMint ?? fresh();
   const address = o.oneOff ? fresh() : standardOf(tokenMint);
-  const p = createPins(cfgLocal, { address, tokenMint, tokenProgram: o.tokenProgram ?? TOKEN_PROGRAM_ID, signer: ME, quote: SOL_QUOTE });
+  const p = createPins(cfgLocal, { address, tokenMint, tokenProgram: o.tokenProgram ?? TOKEN_PROGRAM_ID, signer: ME, quote: SOL_QUOTE, tokenExtensions: o.tokenExtensions });
   if (typeof p === 'string') throw new Error(p);
   return p;
 }
@@ -150,10 +155,51 @@ describe("the site's own opening decodes into one pool-create and the share's na
   });
 
   it('a Token-2022 token: its creator account and program slot are the Token-2022 ones', () => {
-    const p = pinsFor({ tokenProgram: TOKEN_2022_PROGRAM_ID });
+    const p = pinsFor({ tokenProgram: TOKEN_2022_PROGRAM_ID, tokenExtensions: NAME_ONLY });
     ok(siteOpening(p), ctxFor(p));
     const tokenSlot = p.quoteIsToken0 ? 8 : 7;
     refused(siteOpening(p, withKey(opening(p), tokenSlot, mine(p.tokenMint, TOKEN_PROGRAM_ID))), /spends from an account that is not yours/, ctxFor(p));
+  });
+
+  // Spec 2026-11-14 (section 2): no new pool for a token with a transfer fee, at any rate.
+  // Refused here from the token's extensions as prepare read them, whatever the builder did.
+  it('a token with a transfer fee is refused, and a Token-2022 token whose extensions the pins do not carry is never assumed clean', () => {
+    const fee = pinsFor({ tokenProgram: TOKEN_2022_PROGRAM_ID, tokenExtensions: [EXTENSION.TransferFeeConfig, ...NAME_ONLY] });
+    refused(siteOpening(fee), /the token takes a fee on every transfer, and this site opens no new pool for such a token/, ctxFor(fee));
+    // The share's name alone, without the opening, is refused too.
+    refused([naming(fee)], /takes a fee on every transfer/, ctxFor(fee));
+    const unsaid = pinsFor({ tokenProgram: TOKEN_2022_PROGRAM_ID });
+    refused(siteOpening(unsaid), /the opening does not say which extensions its token carries/, ctxFor(unsaid));
+    // A name and a picture are fine; a classic token carries no extensions at all.
+    const named = pinsFor({ tokenProgram: TOKEN_2022_PROGRAM_ID, tokenExtensions: NAME_ONLY });
+    ok(siteOpening(named), ctxFor(named));
+    const classic = pinsFor();
+    expect(classic.tokenExtensions).toBeUndefined();
+    ok(siteOpening(classic), ctxFor(classic));
+    // Adding to and taking out of a pool of such a token stay open: the rule is the opening's alone.
+    const accounts = {
+      programId: CPSWAP,
+      owner: ME,
+      poolState: fee.address,
+      ownerLpToken: fee.lpAccount,
+      token0Account: mine(fee.token0Mint, fee.token0Program),
+      token1Account: mine(fee.token1Mint, fee.token1Program),
+      token0Vault: fee.vault0,
+      token1Vault: fee.vault1,
+      vault0Mint: fee.token0Mint,
+      vault1Mint: fee.token1Mint,
+      lpMint: fee.lpMint,
+      lpTokenAmount: 1_000n,
+    };
+    ok([depositIx({ ...accounts, maximumToken0Amount: 5n, maximumToken1Amount: 5n })], ctxFor(fee, 'lp-deposit'));
+    ok([withdrawIx({ ...accounts, minimumToken0Amount: 1n, minimumToken1Amount: 1n })], ctxFor(fee, 'lp-withdraw'));
+  });
+
+  // Spec 2026-11-14: a pool priced in a delisted coin is withdraw-only, so none is opened.
+  it('an opening priced in a delisted coin is refused, from the site’s own row', async () => {
+    const p = pinsFor();
+    await whileDelisted(SOL_QUOTE, () => refused(siteOpening(p), /priced in a coin this site no longer lists, so it is withdraw-only/, ctxFor(p)));
+    ok(siteOpening(p), ctxFor(p));
   });
 
   it('an opening is a pool intent', () => {

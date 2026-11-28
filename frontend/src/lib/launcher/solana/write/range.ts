@@ -12,7 +12,7 @@ import { Keypair, PublicKey, SystemProgram, type TransactionInstruction } from '
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, WSOL_MINT } from '../curve/program';
 import { associatedTokenAddress } from '../curve/ix';
 import { formatTokenAmount } from '../curve/format';
-import { quoteCoin, type QuoteCoin } from '../../../solana/lp/quotes';
+import { isWithdrawOnly, quoteCoin, withdrawOnlyRefusal, type QuoteCoin } from '../../../solana/lp/quotes';
 import { EXACT_EXTENSIONS, EXTENSION, decodeMintAccount, extensionPlain, freezeWarning } from '../../../solana/lp/tokenSafety';
 import type { RawAccount } from '../../../solana/lp/accounts';
 import type { OutsidePrice } from '../../../solana/lp/outsidePrice';
@@ -397,6 +397,8 @@ export async function prepareRangeOpen(rpc: WriteRpc, cfg: CurveWriteConfig, pro
   if (!usableRange(peek.tickSpacing, a.tickLower, a.tickUpper)) return notSent('build', RANGE_COPY.badRange);
   const pairPeek = pairOf(peek);
   if (!pairPeek) return notSent('build', RANGE_COPY.notOurPair);
+  // A pool priced in a delisted coin is withdraw-only (quotes.ts): no new position. Taking out still builds.
+  if (isWithdrawOnly(pairPeek.quote)) return notSent('build', withdrawOnlyRefusal(pairPeek.quote));
   const startLower = getArrayStartIndex(a.tickLower, peek.tickSpacing);
   const startUpper = getArrayStartIndex(a.tickUpper, peek.tickSpacing);
   const bands = [...new Set([startLower, startUpper])].map((s) => deriveTickArray(programId, a.pool, s));
@@ -483,6 +485,7 @@ export async function prepareRangeCreate(rpc: WriteRpc, cfg: CurveWriteConfig, p
   if (a.amount <= 0n) return notSent('build', 'Enter an amount above zero.');
   const coin = quoteCoin(a.coinMint.toBase58());
   if (!coin || a.tokenMint.equals(a.coinMint)) return notSent('build', RANGE_COPY.notOurPair);
+  if (isWithdrawOnly(coin)) return notSent('build', withdrawOnlyRefusal(coin));
   const ammConfig = deriveAmmConfig(programId, 0);
   const { token0, token1 } = sortMints(a.tokenMint, a.coinMint);
   const poolKey = derivePool(programId, ammConfig, token0, token1);

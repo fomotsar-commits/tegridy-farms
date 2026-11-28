@@ -18,6 +18,8 @@ import { decodeIntent } from './intent';
 import { LP_COPY, prepareLpDeposit, prepareLpRestart, type LpPrepareReads } from './liquidity';
 import { CPSWAP, EXT, FakeChain, addPool, cfgLocal, legacyTx, openAccount, rent, setClock, simInstructions, tokenFeeOnChain, tokenFeeTaken, u64le, type PoolFixture, type SimHandler } from './testkit.fixture';
 import { poolInverseFee } from '../../../solana/lp/transferFee';
+import { SOL_QUOTE, withdrawOnlyRefusal } from '../../../solana/lp/quotes';
+import { whileDelisted } from '../../../solana/lp/delisted.fixture';
 import type { IntentStep, LpDepositSummary, LpOpenGate, PoolIntent, PreparedTx, WriteRpc } from './types';
 
 const W = (c: FakeChain) => c as unknown as WriteRpc;
@@ -273,6 +275,13 @@ describe('prepareLpRestart: a dead pool, set to the market price', () => {
     expect(refused(await restart(w, { maxIn: 20_000n }))).toMatch(/^Too small to restart this pool\. Put in at least 0\.0000\d+ SOL\.$/);
   });
 
+  // Spec 2026-11-14: a pool priced in a delisted coin is withdraw-only, and a restart puts money in.
+  it('is not built for a pool priced in a delisted coin, and is again once the coin is listed', async () => {
+    const w = world();
+    await whileDelisted(SOL_QUOTE, async () => expect(refused(await restart(w))).toBe(withdrawOnlyRefusal(SOL_QUOTE)));
+    ok(await restart(w));
+  });
+
   it('tops up a Token-2022 token under its own program, and the checker takes it', async () => {
     const w = world({ tokenProgram: TOKEN_2022_PROGRAM_ID });
     const p = ok(await restart(w));
@@ -297,6 +306,15 @@ describe('decodeIntent: a restart in any other shape is blocked', () => {
 
   it('passes as built', async () => {
     const { ixs, ctx } = await built();
+    expect(decodeIntent(ixs, ctx).ok).toBe(true);
+  });
+
+  it('as built, once its pool’s coin is delisted: withdraw-only, whatever the builder did', async () => {
+    const { ixs, ctx } = await built();
+    await whileDelisted(SOL_QUOTE, () => {
+      const r = decodeIntent(ixs, ctx);
+      expect(!r.ok && r.reason).toMatch(/priced in a coin this site no longer lists, so it is withdraw-only/);
+    });
     expect(decodeIntent(ixs, ctx).ok).toBe(true);
   });
 
