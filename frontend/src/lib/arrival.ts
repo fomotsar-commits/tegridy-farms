@@ -217,6 +217,10 @@ const LP_LINK = (roomIdOrMint: string) => `${SITE_URL}/lp/${roomIdOrMint}`;
 const BUY_POST = (coin: string) => `Just bought $${bare(coin)}. I'm on the shore now. Every light here holds it.`;
 /** The link it ends with: the room with its Buy open. */
 const BUY_LINK = (roomId: string) => `${SITE_URL}/${roomId}?sheet=buy`;
+/** A buy's post for a coin with no shore on the island (the moment for every coin, 11-19): what they did, nothing it is not. */
+const BUY_POST_ANY = (coin: string) => `Just bought $${bare(coin)}.`;
+/** The link it ends with: the venue's swap, buying that coin (solanaOpeningPair.ts, `?out=`). */
+const BUY_LINK_ANY = (mint: string) => `${SITE_URL}/solana?out=${mint}`;
 
 export const RECEIPT_WORDS = {
   bought: (amount: string, coin: string) => `Bought ${amount} ${coin}`,
@@ -256,6 +260,8 @@ export const RECEIPT_WORDS = {
   lpIntent: (coin: string | null, roomIdOrMint: string) => `https://x.com/intent/post?text=${encodeURIComponent(`${LP_POST(coin)} ${LP_LINK(roomIdOrMint)}`)}`,
   buyPost: BUY_POST,
   buyLink: BUY_LINK,
+  buyPostAny: BUY_POST_ANY,
+  buyLinkAny: BUY_LINK_ANY,
   /** Under Share on X while the GIF is fetched (a phone tapped before it was in hand), then when it is. */
   momentGetting: 'Getting your GIF…',
   momentReady: 'Your GIF is ready. Tap Share on X.',
