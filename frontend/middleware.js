@@ -362,8 +362,9 @@ async function readCard(url) {
   return respond(ogHtml({
     title: `${r.tier} · ${r.days.toLocaleString("en-US")} days held · ${r.degrees.toFixed(1)}° on Jungle Bay Island`,
     description: READ_DESCRIPTION,
-    image: `${CARD_BASE}?w=${address}`,
-    url: `${CANONICAL_ORIGIN}/read/${address}`,
+    // The heat rides both addresses: X keeps a card per address, so a new number is a new card.
+    image: `${CARD_BASE}?w=${address}&h=${r.degrees.toFixed(2)}`,
+    url: `${CANONICAL_ORIGIN}/read/${address}?h=${r.degrees.toFixed(2)}`,
     siteName,
   }));
 }

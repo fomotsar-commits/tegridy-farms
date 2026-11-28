@@ -43,7 +43,10 @@ const {
   NFT_COLLECTIONS,
   NFT_HOLDERS,
   MARKET_DEPTH_USD,
+  PUMP_BAYLA_POOL,
+  PUMP_BAYLA_VAULT,
 } = await import("../venueTvl.js");
+const { SOL_BASKET } = await import("../../../src/lib/islandBasket.ts");
 
 const SOL = "So11111111111111111111111111111111111111112";
 const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
@@ -145,7 +148,7 @@ function world() {
               const m = w.mints.get(k);
               if (m) return { owner: m.owner, data: { parsed: { type: "mint", info: { decimals: m.decimals } } } };
               const v = w.vaults.get(k);
-              return v ? { owner: v.owner, data: { parsed: { info: { mint: v.mint, tokenAmount: { amount: String(v.amount), decimals: v.decimals } } } } } : null;
+              return v ? { owner: v.owner, data: { parsed: { info: { mint: v.mint, owner: v.authority, tokenAmount: { amount: String(v.amount), decimals: v.decimals } } } } } : null;
             }),
           },
         });
@@ -422,6 +425,84 @@ describe("Solana: only SOL, USDC and the island's coins add dollars", () => {
     w.vaults.set(vault0, { ...w.vaults.get(vault0), mint: SOL, owner: TOKEN22 });
     __resetVenueTvl();
     expect(chain(await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW }), "solana")).toEqual({ chain: "solana", read: false });
+  });
+});
+
+describe("BAYLA's liberation bar: the BAYLA in our pools against her pump.fun pool's", () => {
+  /** Her pump.fun pool's BAYLA vault, as the chain answers it: owned by the pool, under Token-2022. */
+  const pumpVault = (w, bayla, over = {}) =>
+    w.vaults.set(PUMP_BAYLA_VAULT, { owner: TOKEN22, mint: BAYLA, authority: PUMP_BAYLA_POOL, amount: BigInt(Math.round(bayla * 1e6)), decimals: 6, ...over });
+
+  it("is the pool the room's market strip and the island order name as hers", () => {
+    expect(BUNGALOWS.find((b) => b.id === "bayla").market.pool).toBe(PUMP_BAYLA_POOL);
+    expect(SOL_BASKET.find((c) => c.room === "bayla").pool).toEqual({ dex: "pumpswap", address: PUMP_BAYLA_POOL, jupiterLabel: "Pump.fun Amm" });
+  });
+
+  it("counts every BAYLA vault of ours, on both programs and against any coin, beside the total", async () => {
+    const w = world();
+    w.pool(CP, [SOL, 10], [BAYLA, 1_000]);
+    w.pool(CP, [USDC, 5], [BAYLA, 200]);
+    w.pool(CP, [BAYLA, 30], [MEME, 5]); // BAYLA against a coin of the venue's own
+    w.pool(CP, [BAYLA, 40], [BOBO, 400]); // two island coins: her side still counts
+    w.pool(RANGE, [SOL, 1], [BAYLA, 50]);
+    w.pool(CP, [SOL, 3], [MEME, 9]); // no BAYLA
+    pumpVault(w, 4_000);
+    const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
+    expect(body.baylaFlip).toEqual({ ours: 1_320, pump: 4_000 });
+    expect(chain(body, "solana")).toMatchObject({ read: true });
+  });
+
+  it("rounds each side against us, so a fraction of a coin never lifts the figure or calls the flip", async () => {
+    const w = world();
+    w.pool(CP, [SOL, 10], [BAYLA, 319.6]); // 31.96% of hers: the bar must say 31%, never 32%
+    pumpVault(w, 999.4);
+    expect((await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW })).baylaFlip).toEqual({ ours: 319, pump: 1_000 });
+    __resetVenueTvl();
+    const tie = world();
+    tie.pool(CP, [SOL, 10], [BAYLA, 1_000.6]); // ahead by a fraction: not a whole coin more
+    pumpVault(tie, 1_000.2);
+    expect((await readVenueTvl({ fetchImpl: tie.fetchImpl, now: NOW })).baylaFlip).toEqual({ ours: 1_000, pump: 1_001 });
+  });
+
+  it("reads her pump.fun pool in BAYLA held, never in dollars: it needs no price and moves no total", async () => {
+    const w = world();
+    w.pool(CP, [SOL, 10], [BAYLA, 1_000]);
+    const without = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
+    __resetVenueTvl();
+    pumpVault(w, 1e9);
+    const withIt = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
+    expect(withIt.usd).toBe(without.usd);
+    expect(withIt.chains).toEqual(without.chains);
+    expect(withIt.baylaFlip).toEqual({ ours: 1_000, pump: 1e9 });
+  });
+
+  it("says no bar at all when the vault is not that pool's BAYLA account, and keeps Solana's row", async () => {
+    for (const over of [{ authority: key(9) }, { mint: BOBO }, { owner: TOKEN }, { amount: 0n }]) {
+      __resetVenueTvl();
+      const w = world();
+      w.pool(CP, [SOL, 10], [BAYLA, 1_000]);
+      pumpVault(w, 4_000, over);
+      const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
+      expect(body.baylaFlip).toBeUndefined();
+      expect(chain(body, "solana")).toMatchObject({ read: true, usd: 2000 });
+    }
+  });
+
+  it("says no bar while our pools are not read: an outage is never an empty side", async () => {
+    const w = world();
+    const { vault0 } = w.pool(CP, [SOL, 10], [BAYLA, 1_000]);
+    w.vaults.set(vault0, { ...w.vaults.get(vault0), mint: JUNK });
+    pumpVault(w, 4_000);
+    const body = await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW });
+    expect(chain(body, "solana")).toEqual({ chain: "solana", read: false });
+    expect(body.baylaFlip).toBeUndefined();
+  });
+
+  it("reads our side as zero only when the scan found no BAYLA pool at all", async () => {
+    const w = world();
+    w.pool(CP, [SOL, 3], [MEME, 9]);
+    pumpVault(w, 4_000);
+    expect((await readVenueTvl({ fetchImpl: w.fetchImpl, now: NOW })).baylaFlip).toEqual({ ours: 0, pump: 4_000 });
   });
 });
 
