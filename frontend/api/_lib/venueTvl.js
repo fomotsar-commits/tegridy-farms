@@ -108,8 +108,10 @@ const BAYLA_MINT = "7hmVkPXmVagxoptAEpx4jBzZVHwGLdFj6c1y42qxpump";
 
 /**
  * BAYLA's liberation bar (owner, 2026-11-26: "a health bar ... as we move to flipping the pump fun
- * pool for Bayla"): the BAYLA in all our pools against the BAYLA in her graduated pump.fun pool on
- * PumpSwap, the deepest of her outside pools. Counted in BAYLA on both sides, never in dollars: at one
+ * pool for Bayla"): the BAYLA in our BAYLA/SOL pools against the BAYLA in her graduated pump.fun pool
+ * on PumpSwap, the deepest of her outside pools and itself BAYLA/SOL. Only SOL pools count (owner,
+ * 2026-11-28: "only the bayla/sol pool needs to be liberated"): a trade of SOL for BAYLA weighs SOL
+ * pools against each other, and her other pairings are not that market. Counted in BAYLA on both sides, never in dollars: at one
  * price, a constant-product pool's worth is twice its BAYLA, so the ratio is the depth ratio with no
  * price to lean on. The vault is the pool's `pool_base_token_account` (its account at byte 139), read
  * from mainnet 2026-11-26; every read checks the vault still belongs to the pool and holds BAYLA.
@@ -332,11 +334,14 @@ export async function readSolana({ fetchImpl, priceOf, marketPrices, coins = QUO
   // What each pool counts: the cp-swap pool its top coin, doubled; a range pool every coin.
   const counted = [];
   const wanted = new Map();
+  const baylaSol = []; // the BAYLA vault of each BAYLA/SOL pool, on either program: the liberation bar's side
   programs.forEach((pools, p) => {
     const { doubled } = SOLANA_PROGRAMS[p];
     for (const pool of pools) {
       const coinSides = pool.sides.filter((s) => coinByMint.has(s.mint));
       if (!coinSides.length) continue;
+      const baylaSide = pool.sides.find((s) => s.mint === BAYLA_MINT);
+      if (baylaSide && pool.sides.some((s) => s.mint === sol.mint)) baylaSol.push(baylaSide.vault);
       // The coin the pool is priced in: the highest-ranked one it holds (pool-index.js's rule).
       const quote = coinSides.reduce((a, b) => (coinByMint.get(a.mint).rank <= coinByMint.get(b.mint).rank ? a : b));
       const sides = doubled ? [quote] : coinSides;
@@ -344,14 +349,14 @@ export async function readSolana({ fetchImpl, priceOf, marketPrices, coins = QUO
       // `poolCoins` names. None for a pool priced in a delisted coin.
       const token = coinByMint.get(quote.mint).delisted ? null : (pool.sides.find((s) => !coinByMint.has(s.mint))?.mint ?? null);
       counted.push({ sides, factor: doubled ? 2 : 1, token });
-      // Every coin vault is read, though only `sides` is valued: the BAYLA in each pool of hers is
-      // counted for her bar (readPumpBayla), whatever coin the pool is priced in.
+      // Every coin vault is read, though only `sides` is valued: a BAYLA/SOL pool is priced in SOL,
+      // and her bar (`baylaSol`) counts its BAYLA side.
       for (const s of coinSides) wanted.set(s.vault, coinByMint.get(s.mint));
     }
   });
   const held = wanted.size ? await readVaults(wanted, fetchImpl) : new Map();
-  // Every BAYLA vault of ours is read above: BAYLA is a pairing coin, so each pool of hers is counted.
-  const bayla = [...wanted].reduce((sum, [vault, coin]) => (coin.mint === BAYLA_MINT ? sum + held.get(vault) : sum), 0);
+  // Each BAYLA/SOL vault is read above: both are pairing coins, so both sides of the pool are counted.
+  const bayla = baylaSol.reduce((sum, vault) => sum + held.get(vault), 0);
 
   if (!counted.length) return { usd: 0, pools: 0, unvalued: 0, poolCoins: [], bayla };
   const usd = { [sol.mint]: await priceOf("SOL"), [usdc.mint]: 1 };

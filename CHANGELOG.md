@@ -9,7 +9,7 @@ The site's Changelog tab shows both files.
 
 ### 2026-11-28
 
-- BAYLA's room: a Liberation bar now heads her market. It fills with the BAYLA in all our Solana pools, measured against the BAYLA in her pump.fun pool on PumpSwap, and says Liberated the day ours hold more (32% on 2026-11-26). It counts BAYLA, not dollars, so no price move shifts it, and it is read from Solana when the page opens; when either side cannot be read it says so instead of showing an empty bar. Its link opens her Add SOL + BAYLA form.
+- BAYLA's room: a Liberation bar now heads her market. It fills with the BAYLA in our BAYLA/SOL pools, measured against the BAYLA in her pump.fun pool on PumpSwap (also BAYLA/SOL), and says Liberated the day ours hold more (20% on 2026-11-28). BAYLA in our pools with USDC or other coins is not counted. It counts BAYLA, not dollars, so no price move shifts it, and it is read from Solana when the page opens; when either side cannot be read it says so instead of showing an empty bar. Its link opens her Add SOL + BAYLA form.
 
 ### 2026-11-27
 
