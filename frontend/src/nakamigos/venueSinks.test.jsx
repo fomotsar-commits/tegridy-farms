@@ -1160,3 +1160,86 @@ describe("a fill is held to the trade on screen", () => {
     });
   });
 });
+
+// ═══ The cart buys every OpenSea listing in ONE transaction, on any wallet ═══
+//
+// Before 2026-11-15 the cart batched only on a wallet that speaks EIP-5792
+// (wallet_sendCalls); every other wallet got one confirmation per item. The cart
+// now packs the checked fills into Seaport's fulfillAvailableAdvancedOrders
+// (lib/seaportSweep.js): one plain transaction, and the receipt's OrderFulfilled
+// events say what was bought.
+describe("the cart buys in one transaction", () => {
+  const FULFILL_AVAILABLE = "0x87201b41";
+  const hashOf = (id) => "0x" + id.padStart(64, "0");
+  const cartItem = (id) => ({ id, tokenId: id, priceWei: "100000000000000000", orderHash: hashOf(id), protocolAddress: SEAPORT_16, contract: VENUE });
+
+  async function fulfilledLog(id) {
+    const { ethers } = await import("ethers");
+    const { ORDER_FULFILLED_EVENT } = await import("./lib/seaportSweep");
+    const ev = new ethers.Interface([ORDER_FULFILLED_EVENT]);
+    const { data, topics } = ev.encodeEventLog("OrderFulfilled", [hashOf(id), "0x" + "c".repeat(40), "0x" + "0".repeat(40), WALLET, [], []]);
+    return { address: SEAPORT_16, data, topics };
+  }
+
+  beforeEach(() => {
+    // Each listing's own fill, for the token its hash names.
+    h.openseaPost = vi.fn(async (_path, body) => buyFulfillment(VENUE, { tokenId: String(BigInt(body.listing.hash)) }));
+  });
+
+  it("two listings cost one transaction on a wallet that cannot batch calls", async () => {
+    const logs = [await fulfilledLog("7"), await fulfilledLog("8")];
+    h.sendTransaction = vi.fn(async () => ({ hash: "0xone", wait: async () => ({ status: 1, logs }) }));
+    const api = await import("./api");
+    const res = await api.fulfillSeaportOrdersBatch([cartItem("7"), cartItem("8")], { buyerAddress: WALLET });
+    expect(res.success).toBe(true);
+    expect(h.sendTransaction).toHaveBeenCalledTimes(1);
+    const [tx] = h.sendTransaction.mock.calls[0];
+    expect(tx.to.toLowerCase()).toBe(SEAPORT_16.toLowerCase());
+    expect(tx.data.slice(0, 10)).toBe(FULFILL_AVAILABLE);
+    expect(tx.value).toBe(200000000000000000n);
+    expect(res.bought.map((l) => l.id)).toEqual(["7", "8"]);
+    expect(res.missed).toEqual([]);
+    expect(h.providerRequest.mock.calls.map(([a]) => a?.method)).not.toContain("wallet_sendCalls");
+  });
+
+  it("an item that sold before the purchase landed is reported missed, never bought", async () => {
+    const logs = [await fulfilledLog("8")];
+    h.sendTransaction = vi.fn(async () => ({ hash: "0xone", wait: async () => ({ status: 1, logs }) }));
+    const api = await import("./api");
+    const res = await api.fulfillSeaportOrdersBatch([cartItem("7"), cartItem("8")], { buyerAddress: WALLET });
+    expect(res.bought.map((l) => l.id)).toEqual(["8"]);
+    expect(res.missed.map((m) => [m.listing.id, m.gone])).toEqual([["7", true]]);
+  });
+
+  it("a mined purchase whose fills cannot be read is a notice, not a claim", async () => {
+    h.sendTransaction = vi.fn(async () => ({ hash: "0xone", wait: async () => ({ status: 1, logs: [] }) }));
+    const api = await import("./api");
+    const res = await api.fulfillSeaportOrdersBatch([cartItem("7"), cartItem("8")], { buyerAddress: WALLET });
+    expect(res.error).toBe("unconfirmed");
+    expect(res.bought).toEqual([]);
+  });
+
+  it("a tampered fill is left out and the rest still go, the tampered one never sent", async () => {
+    // Listing 9's fill moves token 10: refused by its own checks.
+    h.openseaPost = vi.fn(async (_path, body) => {
+      const id = String(BigInt(body.listing.hash));
+      return buyFulfillment(VENUE, { tokenId: id === "9" ? "10" : id });
+    });
+    const logs = [await fulfilledLog("7"), await fulfilledLog("8")];
+    h.sendTransaction = vi.fn(async () => ({ hash: "0xone", wait: async () => ({ status: 1, logs }) }));
+    const api = await import("./api");
+    const res = await api.fulfillSeaportOrdersBatch([cartItem("7"), cartItem("8"), cartItem("9")], { buyerAddress: WALLET });
+    expect(h.sendTransaction).toHaveBeenCalledTimes(1);
+    expect(h.sendTransaction.mock.calls[0][0].value).toBe(200000000000000000n);
+    expect(res.bought.map((l) => l.id)).toEqual(["7", "8"]);
+    expect(res.missed.map((m) => [m.listing.id, m.gone])).toEqual([["9", false]]);
+  });
+
+  it("cancelling in the wallet sends nothing and buys nothing", async () => {
+    h.sendTransaction = vi.fn(async () => { throw Object.assign(new Error("user rejected"), { code: "ACTION_REJECTED" }); });
+    const api = await import("./api");
+    const res = await api.fulfillSeaportOrdersBatch([cartItem("7"), cartItem("8")], { buyerAddress: WALLET });
+    expect(res.error).toBe("rejected");
+    expect(res.bought).toEqual([]);
+  });
+});

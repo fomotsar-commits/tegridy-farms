@@ -8,7 +8,7 @@
  * Main entry: validateOrderFillability(provider, order, fulfillerAddress)
  */
 
-import { SEAPORT_ADDRESS, CONDUIT_ADDRESS } from "../constants";
+import { SEAPORT_ADDRESS, CONDUIT_ADDRESS, KNOWN_SEAPORT_ADDRESSES } from "../constants";
 
 // ═══ LAYER 1 — Free, client-side checks ═══
 
@@ -90,13 +90,18 @@ const ERC721_ABI = [
  * @param {string} orderHash - the order hash
  * @returns {{ valid: boolean, reason?: string, details?: object }}
  */
-export async function checkOrderStatus(ethersProvider, orderHash) {
+export async function checkOrderStatus(ethersProvider, orderHash, seaportAddress = SEAPORT_ADDRESS) {
   if (!orderHash) {
     return { valid: false, reason: "No order hash available" };
   }
+  // An order's status lives on the Seaport it was signed for. OpenSea's listings
+  // are on 1.6; asking 1.5 about them always answered "fine" (until 2026-11-15).
+  if (!KNOWN_SEAPORT_ADDRESSES.has(String(seaportAddress).toLowerCase())) {
+    return { valid: true, warning: "Could not verify order status: unknown Seaport" };
+  }
   try {
     const { ethers } = await import("ethers");
-    const seaport = new ethers.Contract(SEAPORT_ADDRESS, SEAPORT_ABI, ethersProvider);
+    const seaport = new ethers.Contract(seaportAddress, SEAPORT_ABI, ethersProvider);
     const [isValidated, isCancelled, totalFilled, totalSize] = await seaport.getOrderStatus(orderHash);
 
     if (isCancelled) {
@@ -177,7 +182,7 @@ export async function runLayer2Checks(ethersProvider, order) {
   const orderHash = order?.orderHash;
 
   const checks = await Promise.all([
-    checkOrderStatus(ethersProvider, orderHash),
+    checkOrderStatus(ethersProvider, orderHash, order?.protocolAddress || order?.orderData?.protocolAddress || SEAPORT_ADDRESS),
     checkNftOwnership(ethersProvider, contractAddress, tokenId, seller),
     checkApproval(ethersProvider, contractAddress, tokenId, seller),
   ]);
