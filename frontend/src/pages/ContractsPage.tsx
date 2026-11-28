@@ -157,11 +157,10 @@ const GROUPS: ContractGroup[] = [
   },
   {
     title: 'Revenue',
-    // "currently 100% to stakers" was the same overclaim corrected across the app on
-    // 2026-08-12 and missed here. stakerShareBps IS 10000 — but that is 100% of what
-    // REACHES the distributor, and ReferralSplitter carves 2000 bps off the top first
-    // and cannot be set to zero, so the end-to-end ceiling is ~80%.
-    description: 'Protocol swap fees route to stakers, POL, and treasury per the on-chain split. After the 20% referral carve, every remaining basis point is earmarked for stakers — none has been distributed yet.',
+    // Both routers pay the treasury Safe (owner ruling 2026-11-15); the referral share comes
+    // off first. The Revenue Distributor is the stakers' payout contract, which swap fees no
+    // longer reach.
+    description: "After the referral share, protocol swap fees go to the venue's treasury Safe, not to stakers.",
     entries: [
       { label: 'Revenue Distributor', address: REVENUE_DISTRIBUTOR_ADDRESS, source: 'contracts/src/RevenueDistributor.sol' },
       { label: 'Swap Fee Router', address: SWAP_FEE_ROUTER_ADDRESS, source: 'contracts/src/SwapFeeRouter.sol' },

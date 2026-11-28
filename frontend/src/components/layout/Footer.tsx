@@ -87,7 +87,7 @@ export function Footer() {
               </p>
             ) : toweliVoice ? (
               <p className="text-[13px] leading-relaxed max-w-[420px]" style={{ ...SHADOW, color: 'var(--color-kyle)' }}>
-                Art-first DeFi on Ethereum and Solana. Stake TOWELI &amp; LP tokens to earn rewards; protocol swap fees route on-chain, after a referral share, to stakers in ETH. On Solana, swap in our own pools or through Jupiter, whichever pays you more.
+                Art-first DeFi on Ethereum and Solana. Stake TOWELI &amp; LP tokens to earn rewards; protocol swap fees go on-chain, after a referral share, to the venue&apos;s treasury. On Solana, swap in our own pools or through Jupiter, whichever pays you more.
               </p>
             ) : (
               <p className="text-[13px] leading-relaxed max-w-[420px]" style={{ ...SHADOW, color: 'var(--color-kyle)' }}>

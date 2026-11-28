@@ -706,7 +706,7 @@ describe('useSwap on Base: an island coin through its own V3 pool, venue fee inc
   const UR = '0x6fF5693b99212Da76ad316178A184AB56D299b43';
   const PERMIT2 = '0x000000000022D473030F116dDEE9F6B43aC78BA3';
   const BNKR = { address: '0x22aF33FE49fD1Fa80c7149773dDe5890D3c76F3b' as `0x${string}`, symbol: 'BNKR', name: 'BNKR', decimals: 18, logoURI: '' };
-  const SAFE = '0xfc5D5018E557941A3BB7Ff057d1B0c2eCC09fbf1' as `0x${string}`;
+  const SAFE = '0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0' as `0x${string}`;
   const v3 = (side: 'buy' | 'sell') => ({
     leg: { side, coin: BNKR.address, pool: '0xAEC085E5A5CE8d96A7bDd3eB3A62445d4f6CE703' as `0x${string}`, poolFee: 10000, quoterV2: '0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a' as `0x${string}`, router: UR as `0x${string}` },
     feeBips: 50n,

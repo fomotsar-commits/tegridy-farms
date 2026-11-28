@@ -35,18 +35,15 @@ function curvesWhere(): string {
 export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   // ── Core protocol ────────────────────────────────────────────
   {
-    // The ETH that stakers are in line for is the ROUTER's fee, less the referral share.
-    // The pair's own 0.3% never reaches them: its one-sixth venue cut (on for TOWELI/WETH
-    // since 2026-10-16) mints LP to the treasury Safe, not to stakers.
+    // Stakers earn TOWELI. The router's fee, after the referral share, and the pair's
+    // one-sixth cut both go to the treasury Safe (owner ruling 2026-11-15), not to stakers.
     keywords: ['toweli', 'token'],
-    answer: "TOWELI is the farm's token. 1B fixed supply, no mint function. Stake it and you earn TOWELI today. After a referral share, the venue's swap fee is routed toward stakers as ETH, in payout rounds that need 1 ETH of fees first. /premium shows what has been paid. That's the whole pitch.",
+    answer: "TOWELI is the farm's token. 1B fixed supply, no mint function. Stake it and you earn TOWELI today. After a referral share, the venue's swap fee goes to the venue's treasury, not to stakers. That's the whole pitch.",
   },
   {
-    // Rewards today are TOWELI emissions from a fixed launch seed. The pool is live and
-    // the fee rail has taken fees, so the ETH share waits on volume (1 ETH a round), not
-    // on a launch. Never "real yield" in the present tense.
+    // Rewards are TOWELI emissions from a fixed launch seed; swap fees go to the treasury.
     keywords: ['tegridy', 'farms', 'protocol', 'project'],
-    answer: "memetics.finance is a yield farm where you stake TOWELI. Rewards today are TOWELI emissions from a fixed launch seed. The ETH swap-fee share is wired on-chain, and a payout round needs 1 ETH of fees first; /premium shows what has been paid. Supply's fixed, no printer.",
+    answer: "memetics.finance is a yield farm where you stake TOWELI. Rewards today are TOWELI emissions from a fixed launch seed. Swap fees go to the venue's treasury, not to stakers. Supply's fixed, no printer.",
   },
   {
     keywords: ['supply', 'total', 'circulating', 'mint'],
@@ -57,10 +54,10 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     answer: "FDV = price × 1B supply. Live number on /tokenomics. Market cap is similar since most supply is circulating.",
   },
   {
-    // Supply is fixed, and today's rewards are emissions from a one-time 6.4M seed. The
-    // ETH side waits on a full ether of fees per round, not on the pool going live.
+    // Supply is fixed, and today's rewards are emissions from a one-time 6.4M seed. Swap
+    // fees go to the treasury Safe (owner ruling 2026-11-15), not to stakers.
     keywords: ['emission', 'inflation', 'distribution'],
-    answer: "Supply is fixed: no new TOWELI, ever. Staking rewards today come from a one-time 6.4M emissions seed funded at launch. ETH swap-fee rewards are wired on-chain, and a payout round needs 1 ETH of fees first. /tokenomics shows the breakdown.",
+    answer: "Supply is fixed: no new TOWELI, ever. Staking rewards today come from a one-time 6.4M emissions seed funded at launch. Swap fees go to the venue's treasury, not to stakers. /tokenomics shows the breakdown.",
   },
   {
     // HONESTY PASS 2026-06-11: treasury Safe is freshly rebuilt post-relaunch and
@@ -150,14 +147,12 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
     answer: "First swap of a token needs an approval tx (lets the contract pull tokens from your wallet). One-time per token. Then swap.",
   },
   {
-    // Two fees, read 2026-10-10. SwapFeeRouter.feeBps is 50, ReferralSplitter takes
-    // referralFeeBps (2000) first, and stakerShareBps sends all of the rest toward stakers;
-    // the owner can move all three through timelocks. The distributor has received 0.
-    // The pair's 0.3% stays in the pool, less the venue's one-sixth cut on a pool where the
-    // owner switched it on (TOWELI/WETH, 2026-10-16). A static answer cannot read the chain,
-    // so each figure that can move carries its date or points at the page that reads it.
+    // Two fees, read 2026-11-16: SwapFeeRouter.feeBps 50 and ReferralSplitter.referralFeeBps
+    // 2000, both timelock-settable, so each is dated. The rest goes to the treasury Safe (owner
+    // ruling 2026-11-15). The pair's 0.3% stays in the pool, less the venue's one-sixth cut
+    // where the owner switched it on (TOWELI/WETH, 2026-10-16).
     keywords: ['fee', 'swap', 'cost', 'percent'],
-    answer: "Two fees. A swap through our own router pays a venue fee. On 10 October 2026 it was 0.5%: 20% of that was the referral share, which goes to your referrer if they stake enough TOWELI and to the treasury otherwise, and the other 80% was routed toward TOWELI stakers as ETH. By that date the router had taken 0.000003 ETH in all and stakers had been paid none. The swap screen shows the live rate before you sign, and /premium shows the live total paid. Underneath, the pool itself charges 0.3% for its liquidity providers. On the TOWELI/ETH pool the venue has taken one sixth of that for its treasury since 16 October 2026, so providers there keep about 0.25%.",
+    answer: "Two fees. A swap through our own router pays a venue fee. On 16 November 2026 it was 0.5%, and 20% of that was the referral share, which goes to your referrer if they stake enough TOWELI and to the treasury otherwise. The rest goes to the venue's treasury; none of it goes to stakers. The swap screen shows the live rate before you sign. Underneath, the pool itself charges 0.3% for its liquidity providers. On the TOWELI/ETH pool the venue has taken one sixth of that for its treasury since 16 October 2026, so providers there keep about 0.25%.",
   },
 
   // ── Liquidity ───────────────────────────────────────────────
@@ -329,11 +324,10 @@ export const KNOWLEDGE_BASE: KnowledgeEntry[] = [
   },
   {
     // PremiumAccess is live. The fee is in TOWELI, read from the contract (never hardcode
-    // it: it is timelock-mutable), and there is no points multiplier or fee discount. A
-    // static answer cannot read the chain, so it states the design and that no ETH has been
-    // distributed yet, never "holders earn ETH" (premiumBenefits.ts reads it live).
+    // it: it is timelock-mutable), and there is no points multiplier or fee discount. Swap
+    // fees go to the treasury Safe (owner ruling 2026-11-15), so it carries no fee share.
     keywords: ['premium', 'gold', 'card', 'subscription'],
-    answer: "Randy's Gold Card is live at /premium. You pay in TOWELI — the monthly fee is read straight off the contract and shown on the page. Holders are in line for ETH from protocol swap fees like every staker; none has been distributed yet (the page shows the live number). JBAC holders get it free for life. Internally reviewed, no third-party audit yet.",
+    answer: "Randy's Gold Card is live at /premium. You pay in TOWELI; the monthly fee is read straight off the contract and shown on the page. It carries no share of swap fees: those go to the venue's treasury. JBAC holders get it free for life. Internally reviewed, no third-party audit yet.",
   },
   {
     // AUDIT R073: prior copy said "no refund mid-period" — wrong. PremiumAccess

@@ -121,13 +121,9 @@ export default function LiquidityPage() {
             separate fee.{openingLine}
           </p>
         ) : (
-          /* Base and Robinhood Chain: the same factory code, and each OLD factory's feeTo is the
-             venue's FEE_REMITTANCE Safe 0xfc5D…fbf1; the factory new pools open on since
-             2026-11-08 pays the TREASURY Safe 0x796c…38C0, so the line says only "the venue".
-             Neither had a pair yet (read 2026-10-17),
-             and a new pair starts with kLast = 0, so its cut stays off until the feeToSetter
-             (Base: the venue's L2 multisig 0xBC4E…Be5B; Robinhood: the owner wallet) switches
-             it on. Our swap does not route on either chain, so the line claims no swap fee. */
+          /* Base and Robinhood Chain: both factories pay the cut to the chain's treasury Safe
+             (owner ruling 2026-11-15). A new pair starts with kLast = 0, so its cut stays off
+             until the factory's feeToSetter switches it on; the line claims no swap fee. */
           <p className="text-white/75 text-[14px] md:text-[15px] leading-relaxed max-w-[62ch]">
             {chainName} pools. Swap fee 0.3%, all to providers until the venue switches on its
             one-sixth cut for that pool, which goes to the venue as new pool shares (read 17 October 2026).{openingLine}

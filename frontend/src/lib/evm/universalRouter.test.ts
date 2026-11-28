@@ -8,7 +8,7 @@ import { buyManyWithEth, buyWithEth, sellForEth, swapTokens, swapTokensFeeOnInpu
 // every field, so a changed byte fails here before it reaches a wallet.
 const BNKR = '0x22aF33FE49fD1Fa80c7149773dDe5890D3c76F3b';
 const WETH = '0x4200000000000000000000000000000000000006';
-const SAFE = '0xfc5D5018E557941A3BB7Ff057d1B0c2eCC09fbf1';
+const SAFE = '0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0';
 const MSG_SENDER = '0x0000000000000000000000000000000000000001';
 const ADDRESS_THIS = '0x0000000000000000000000000000000000000002';
 const CONTRACT_BALANCE = 1n << 255n;

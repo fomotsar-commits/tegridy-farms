@@ -34,7 +34,7 @@ vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: v
 
 import { IslandBasketEvm } from './IslandBasketEvm';
 
-const SAFE = '0xfc5D5018E557941A3BB7Ff057d1B0c2eCC09fbf1' as const;
+const SAFE = '0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0' as const;
 /** Every pool quotes `out`: on Base, $mfer's V2 pair wins the tie, so the order is the batch plus one V2 transaction. */
 const quoting = (out: bigint) => async (_c: unknown, _v: unknown, legs: { coin: EvmLegQuote['coin']; amountIn: bigint }[]): Promise<EvmLegQuote[]> =>
   legs.map((l) => ({ coin: l.coin, amountIn: l.amountIn, outside: l.coin.pools.map((pool) => ({ pool, out })), ours: null, venueFee: { bps: 50n, recipient: SAFE }, unread: false }));

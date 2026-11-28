@@ -1,40 +1,10 @@
 /**
- * The shape a chain has to have before this venue will serve it.
- *
- * WHY THIS EXISTS. Adding a second chain used to mean editing every surface that
- * had baked a mainnet address, a mainnet explorer, or the assumption that a fee
- * captured is a fee paid. This module is the seam: a chain is a record, and the
- * things that differ between chains are fields on it rather than branches spread
- * through the app.
- *
- * WHAT IT DOES NOT DO. It does not add a chain. `registry.ts` has exactly one
- * entry — mainnet — and the decision to add another is a go/no-go the operator
- * takes, not a config default. See docs/BASE_L2_GO_NO_GO.md.
+ * The shape a chain has to have before this venue will serve it: a chain is a record, and
+ * what differs between chains is a field on it, not a branch spread through the app.
+ * Adding a chain is a go/no-go the operator takes (docs/BASE_L2_GO_NO_GO.md), not a default.
  */
 
 export type Address = `0x${string}`;
-
-/**
- * Where a chain's captured protocol fees actually go.
- *
- * This is the field the honesty rules hang off, so it is worth being blunt about.
- *
- *   'distributor'  The chain has a RevenueDistributor and a veTOWELI to read. A
- *                  fee captured here becomes staker yield on this chain, and a
- *                  surface may say so.
- *
- *   'remittance'   The chain captures fees into a Safe that an operator later
- *                  bridges. Nothing on this chain pays a staker. The captured
- *                  amount is real; the yield is not, until a bridge cycle lands
- *                  and reconciles somewhere else. A surface that renders a
- *                  remittance balance as staker yield is publishing a future
- *                  event as a past one.
- *
- * A second chain without veTOWELI can only ever be 'remittance', because
- * RevenueDistributor's constructor takes a votingEscrow and TOWELI is fixed-supply
- * on one chain.
- */
-export type FeeSinkKind = 'distributor' | 'remittance';
 
 /**
  * What a chain can actually do. Every flag is an absence somewhere else, declared
@@ -44,8 +14,6 @@ export type FeeSinkKind = 'distributor' | 'remittance';
 export interface ChainCapabilities {
   /** veTOWELI staking exists here. False everywhere TOWELI is not native. */
   readonly staking: boolean;
-  /** Fees captured here reach stakers without leaving the chain. */
-  readonly stakerYield: boolean;
   /** A ReferralSplitter with a voting-power source to tier against. */
   readonly referrals: boolean;
   /** A POLAccumulator with a TOWELI pair to buy into. */
@@ -108,7 +76,10 @@ export interface ChainContracts {
   readonly twap: Address;
   readonly swapFeeRouter: Address;
   readonly swapFeeRouterAdmin: Address;
-  /** The address in `SwapFeeRouter.revenueDistributor`. Read `feeSink` for what it IS. */
+  /**
+   * The address in `SwapFeeRouter.revenueDistributor`: where the venue's swap fee lands.
+   * The chain's treasury Safe on every chain (owner ruling 2026-11-15), so no fee pays a staker.
+   */
   readonly feeSink: Address;
   readonly treasury: Address;
   /**
@@ -139,7 +110,6 @@ export interface ChainConfig {
    * configuration bug on an L2.
    */
   readonly sequencerUptimeFeed: Address | null;
-  readonly feeSink: FeeSinkKind;
   readonly capabilities: ChainCapabilities;
   readonly contracts: ChainContracts;
 }

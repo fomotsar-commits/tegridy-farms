@@ -6,9 +6,9 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { CONNECT_ETHEREUM_WALLET } from '../../lib/copy';
 import { ClockLine } from '../ClockLine';
 import { getTxUrl } from '../../lib/explorer';
-import { RealYieldProof } from '../RealYieldProof';
 import { useSwap } from '../../hooks/useSwap';
 import { CHAIN_ID } from '../../lib/constants';
+import { getChainConfig } from '../../lib/chains/registry';
 import { swapTokensFor, tokenArt } from '../../lib/tokenList';
 import { useTOWELIPriceOptional } from '../../contexts/PriceContext';
 import { formatTokenAmountGrouped, formatBalance } from '../../lib/formatting';
@@ -622,12 +622,13 @@ export function EvmSwapPanel({ chainId: swapChainId, page = false, buy, lead }: 
           </m.div>
         {page && (
           <>
-            {/* The venue story, where a competitor's user first lands: fees here
-                are REAL yield to stakers, and the curve pays creators 0.40% of
-                every trade — a checkable on-chain number, not a superlative
-                (the honesty-vocabulary bar). Both claims link to their
-                checkable surfaces. */}
-            {onEthereum ? <RealYieldProof /> : <L2FeeLine name={swap.venue?.name ?? 'this chain'} islandV3={universalRouterOn(swap.swapChainId) !== null} />}
+            {/* Where the venue's fee goes on this chain, then what the curve pays creators:
+                both are on-chain numbers, not superlatives. */}
+            <SwapFeeLine
+              name={swap.venue?.name ?? 'this chain'}
+              islandV3={universalRouterOn(swap.swapChainId) !== null}
+              referral={getChainConfig(swap.swapChainId)?.contracts.referralSplitter != null}
+            />
             <div className="relative isolate glass-card rounded-2xl p-4 mt-4" style={{ border: '1px solid var(--color-purple-12)' }}>
               <CardArt pageId="trade" idx={4} />
               <p className="text-[13px] text-text-secondary leading-relaxed">
@@ -663,19 +664,18 @@ export function EvmSwapPanel({ chainId: swapChainId, page = false, buy, lead }: 
 
 
 /**
- * The Swap tab's money line off Ethereum, where RealYieldProof (fees paid to stakers)
- * would not be true: on Base and Robinhood Chain the venue fee lands in the fee Safe on
- * that chain (registry feeSink 'remittance'). Where Uniswap's Universal Router carries an
- * island coin's own V3 pool (Base), that route pays the same fee to the same Safe; a swap
- * routed to Uniswap V2 pays the venue nothing (useSwap.ts sends it straight to V2's router).
+ * The Swap tab's money line, every chain: the venue fee lands in that chain's treasury Safe
+ * (registry `feeSink`, owner ruling 2026-11-15), after the referral share where the chain has a
+ * ReferralSplitter. An island coin's own V3 pool via Uniswap's Universal Router (Base) pays the
+ * same fee to the same Safe; a swap routed to Uniswap V2 pays the venue nothing (useSwap.ts).
  */
-function L2FeeLine({ name, islandV3 }: { name: string; islandV3: boolean }) {
+export function SwapFeeLine({ name, islandV3, referral }: { name: string; islandV3: boolean; referral: boolean }) {
   return (
     <div className="relative isolate glass-card rounded-2xl p-4 mt-4" style={{ border: '1px solid var(--color-purple-12)' }}>
       <CardArt pageId="trade" idx={6} />
-      <p className="text-[13px] text-text-secondary leading-relaxed">
+      <p className="text-[13px] text-text-secondary leading-relaxed" data-testid="swap-fee-line">
         <span className="text-text-primary font-medium">Where the fee goes on {name}.</span>{' '}
-        A swap through our pools{islandV3 ? <>, or through an island coin&apos;s own Uniswap V3 pool,</> : null} pays the venue its fee, kept in the venue&apos;s fee Safe on {name}. It does not reach TOWELI stakers. A swap routed to Uniswap{islandV3 ? ' V2' : ''} pays the venue nothing.
+        A swap through our pools{islandV3 ? <>, or through an island coin&apos;s own Uniswap V3 pool,</> : null} pays the venue its fee{referral ? <>. After a referral share, it goes</> : <>, which goes</>} to the venue&apos;s treasury on {name}. A swap routed to Uniswap{islandV3 ? ' V2' : ''} pays the venue nothing.
       </p>
     </div>
   );

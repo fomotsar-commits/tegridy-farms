@@ -121,7 +121,7 @@ export function YieldCalculator() {
         <div>
           <h3 className="text-white font-semibold text-[15px] tracking-tight">See what you'd earn</h3>
           <p className="text-white/50 text-[11px] mt-0.5">
-            Reference estimate. No wallet required. Real yield varies with TVL and swap volume.
+            Reference estimate. No wallet required. Real yield varies with total staked.
           </p>
         </div>
         <span className="text-[10px] uppercase tracking-wider text-white/40 px-2 py-0.5 rounded-full border border-white/10">
@@ -229,7 +229,7 @@ export function YieldCalculator() {
           <p className="text-white/50 text-[10px] max-w-[60%]">
             {aprIsLive
               ? `Based on the live ${baselineAprPct.toFixed(1)}% base APR scaled by boost. Rates change with total staked.`
-              : `Estimates assume a ${BASELINE_APR_PCT}% baseline APR scaled by boost. Real yield depends on live pool revenue.`}
+              : `Estimates assume a ${BASELINE_APR_PCT}% baseline APR scaled by boost. Rates change with total staked.`}
           </p>
           <Link
             to="/earn/toweli"

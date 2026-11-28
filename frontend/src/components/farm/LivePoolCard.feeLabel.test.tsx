@@ -48,9 +48,6 @@ const LOADED: PoolData = {
   aprIsEstimated: false,
   volIsEstimated: false,
   isLoaded: true,
-  stakerSharePct: 100,
-  stakerShareLoaded: true,
-  referralFeeBps: 0,
   feesReadOk: true,
   feeBpsReadOk: true,
 };

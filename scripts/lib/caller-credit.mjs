@@ -42,9 +42,9 @@
  *      "nothing stranded" is how a watch goes green while blind.
  *   2. Non-zero credit is STRANDED even when the pull is currently blocked. Visibility
  *      and actionability are different questions; a blocked strand is still a strand.
- *   3. Never assert that recovering the credit opens a distribution epoch unless the
- *      arithmetic says so. RevenueDistributor.MIN_DISTRIBUTE_AMOUNT is 1e18 and the
- *      credit is seven orders of magnitude below it.
+ *   3. Say where recovered ETH ends: SwapFeeRouter.accumulatedETHFees, which anyone can pay
+ *      on in full to the router's payee, the treasury Safe (owner ruling 2026-11-15), with
+ *      distributeFeesToStakers(). There is no minimum on that path.
  */
 
 import { createHash } from 'node:crypto';
@@ -53,7 +53,8 @@ import { createHash } from 'node:crypto';
 export const ADDRESSES = {
   swapFeeRouter: '0x6d5791A660e79175F74C6D639584C98422d5956E',
   referralSplitter: '0x6B3442dAcB62d40BA39fCe9b3CDa350FEa6f7e4c',
-  revenueDistributor: '0xF993316E2fC079de4358c489A935E01e03E23E17',
+  // The router's payee, revenueDistributor(), since the owner's 2026-11-15 ruling.
+  treasury: '0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d',
 };
 
 /**
@@ -72,13 +73,6 @@ export const SELECTORS = {
   accumulatedETHFees: '0x8696cb10', // accumulatedETHFees()
   referralSplitter: '0x06c29f11', // referralSplitter()
 };
-
-/**
- * RevenueDistributor.MIN_DISTRIBUTE_AMOUNT, read on mainnet 2026-08-12. Pulling the
- * credit moves it into SwapFeeRouter.accumulatedETHFees; it does NOT by itself open a
- * distribution epoch, and this constant is what proves that.
- */
-export const MIN_DISTRIBUTE_AMOUNT = 1000000000000000000n;
 
 /** ABI-encode a single address argument onto a selector. */
 export function encodeAddressArg(selector, address) {
@@ -277,14 +271,10 @@ export function classifyCallerCredit(reading) {
     ? null
     : (pullable && economics.worthIt);
 
-  // RULE 3. The epoch claim is arithmetic, not a slogan.
-  let opensEpoch = null;
-  let shortfallWei = null;
-  if (creditWei !== null && accumulatedETHFeesWei !== null) {
-    const after = creditWei + accumulatedETHFeesWei;
-    opensEpoch = after >= MIN_DISTRIBUTE_AMOUNT;
-    shortfallWei = opensEpoch ? 0n : MIN_DISTRIBUTE_AMOUNT - after;
-  }
+  // RULE 3. What the router would hold after the pull, stated only when both reads landed.
+  const afterRecoveryWei = creditWei !== null && accumulatedETHFeesWei !== null
+    ? creditWei + accumulatedETHFeesWei
+    : null;
 
   return {
     state,
@@ -298,9 +288,8 @@ export function classifyCallerCredit(reading) {
     economics,
     distribution: {
       landsIn: 'SwapFeeRouter.accumulatedETHFees',
-      minDistributeAmountWei: MIN_DISTRIBUTE_AMOUNT,
-      opensEpoch,
-      shortfallWei,
+      payee: ADDRESSES.treasury,
+      afterRecoveryWei,
     },
   };
 }
@@ -363,15 +352,11 @@ export function renderReport(classification) {
     );
   }
 
-  // Derived from the arithmetic above, never asserted flat. Both branches exist so a
-  // future edit cannot quietly turn this into an unconditional promise of a payout.
-  if (c.distribution.opensEpoch === true) {
-    lines.push(`  Recovered ETH lands in ${c.distribution.landsIn}, which would then be at or above RevenueDistributor.MIN_DISTRIBUTE_AMOUNT (${c.distribution.minDistributeAmountWei} wei) — a distribution to stakers becomes possible.`);
-  } else if (c.distribution.opensEpoch === false) {
-    lines.push(`  Recovered ETH lands in ${c.distribution.landsIn}. That does NOT open a distribution epoch: RevenueDistributor.MIN_DISTRIBUTE_AMOUNT is ${c.distribution.minDistributeAmountWei} wei and the balance would still be ${c.distribution.shortfallWei} wei short.`);
-  } else {
-    lines.push(`  Recovered ETH lands in ${c.distribution.landsIn}. Whether that reaches RevenueDistributor.MIN_DISTRIBUTE_AMOUNT is unknown this run — accumulatedETHFees could not be read.`);
-  }
+  // Where the money ends, and the amount only when both reads landed.
+  const holds = c.distribution.afterRecoveryWei === null
+    ? 'What it would then hold is unknown this run: accumulatedETHFees could not be read.'
+    : `It would then hold ${c.distribution.afterRecoveryWei} wei.`;
+  lines.push(`  Recovered ETH lands in ${c.distribution.landsIn}. ${holds} Anyone can then call distributeFeesToStakers(), which pays all of it to the router's payee, the treasury Safe ${c.distribution.payee}. There is no minimum.`);
 
   return lines.join('\n');
 }
@@ -418,7 +403,6 @@ export function renderGithubOutput(classification, { delimiter } = {}) {
     // Sorted so two runs that discover the same blockers in a different order agree.
     [...classification.blockers].sort().join('|'),
     [...classification.unreadableGuards].sort().join('|'),
-    String(classification.distribution.opensEpoch),
   ].join('\n');
 
   return [

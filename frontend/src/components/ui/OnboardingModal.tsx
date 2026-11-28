@@ -51,18 +51,15 @@ const venueSteps = [
 
 const toweliSteps = [
   // The first sentence a new visitor reads. Two chains, with Solana's swap in our own pools
-  // or through Jupiter. Of swap fees it claims only the on-chain route: a referral share,
-  // then stakers. No percentage the owner can retune (the router fee and the 20% referral
-  // share both can), and no yield not yet paid (RevenueDistributor had received 0 wei on
-  // 2026-10-10). The pool's one-sixth cut (on for TOWELI/WETH since 2026-10-16) goes to the
-  // treasury, not stakers, so this step does not mention it.
+  // or through Jupiter. Swap fees go to the venue's treasury Safe, after a referral share
+  // (owner ruling 2026-11-15); no percentage the owner can retune is stated here.
   {
     title: 'Welcome to the TOWELI bungalow',
-    body: 'An art-first protocol on Ethereum and Solana. Stake TOWELI on Ethereum and protocol swap fees route on-chain, after a referral share, to stakers in ETH; on Solana, swap in our own pools or through Jupiter and scan any token on either chain.',
+    body: "An art-first protocol on Ethereum and Solana. Stake TOWELI on Ethereum; protocol swap fees go on-chain, after a referral share, to the venue's treasury. On Solana, swap in our own pools or through Jupiter and scan any token on either chain.",
   },
   {
     title: 'How It Works',
-    body: '1. Buy TOWELI on our DEX or Uniswap\n2. Stake & lock for 7 days to 4 years\n3. Earn TOWELI rewards now — plus ETH from protocol fees as the fee rail fills\n4. Longer locks = higher boost (up to 4.5x with NFT)',
+    body: '1. Buy TOWELI on our DEX or Uniswap\n2. Stake & lock for 7 days to 4 years\n3. Earn TOWELI rewards\n4. Longer locks = higher boost (up to 4.5x with NFT)',
   },
   {
     title: 'Stay Safe',

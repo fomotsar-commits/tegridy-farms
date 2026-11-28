@@ -89,14 +89,10 @@ const coreLoopSteps = (toweli: boolean) => [
   // in ETH). The exact fee bps is on-chain (a T3 read) so we keep it generic
   // rather than hardcode a number that can drift.
   { label: 'Every swap skims a fee',  sub: 'taken at the router, in ETH' },
-  // 2026-08-04: was 'on-chain, paid in ETH'. Verified on-chain the same day:
-  // RevenueDistributor holds 0 wei and SwapFeeRouter.totalETHFees() is 0, so nothing
-  // has ever been PAID. The route is real; the payment is not. This diagram explains
-  // the DESIGN, so it now describes the route — true today and still true after the
-  // first distribution, which is why it is a literal and not a conditional. The
-  // history claim belongs on /premium, where it IS conditioned on the live read.
-  { label: 'Fees route to stakers',   sub: 'on-chain, in ETH' },
-  { label: 'Longer lock + NFT',       sub: 'bigger slice of the ETH' },
+  // The router pays the treasury Safe (owner ruling 2026-11-15), not stakers; a lock's
+  // boost multiplies TOWELI rewards. This diagram explains the design, not a payment.
+  { label: 'Fees go to the treasury', sub: 'on-chain, in ETH' },
+  { label: 'Longer lock + NFT',       sub: 'bigger boost on rewards' },
 ];
 
 const howItWorksSteps = (toweli: boolean) => toweli ? [
@@ -115,7 +111,7 @@ const howItWorksSteps = (toweli: boolean) => toweli ? [
   {
     step: '3',
     title: 'Harvest the Yield',
-    desc: 'Emissions pay you in TOWELI today. An ETH payout round needs 1 ETH of fees first.',
+    desc: 'Emissions pay you in TOWELI today.',
     to: '/dashboard',
   },
 ] : [
@@ -134,7 +130,7 @@ const howItWorksSteps = (toweli: boolean) => toweli ? [
   {
     step: '3',
     title: 'Harvest, verified',
-    desc: 'Emissions pay in TOWELI today. The ETH fee-share is wired on-chain, and a payout round needs 1 ETH of fees first. Claim any time.',
+    desc: 'Emissions pay in TOWELI today. Claim any time.',
     to: '/dashboard',
   },
 ];
@@ -166,7 +162,7 @@ export default function HomePage() {
     bungalowIdentity
       ? `${bungalowIdentity.name} bungalow on Jungle Bay Island. ${bungalowIdentity.identity.museLine} ${bungalowTradeBlurb(bungalowIdentity, isSolanaSwapLive())}`
       : isToweliArrival
-        ? 'Ethereum and Solana. Stake TOWELI on Ethereum — protocol swap fees flow on-chain to stakers, verifiable on Etherscan. Swap Solana tokens in our own pools or through Jupiter, and scan any token on either chain.'
+        ? "Ethereum and Solana. Stake TOWELI on Ethereum; protocol swap fees go on-chain to the venue's treasury, verifiable on Etherscan. Swap Solana tokens in our own pools or through Jupiter, and scan any token on either chain."
         : VENUE.description,
   );
   const { address } = useAccount();
@@ -391,17 +387,10 @@ export default function HomePage() {
               <VenueHero />
             ) : (
             <>
-            {/* H1 2026-07-19: "Yield with Tegridy Farms" was generic — it could have
-                headlined any farm. It deliberately does NOT lead with the ETH
-                fee-share: that mechanic is wired on-chain but has distributed 0 ETH
-                until the native pool opens, so a present-tense yield claim would
-                overclaim (and "100% of fees to stakers" is flat wrong: the router's fee
-                pays a 20% referral share first, and the pool's one-sixth protocol cut,
-                on since 2026-10-16, goes to the treasury). What IS true, and
-                became materially truer today, is verifiability: every core contract
-                is now Etherscan source-verified and /contracts proves it with live
-                per-address badges. So the headline leads with the one differentiator
-                a skeptic can check in a single click. */}
+            {/* The headline leads with verifiability, which a skeptic checks in one click:
+                every core contract is Etherscan source-verified (/contracts shows live
+                badges). Swap fees are not a staker yield: after the referral share they
+                go to the treasury Safe (owner ruling 2026-11-15). */}
             <h1 className="heading-luxury text-[clamp(1.25rem,7.4vw,1.875rem)] md:text-6xl text-white leading-[1.1] tracking-tight mb-4">
               {TOWELI_HERO.heroTitle}{' '}<br /><span className="text-white">{TOWELI_HERO.heroLine}</span>
             </h1>
@@ -411,7 +400,7 @@ export default function HomePage() {
                 swap, in our pools or through Jupiter, and the two-chain scanner); the
                 launch rail is claimed by its own self-gating card further down. */}
             <p className="text-white text-base md:text-lg mb-6 max-w-md leading-relaxed">
-              Stake TOWELI on Ethereum. Protocol swap fees flow on-chain: a referral share, the rest toward stakers.
+              Stake TOWELI on Ethereum. Protocol swap fees go on-chain: a referral share, the rest to the venue&apos;s treasury.
             </p>
 
             <div className="flex flex-wrap gap-3">
@@ -599,7 +588,7 @@ export default function HomePage() {
               // genuinely loading; once resolved, render the honest "0.0000 ETH"
               // (the value that backs the on-chain-verifiable pitch) instead of an
               // eternal skeleton. `loading: true` forces the shimmer branch below.
-              { l: 'ETH Distributed', v: (revenueStats.isDataError || revenueStats.globalUnread) ? '–' : `${revenueStats.totalDistributed.toFixed(4)} ETH`, loading: revenueStats.isDataLoading, sub: (!revenueStats.isDataLoading && !revenueStats.isDataError && !revenueStats.globalUnread && revenueStats.totalDistributed === 0) ? 'fee rail live · a round needs 1 ETH of fees' : undefined },
+              { l: 'ETH Distributed', v: (revenueStats.isDataError || revenueStats.globalUnread) ? '–' : `${revenueStats.totalDistributed.toFixed(4)} ETH`, loading: revenueStats.isDataLoading, sub: (!revenueStats.isDataLoading && !revenueStats.isDataError && !revenueStats.globalUnread && revenueStats.totalDistributed === 0) ? 'swap fees go to the treasury' : undefined },
             ] as { l: string; v: string; sub?: string; showSparkline?: boolean; loading?: boolean }[]).map((s) => (
               <div key={s.l} className="flex items-center gap-3 px-4 py-2.5 rounded-lg"
                 style={{ background: 'rgba(0,0,0,0.78)', border: '1px solid rgba(76,175,80,0.35)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}>
@@ -620,7 +609,7 @@ export default function HomePage() {
                 )}
                 {s.l === 'Emissions APR' && s.v && s.v !== '–' && (
                   <span
-                    title="High at launch because total staked is still small — it falls toward steady-state as staking grows. The real yield is the ETH paid to stakers."
+                    title="High at launch because total staked is still small; it falls toward steady-state as staking grows."
                     className="text-[10px] italic cursor-help"
                     style={{ color: 'var(--color-kyle)', opacity: 0.7, textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}
                   >
@@ -874,9 +863,7 @@ export default function HomePage() {
             Collection → FAQ. Nothing deleted; it all renders inside /toweli. */}
         {!bungalowIdentity && isToweliArrival && (
         <>
-        {/* Core Loop — the 10-second explainer.
-            Directly addresses the critique that new visitors don't grasp
-            TOWELI-trade → ETH-fee → stakers → bigger-lock flow fast enough. */}
+        {/* Core Loop: the 10-second explainer of the Ethereum fee and the lock. */}
         <m.div
           className="pb-16"
           initial={{ opacity: 0, y: 15 }}
@@ -890,13 +877,8 @@ export default function HomePage() {
             <div className="relative p-5 md:p-6">
               <div className="flex items-center gap-2 mb-4">
                 <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: 'var(--color-weed)' }} />
-                {/* 2026-08-07: scoped to Ethereum. The four steps below describe the
-                    Ethereum-mainnet fee economy (SwapFeeRouter -> RevenueDistributor ->
-                    stakers) and their wording is deliberately audit-corrected. Solana
-                    has no part in it. Now that the page reads dual-chain, an unqualified
-                    "The Core Loop" would be read as covering both chains — so the
-                    diagram's honesty is protected by naming its chain, not by editing
-                    a single one of its steps. */}
+                {/* Scoped to Ethereum: the four steps are its fee economy (SwapFeeRouter ->
+                    the treasury Safe) and its lock, and Solana has no part in them. */}
                 <span className="text-[10px] uppercase tracking-[0.18em] text-white/90" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.95)' }}>The Core Loop &middot; Ethereum</span>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr_auto_1fr_auto_1fr] items-stretch gap-3 md:gap-2">
@@ -956,8 +938,8 @@ export default function HomePage() {
           <ProofOfClaims />
         </m.div>
 
-        {/* Real-yield proof — self-gating: renders nothing until the first
-            ETH distribution lands, then lights up automatically. */}
+        {/* Where swap fees go, beside what stakers were paid: renders nothing
+            until the stakers' payout contract has paid something. */}
         <RealYieldProof />
         </>
         )}

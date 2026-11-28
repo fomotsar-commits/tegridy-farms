@@ -13,7 +13,7 @@ import { defaultPullDir, MAX_RENAMES, pullGithubBackups, RENAME_RETRY_MS, STALE_
 import { clampBody, PING_WORST_MS, pingEnvName, resolvePingUrl, scrubSecrets, sendPing } from './lib/healthchecks.mjs';
 import { childEnv, defaultPaths, JOB_IMPLS, JOBS, NPM_PROJECTS } from './lib/jobs.mjs';
 import { parseGithubOutput, runProcess } from './lib/proc.mjs';
-import { EVM_BALANCES, EVM_CALLS, REQUEST_TIMEOUT_MS as RAILS_TIMEOUT_MS, readRails, SQUADS_VAULT } from './lib/revenue-rails.mjs';
+import { EVM_BALANCES, EVM_CALLS, REQUEST_TIMEOUT_MS as RAILS_TIMEOUT_MS, RPC_DEFAULTS, readRails, SQUADS_VAULT } from './lib/revenue-rails.mjs';
 import { DUMP_DEADLINE_MS } from './lib/supabase-dump.mjs';
 import { ALIASES, CANONICAL, DEFAULT_INDEXER, FOREIGN, REQUEST_TIMEOUT_MS as SYNTHETIC_TIMEOUT_MS, runSynthetic } from './lib/synthetic.mjs';
 import { runJob } from './run-job.mjs';
@@ -334,7 +334,7 @@ describe('revenue-watch', () => {
   });
 
   test('an unreadable rail fails even while another rail reads earned (the workflow let "earned" mask it)', async () => {
-    const r = await job(credit('clear'), rails({ unknown: ['- RevenueDistributor ETH balance: RPC request failed'] }), tmp('revst'));
+    const r = await job(credit('clear'), rails({ unknown: ['- Ethereum treasury Safe ETH balance: RPC request failed'] }), tmp('revst'));
     assert.equal(r.ok, false);
     assert.match(r.summary, /BLIND/);
     assert.match(r.report, /RPC request failed/);
@@ -369,21 +369,47 @@ describe('revenue-watch', () => {
     assert.equal(zero.unconfigured.length, 1);
     const err = await readRails({ fetchImpl: answer(() => ({ error: { code: -32000, message: 'rate limited' } })), env: {} });
     assert.equal(err.state, 'partial');
-    assert.equal(err.unknown.length, 5);
+    assert.equal(err.unknown.length, EVM_CALLS.length + EVM_BALANCES.length + 1);
     const junk = await readRails({ fetchImpl: answer((b) => (b.method === 'getTokenAccountsByOwner' ? { result: { value: [] } } : { result: 'not hex' })), env: {} });
     assert.deepEqual(junk.earned, []);
-    assert.equal(junk.unknown.length, 4);
+    assert.equal(junk.unknown.length, EVM_CALLS.length + EVM_BALANCES.length);
     const spl = await readRails({ fetchImpl: answer((b) => (b.method === 'getTokenAccountsByOwner'
       ? { result: { value: [{ account: { data: { parsed: { info: { mint: 'MintA', tokenAmount: { amount: '5', uiAmountString: '0.5' } } } } } }, { account: { data: { parsed: { info: { mint: 'MintB', tokenAmount: { amount: '0', uiAmountString: '0' } } } } } }] } }
       : { result: '0x0' })), env: { SOLANA_FEE_ACCOUNT: 'FeeWallet111' } });
     assert.deepEqual(spl.earned, ['- **Squads partner vault** (SPL): MintA:0.5', '- **Solana swap-fee wallet** (SPL): MintA:0.5']);
   });
 
-  test('reads the same rails, addresses and selectors as revenue-watch.yml', () => {
+  test('reads the same rails, addresses, selectors and chains as revenue-watch.yml', () => {
     const wf = workflow('revenue-watch.yml');
     for (const c of EVM_CALLS) assert.ok(wf.includes(`eth_call "${c.name}"`) && new RegExp(`${c.to}\\s+${c.data}`).test(wf), c.name);
-    for (const b of EVM_BALANCES) assert.ok(new RegExp(`eth_balance "${b.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"\\s+${b.address}`).test(wf), b.name);
+    for (const b of EVM_BALANCES) {
+      // Ethereum is eth_balance's default RPC; every other chain passes its own as a third argument.
+      const rpcArg = b.rpcEnv === 'ETH_RPC' ? '' : `\\s+"\\$${b.rpcEnv}"`;
+      assert.ok(new RegExp(`eth_balance "${b.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"\\s+${b.address}${rpcArg}[ \\t]*$`, 'm').test(wf), b.name);
+      assert.ok(wf.includes(`${b.rpcEnv}="\${${b.rpcEnv}:-${RPC_DEFAULTS[b.rpcEnv]}}"`), `${b.rpcEnv} default`);
+    }
     assert.ok(wf.includes(`sol_tokens "Squads partner vault" "${SQUADS_VAULT}"`));
+  });
+
+  test("watches each chain's treasury Safe on that chain's RPC, and never the stakers' payout contract", async () => {
+    // Owner ruling 2026-11-15: every EVM venue fee lands in its chain's treasury Safe.
+    const seen = [];
+    const fetchImpl = async (url, init) => {
+      const b = JSON.parse(init.body);
+      if (b.method === 'eth_getBalance') seen.push([b.params[0], url]);
+      return new Response(JSON.stringify(b.method === 'getTokenAccountsByOwner' ? { result: { value: [] } } : { result: '0x0' }));
+    };
+    await readRails({ fetchImpl, env: { BASE_RPC: 'https://base.example', ROBINHOOD_RPC: 'https://rh.example' } });
+    assert.deepEqual(seen.slice(0, 3), [
+      ['0x7D2620243EdAd69Ec81A53c4A063B07995A4Bd7d', RPC_DEFAULTS.ETH_RPC],
+      ['0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0', 'https://base.example'],
+      ['0x796c22ff58F24e4a5d07683d8A5c03Ec54dB38C0', 'https://rh.example'],
+    ]);
+    const wf = workflow('revenue-watch.yml');
+    for (const gone of ['0xF993316E2fC079de4358c489A935E01e03E23E17', '0xfc5D5018E557941A3BB7Ff057d1B0c2eCC09fbf1']) {
+      assert.ok(![...EVM_CALLS.map((c) => c.to), ...EVM_BALANCES.map((b) => b.address)].includes(gone), gone);
+      assert.ok(!wf.toLowerCase().includes(gone.toLowerCase()), `revenue-watch.yml still reads ${gone}`);
+    }
   });
 });
 

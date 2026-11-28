@@ -37,10 +37,9 @@ export function ProtocolStats() {
   const s = useProtocolStats();
   const live: StatItem[] = [];
   if (s.volumeUsd > 0) live.push({ l: 'Total Volume', v: fmtUsd(s.volumeUsd), sub: 'all-time, on native DEX', icon: '🔄' });
-  // HONESTY 2026-07-24: this reads collected router fees, NOT RevenueDistributor
-  // .totalDistributed — labelling it "distributed to stakers" would overstate the
-  // moment the first fee lands. Name what the number actually measures.
-  if (s.feesUsd > 0) live.push({ l: 'Protocol Fees Collected', v: fmtUsd(s.feesUsd), sub: 'in ETH: a referral share, the rest toward stakers', icon: '💸' });
+  // Collected router fees, named for what they measure. After the referral share they go to
+  // the treasury Safe (owner ruling 2026-11-15), not to stakers.
+  if (s.feesUsd > 0) live.push({ l: 'Protocol Fees Collected', v: fmtUsd(s.feesUsd), sub: 'in ETH: a referral share, the rest to the treasury', icon: '💸' });
   if (s.rewardPoolToweli > 0) live.push({ l: 'Reward Pool', v: fmtToken(s.rewardPoolToweli), sub: 'TOWELI staking rewards', icon: '💰' });
   if (s.dailyEmissionToweli > 0) live.push({ l: 'Daily Emissions', v: `${fmtToken(s.dailyEmissionToweli)}/day`, sub: 'to stakers', icon: '⚡' });
   // Below ~$1k the USD figure undersells the position — show the token count.
@@ -50,11 +49,10 @@ export function ProtocolStats() {
   // Reintroduce only from indexer data (SwapExecuted event count).
 
   const evergreen: StatItem[] = [
-    // F68: no fixed "100%": the router fee pays a 20% referral share first, and the
-    // liquidity share is 0 on chain (polShareBps, read 2026-10-10). F67: "bounty
-    // live" → "responsible disclosure" to match the hero trust badge (the bounty has
-    // no funded pool yet).
-    { l: 'Fee Routing', v: 'On-chain', sub: 'fees → referral share, then stakers, in ETH', icon: '💸' },
+    // The router fee pays a referral share first, then the treasury Safe (owner ruling
+    // 2026-11-15). F67: "bounty live" → "responsible disclosure" to match the hero trust
+    // badge (the bounty has no funded pool yet).
+    { l: 'Fee Routing', v: 'On-chain', sub: 'fees → referral share, then the treasury, in ETH', icon: '💸' },
     { l: 'LP Locked', v: '~69 yrs', sub: 'Uniswap LP in UNCX until 2093', icon: '🔐' },
     { l: 'Fixed Supply', v: '1B', sub: 'TOWELI — no mint function, ever', icon: '🧱' },
     // F-2026-07-24: "82+ findings resolved" is unverifiable by a visitor and the
