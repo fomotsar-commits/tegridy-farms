@@ -2,7 +2,7 @@ import { useEffect, type Ref } from 'react';
 import { Link } from 'react-router-dom';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
-import { LITTLE_MONEY_TEXT, byWorth, marketGap, offersRestart, pairSwapLink, poolTags, poolWorthUsd, refusesDeposits, tokenDecimalsOf, type MarketPrices, type PoolListRead } from '../../../lib/solana/lp/poolList';
+import { LITTLE_MONEY_TEXT, byWorth, marketGap, offersRestart, pairSwapLink, poolTags, poolWorthUsd, refusesDeposits, shownPools, tokenDecimalsOf, type MarketPrices, type PoolListRead } from '../../../lib/solana/lp/poolList';
 import { PRICE_TOLERANCE, poolPricePerToken } from '../../../lib/solana/lp/poolHealth';
 import { quoteText, tokenText, turnedDiff, usdText } from '../../../lib/solana/lp/format';
 import { pairLabel, siteNamed, tokenTicker } from '../../../lib/solana/lp/identity';
@@ -59,7 +59,8 @@ export function VenuePoolList({
   const usd = market.prices?.kind === 'ok' ? market.prices.usd : null;
   useEffect(() => {
     if (read?.kind !== 'ok') return;
-    publishFieldPools(fieldPoolsOf(usd ? byWorth(read.list.pools, usd) : read.list.pools, usd, read.list.safety));
+    const shown = shownPools(read.list.pools);
+    publishFieldPools(fieldPoolsOf(usd ? byWorth(shown, usd) : shown, usd, read.list.safety));
   }, [read, usd]);
   useEffect(() => () => publishFieldPools(null), []);
   useEffect(() => setFieldView(onView), [onView]);
@@ -92,7 +93,10 @@ export function VenuePoolList({
               {QUOTE_COINS_OR} side, since anyone can print more of their own coin, and a coin Jupiter does not price is counted at the
               pool’s own price. Until Jupiter’s prices are read, {QUOTE_COINS_IN_TURN}, the deepest of each first.
             </p>
-            <p>Anyone can open a pool, at any price. View one to see its checks before adding to it. Swap opens the swap page on the pair.</p>
+            <p>
+              Anyone can open a pool, at any price. View one to see its checks before adding to it. Swap opens the swap page on the pair.
+              An empty pool, one nobody holds a share of, is left off when the same pair has a pool with money in it.
+            </p>
             <p>
               A coin that is not one of ours shows the ticker it gives itself, with its whole address under it. Anyone can give a coin
               any ticker: one that copies the ticker of one of ours, or of SOL, USDC or USDT, reads “fake”. Only the address says which
@@ -130,7 +134,9 @@ function PoolRows({
   onView: (tokenMint: string) => void;
   onAdd?: (tokenMint: string, pool: string, quoteMint: string) => void;
 }) {
-  const { pools: read, unread, truncated, chainNow, safety } = list;
+  const { unread, truncated, chainNow, safety } = list;
+  // An empty pool whose pair has another with money in is left off (poolList.ts `emptyTwins`).
+  const read = shownPools(list.pools);
   const usd = prices?.kind === 'ok' ? prices.usd : null;
   // Most money in first once Jupiter's prices are read (poolList.ts `byWorth`); until then, the order read. In every room
   // alike: the room's own coin is no longer pinned on top (owner, 2026-11-01: "Pure TVL order", over island answer twenty).

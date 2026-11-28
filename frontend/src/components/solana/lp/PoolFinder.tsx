@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { PublicKey } from '@solana/web3.js';
 import { parseMintInput } from '../../../lib/solana/lp/mintInput';
 import { assessPools, type PoolHealth } from '../../../lib/solana/lp/poolHealth';
+import { emptyTwins } from '../../../lib/solana/lp/poolList';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import { LAUNCH_TIER_POOL, type FeeTierRead, type PoolSearch, type PoolSearchRead } from '../../../lib/solana/lp/poolFinder';
 import type { OutsidePrice } from '../../../lib/solana/lp/outsidePrice';
@@ -345,6 +346,8 @@ export function PoolFinder({
     } else if (unfound && unfound.mint === state.mint && listsPool(state.pools, unfound.pool)) setUnfound(null);
   }
   const unfoundLine = unfound && state.status === 'done' && unfound.mint === state.mint ? unfoundText(state.pools, unfound.pool, unfound.door) : null;
+  // The pool a wish names, as the results are given it (`SearchResults` `named`): listed even when it is an empty twin.
+  const namedPool = state.status === 'done' && !state.refreshing && wish?.task === 'add' && wish.mint === state.mint ? wish.pool ?? null : null;
 
   // A lookup the visitor asked for is brought onto the screen. On a phone the answer
   // begins below the fold, so a press on Find pools looked as if it had done nothing
@@ -611,7 +614,7 @@ export function PoolFinder({
       <div ref={answerRef} data-testid="lp-answer" />
 
       <p role="status" aria-live="polite" className="sr-only" data-testid="lp-status">
-        {state.status === 'loading' ? 'Reading the token and its pools.' : state.status === 'done' ? `${only ? announceOne(state, only) : announce(state)}${unfoundLine ? ` ${unfoundLine}` : ''}` : ''}
+        {state.status === 'loading' ? 'Reading the token and its pools.' : state.status === 'done' ? `${only ? announceOne(state, only) : announce(state, namedPool)}${unfoundLine ? ` ${unfoundLine}` : ''}` : ''}
       </p>
 
       {state.status === 'loading' && <p className="text-white/70 text-[13px]">Reading the token and its pools from the chain…</p>}
@@ -660,11 +663,23 @@ function announceOne(s: Extract<SearchState, { status: 'done' }>, only: string):
   return parts.join(' ');
 }
 
-function announce(s: Extract<SearchState, { status: 'done' }>): string {
+/**
+ * The pools a search leaves off its list: an empty pool whose pair has another with money in
+ * (poolList.ts `emptyTwins`, as on All pools), unless a wish names that very pool: a link to a
+ * pool always opens it.
+ */
+function hiddenTwins(search: PoolSearch, named: string | null): Set<string> {
+  const hidden = emptyTwins(search.pools.flatMap((p) => (p.kind === 'pool' ? [p.view] : [])));
+  if (named !== null) hidden.delete(named);
+  return hidden;
+}
+
+function announce(s: Extract<SearchState, { status: 'done' }>, named: string | null): string {
   if (s.pools.kind === 'unread') return 'The pools could not be read.';
   const { pools, index } = s.pools.search;
-  const read = pools.filter((p) => p.kind === 'pool').length;
-  const unread = pools.length - read;
+  const hidden = hiddenTwins(s.pools.search, named);
+  const read = pools.filter((p) => p.kind === 'pool').length - hidden.size;
+  const unread = pools.length - read - hidden.size;
   // A pairing coin looked up as the token (USDC, BAYLA) was searched only against the
   // coins that outrank it. "No pools" then names those coins, and the line says where its
   // pool with a lower coin is: a pair that was never looked for is not said to have none.
@@ -761,11 +776,13 @@ function SearchResults({
   const searched = searchedCoinsOr(mint);
   const otherSide = only ? null : otherSideLine(mint);
   // The home card: its one pool, read or not, and a pool a position's Add more liquidity named.
+  // Otherwise every pool but an empty twin (`hiddenTwins`).
+  const hidden = useMemo(() => (pools.kind === 'ok' ? hiddenTwins(pools.search, named) : new Set<string>()), [pools, named]);
   const listed =
     pools.kind === 'ok'
       ? pools.search.pools.filter((p) => {
           const at = p.kind === 'pool' ? p.view.address : p.address;
-          return !only || at === only || at === named;
+          return only ? at === only || at === named : at === named || !hidden.has(at);
         })
       : [];
   // The token's card stays whenever its check found anything, or could not run.
@@ -972,6 +989,7 @@ function IndexNote({ read }: { read: Extract<PoolSearchRead, { kind: 'ok' }> }) 
             the launch pool and the public fee tier’s standard address, for each coin a pool can pair with. There may be other pools.
           </p>
         )}
+        <p>An empty pool, one nobody holds a share of, is left off when the same pair has a pool with money in it.</p>
       </FinePrint>
     </div>
   );

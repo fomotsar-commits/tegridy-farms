@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { PublicKey } from '@solana/web3.js';
 import type { PoolView } from '../../../lib/solana/lp/poolFinder';
 import type { TokenSafety } from '../../../lib/solana/lp/tokenSafety';
 import type { Holder, HoldersRead } from '../../../lib/solana/lp/holders';
 import { LARGEST_ACCOUNTS } from '../../../lib/solana/lp/holders';
+import { shownPools } from '../../../lib/solana/lp/poolList';
 import { quoteText, tokenText } from '../../../lib/solana/lp/format';
 import { pairLabel, siteNamed, tokenTicker } from '../../../lib/solana/lp/identity';
 import { Card, Notice } from '../curve/ui';
@@ -22,7 +23,10 @@ import { usePoolList } from './usePoolList';
  */
 export function EveryPosition({ readers, owner, reloadKey = 0 }: { readers: LpReaders; owner: PublicKey | null; reloadKey?: number }) {
   const list = usePoolList(readers, reloadKey);
-  const pools = list?.kind === 'ok' ? list.list.pools : null;
+  // All pools' rows (VenuePoolList.tsx): an empty pool whose pair has another with money in is
+  // left off (poolList.ts `emptyTwins`), and its holders are not read. Kept by the list read, so
+  // the holders are read again only when the list is.
+  const pools = useMemo(() => (list?.kind === 'ok' ? shownPools(list.list.pools) : null), [list]);
   const holders = useHolders(readers, pools, reloadKey);
   if (!readers.listPools || !readers.holders) return null;
   const me = owner?.toBase58() ?? null;
@@ -33,11 +37,11 @@ export function EveryPosition({ readers, owner, reloadKey = 0 }: { readers: LpRe
           <p className="text-white/70 text-[13px]">Reading the pools from the chain…</p>
         ) : list.kind === 'unread' ? (
           <Notice tone="warn">Positions could not be read just now. That does not mean there are none.</Notice>
-        ) : list.list.pools.length === 0 ? (
+        ) : !pools || pools.length === 0 ? (
           <p className="text-white/70 text-[13px]">No pools yet.</p>
         ) : (
           <ul className="space-y-2.5" aria-label="Every pool's holders">
-            {list.list.pools.map((view) => (
+            {pools.map((view) => (
               <PoolHolders key={view.address} view={view} safety={list.list.safety.get(view.tokenMint) ?? null} read={holders.get(view.address) ?? null} me={me} />
             ))}
           </ul>

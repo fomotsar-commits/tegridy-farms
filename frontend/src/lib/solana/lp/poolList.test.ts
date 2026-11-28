@@ -21,6 +21,8 @@ import {
   readMarketPrices,
   poolTags,
   rowTokenFee,
+  emptyTwins,
+  shownPools,
   swapLink,
   unsizedPools,
   type PoolList,
@@ -353,6 +355,56 @@ describe('byWorth: All pools, the most money in first', () => {
     expect(poolRankUsd(unpricedToken, usd)).toBe(4_000);
     expect(poolRankUsd(a, usd)).toBeNull();
     expect(byWorth([a, inSol, b, unpricedToken], usd)).toEqual([unpricedToken, inSol, a, b]);
+  });
+});
+
+describe('emptyTwins: an empty pool beside one of its pair with money in is left off the lists', () => {
+  const SOL = 10n ** 9n;
+  /** A pool of `mint` with `coin`, `lpSupply` shares out: plenty in it unless told otherwise. */
+  const pool = (mint: PublicKey, coin: QuoteCoin, lpSupply: bigint, reserve = 10n * SOL, tok = 10n ** 12n) =>
+    viewOf(buildPool({ mint, quote: coin, address: at(), quoteReserve: reserve, tokenReserve: tok, lpSupply }), { sol: reserve, tok });
+  const EMPTY = 100n; // the locked shares alone (LOCKED_LP): nobody holds any
+
+  it('the owner’s case (2026-11-28): BIG BRAIN / BAYLA twice, one with money in, one holding only its locked shares', () => {
+    const bigBrain = key();
+    const live = pool(bigBrain, BAYLA_QUOTE, 10n ** 12n);
+    const empty = pool(bigBrain, BAYLA_QUOTE, EMPTY, 1n, 3n);
+    const withSol = pool(bigBrain, SOL_QUOTE, 10n ** 12n);
+    expect([...emptyTwins([live, empty, withSol])]).toEqual([empty.address]);
+    // The order given is kept, whichever way round the two come.
+    expect(shownPools([live, empty, withSol])).toEqual([live, withSol]);
+    expect(shownPools([empty, withSol, live])).toEqual([withSol, live]);
+  });
+
+  it('every empty pool of that pair goes, however many', () => {
+    const t = key();
+    const live = pool(t, SOL_QUOTE, 10n ** 12n);
+    expect(shownPools([pool(t, SOL_QUOTE, EMPTY, 1n, 1n), live, pool(t, SOL_QUOTE, EMPTY, 1n, 1n)])).toEqual([live]);
+  });
+
+  it('an empty pool with no twin stays, since its Restart is then the only way into that pair; the same token with another coin, or another token with the same coin, is no twin', () => {
+    const t = key();
+    const empty = pool(t, SOL_QUOTE, EMPTY, 1n, 1n);
+    expect(shownPools([empty])).toEqual([empty]);
+    const notTwins = [empty, pool(t, USDC_QUOTE, 10n ** 12n), pool(key(), SOL_QUOTE, 10n ** 12n)];
+    expect(emptyTwins(notTwins).size).toBe(0);
+    expect(shownPools(notTwins)).toEqual(notTwins);
+  });
+
+  it('a pool anyone holds a share of is never left off, however little is in it', () => {
+    const t = key();
+    const held = pool(t, SOL_QUOTE, EMPTY + 1n, 1n, 1n); // one share past the locked 100 is someone’s
+    const live = pool(t, SOL_QUOTE, 10n ** 12n);
+    expect(shownPools([held, live])).toEqual([held, live]);
+  });
+
+  it('the twin must take an ordinary deposit by its shares: one under 100,000 shares hides nothing, one at 100,000 does', () => {
+    const t = key();
+    const empty = pool(t, SOL_QUOTE, EMPTY, 1n, 1n);
+    const thin = pool(t, SOL_QUOTE, 99_999n, 99_999n, 99_999n);
+    expect(shownPools([empty, thin])).toEqual([empty, thin]);
+    const enough = pool(t, SOL_QUOTE, 100_000n, 100_000n, 100_000n);
+    expect(shownPools([empty, enough])).toEqual([enough]);
   });
 });
 

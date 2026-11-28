@@ -143,6 +143,27 @@ export function offersRestart(view: PoolView, chainNow: bigint | null, safety: T
 }
 
 /**
+ * The pools the lists leave off (owner, 2026-11-28: "hide the empty bigbrain/bayla pool since
+ * there is one with liquidity anyways"): a pool nobody holds any of, its shares the locked 100
+ * alone (`LOCKED_LP`, the same test as `offersRestart`), when another pool of the same pair holds
+ * enough shares to take an ordinary deposit (`tooFewShares`). Nobody can have a position in such a
+ * pool, so leaving it off hides nobody's money. With no such twin it stays listed: its Restart is
+ * then the pair's way in. By address.
+ */
+export function emptyTwins(views: readonly Pick<PoolView, 'address' | 'tokenMint' | 'quote' | 'snapshot'>[]): Set<string> {
+  // A pair's two mints sit in a pool in one order only (token0 < token1), so token and coin name it.
+  const pair = (v: Pick<PoolView, 'tokenMint' | 'quote'>) => `${v.tokenMint} ${v.quote.mint}`;
+  const held = new Set(views.filter((v) => !tooFewShares(v.snapshot.pool.lpSupply)).map(pair));
+  return new Set(views.filter((v) => v.snapshot.pool.lpSupply === LOCKED_LP && held.has(pair(v))).map((v) => v.address));
+}
+
+/** The pools as the lists show them: every one but an empty twin (`emptyTwins`), in the order given. */
+export function shownPools<T extends Pick<PoolView, 'address' | 'tokenMint' | 'quote' | 'snapshot'>>(views: readonly T[]): T[] {
+  const hidden = emptyTwins(views);
+  return hidden.size === 0 ? [...views] : views.filter((v) => !hidden.has(v.address));
+}
+
+/**
  * Jupiter's market prices for the listed coins, in USD by mint: what each row's price is
  * held against for its price tag. ONE read for the whole list (price/v3), kept at the edge
  * for 30 seconds and shared by every visitor (lib/jupiter.ts `getUsdPrices`, `shared`):

@@ -135,3 +135,19 @@ describe('Every position: every holder of every pool, whoever holds it', () => {
     expect(screen.queryByTestId('lp-every-position')).toBeNull();
   });
 });
+
+describe('Every position leaves off what All pools leaves off', () => {
+  it('an empty pool beside one of its pair with money in is not listed, and its holders are not read', async () => {
+    const live = view(CORN);
+    const sol = 1n;
+    const tok = 3n;
+    // The locked 100 shares alone: nobody holds any (owner, 2026-11-28: "hide the empty bigbrain/bayla pool").
+    const empty = viewOf(buildPool({ plain: true, mint: CORN, configIndex: 1, quoteReserve: sol, tokenReserve: tok, lpSupply: 100n }), { sol, tok });
+    const r = readers([live, empty], async () => ({ kind: 'ok', holders: [holder(STRANGER, 1_000_000n, 100)], capped: false }));
+    mount(r);
+    const card = await screen.findByTestId('lp-every-position');
+    await within(card).findByText(STRANGER);
+    expect(within(card).getAllByTestId('lp-every-position-pool')).toHaveLength(1);
+    expect((r.holders as ReturnType<typeof vi.fn>).mock.calls.map(([v]) => (v as PoolView).address)).toEqual([live.address]);
+  });
+});
