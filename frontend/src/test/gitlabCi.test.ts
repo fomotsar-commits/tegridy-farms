@@ -31,6 +31,7 @@ const EXCLUDED: Record<string, string> = {
   'venue-volume.yml': 'Schedule only, and it holds the Supabase service key, which this runner never gets; off GitHub the count waits and the site says it is not up to date.',
   'venue-sweep.yml': 'Schedule and dispatch only, and it holds the sweeper\'s gas key, which this runner never gets; off GitHub the fee shares wait in the pools for the next sweep.',
   'changelog.yml': 'GitHub only: it reads a GitHub pull request\'s file list and description through the GitHub API; a merge request has neither there.',
+  'raydium-watch.yml': 'Schedule and dispatch only: a weekly read of Raydium on mainnet and GitHub, never a merge gate.',
   'e2e-solana.yml': 'Not a merge gate: a local validator and over an hour of a browser on one shared chain, more than this runner is sized for; docs/DEVELOPING.md "Solana e2e" runs it by hand.',
 };
 const REPLACED: Record<string, { job: string; why: string }> = {

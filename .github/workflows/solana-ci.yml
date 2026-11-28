@@ -54,7 +54,7 @@ name: solana-ci
 #      mainnet program id, and prices the deploy at the rent rate read from mainnet.
 on:
   push:
-    paths: ["solana/**", ".github/workflows/solana-ci.yml", "frontend/src/lib/launcher/solana/curve/curveVectors.fixture.ts"]
+    paths: ["solana/**", ".github/workflows/solana-ci.yml", "frontend/src/lib/launcher/solana/curve/curveVectors.fixture.ts", ".github/scripts/solana-*", ".cargo/**", "rust-toolchain*", ".github/workflows/solana-deploy-artifact.yml", ".github/scripts/diff-scope.mjs"]
   # NO `paths:` HERE, deliberately — see the `scope` job. A workflow-level
   # path filter on a pull_request is what forced the `-not-applicable.yml`
   # shim, and the shim is what let a failing gate be reported as a pass.
@@ -135,7 +135,12 @@ jobs:
           verdict=$(printf '%s\n' "$files" | node .github/scripts/diff-scope.mjs \
             'solana/**' \
             '.github/workflows/solana-ci.yml' \
-            'frontend/src/lib/launcher/solana/curve/curveVectors.fixture.ts')
+            'frontend/src/lib/launcher/solana/curve/curveVectors.fixture.ts' \
+            '.github/scripts/solana-*' \
+            '.cargo/**' \
+            'rust-toolchain*' \
+            '.github/workflows/solana-deploy-artifact.yml' \
+            '.github/scripts/diff-scope.mjs')
           case "$verdict" in
             true|false) say "$verdict" ;;
             *) echo "::warning::diff-scope returned '$verdict' — running the real job"; say true ;;
@@ -147,6 +152,7 @@ jobs:
       !cancelled() &&
       (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # No clone: solana/guards/upstream/ holds upstream's file hashes at the pin and the
@@ -156,6 +162,8 @@ jobs:
       # 2026-10-06: this file's git log. What the patch holds: solana/tegridy-amm/TEGRIDY_FORK.md.
       - name: Assert the delta from audited upstream is EXACTLY the pinned one
         run: node solana/guards/provenance.mjs cp-swap
+      - name: The build pipeline's own pins hold
+        run: node .github/scripts/solana-build-pins.mjs
 
   # The Raydium CLMM vendor guard lived here until 2026-08-23.
   #
@@ -279,16 +287,17 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable branch @ 2026-08-05
+        id: rust
       - name: Cache cargo
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: clmm-cargo-${{ hashFiles('solana/tegridy-clmm/Cargo.lock') }}
+          key: clmm-cargo-${{ env.CLMM_SOLANA_VERSION }}-${{ steps.rust.outputs.cachekey }}-${{ hashFiles('solana/tegridy-clmm/Cargo.lock') }}
       - name: Install Solana CLI ${{ env.CLMM_SOLANA_VERSION }}
         run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/${CLMM_SOLANA_VERSION}/install)"
+          bash "$GITHUB_WORKSPACE/.github/scripts/solana-tools.sh" solana "${CLMM_SOLANA_VERSION}"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
       # While lib.rs declares the placeholder, a build needs `placeholder-id`. Once the owner's
       # real id is in (program-id-change.mjs), the release is the build with no features at all,
@@ -329,6 +338,8 @@ jobs:
           fi
           ls -l "$SO"
           sha256sum "$SO"
+          (cd ../../target/deploy && grep ' raydium_clmm\.so$' "$GITHUB_WORKSPACE/.github/scripts/solana-mainnet-builds.sha256" | sha256sum -c -) \
+            || { echo "::error::not the build .github/scripts/solana-mainnet-builds.sha256 holds: a program change updates that line in its own pull request"; exit 1; }
           # The build writes a fresh program key beside the program when none exists. Nothing
           # may deploy with it: the deploy pack names the owner's key file. Removed here.
           rm -f ../../target/deploy/raydium_clmm-keypair.json
@@ -428,22 +439,24 @@ jobs:
       !cancelled() &&
       (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: solana/tegridy-amm/programs/cp-swap
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable branch @ 2026-08-05
+        id: rust
       - name: Cache cargo
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: solana-cargo-${{ hashFiles('solana/tegridy-amm/Cargo.lock') }}
+          key: solana-cargo-${{ env.SOLANA_VERSION }}-${{ steps.rust.outputs.cachekey }}-${{ hashFiles('solana/tegridy-amm/Cargo.lock') }}
       - name: Install Solana CLI ${{ env.SOLANA_VERSION }}
         run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
+          bash "$GITHUB_WORKSPACE/.github/scripts/solana-tools.sh" solana "${SOLANA_VERSION}"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
       - name: solana --version
         run: solana --version
@@ -512,6 +525,8 @@ jobs:
           fi
           sha256sum "$SO"
           { echo "### cp-swap mainnet build"; echo; echo "sha256 \`$(sha256sum "$SO" | cut -d' ' -f1)\`, $(stat -c%s "$SO") bytes"; } >> "$GITHUB_STEP_SUMMARY"
+          (cd ../../target/deploy && grep ' raydium_cp_swap\.so$' "$GITHUB_WORKSPACE/.github/scripts/solana-mainnet-builds.sha256" | sha256sum -c -) \
+            || { echo "::error::not the build .github/scripts/solana-mainnet-builds.sha256 holds: a program change updates that line in its own pull request"; exit 1; }
       # Upstream's own unit tests and the fork's: the fee ceilings, the fund fee's one
       # hand-over and the Token-2022 coin check. Upstream's passed but no job ran them
       # until 2026-11-03.
@@ -524,19 +539,21 @@ jobs:
       !cancelled() &&
       (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: solana/tegridy-amm/programs/tegridy-launch
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable branch @ 2026-08-05
+        id: rust
       - name: Cache cargo
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: launch-cargo-${{ hashFiles('solana/tegridy-amm/Cargo.lock') }}
+          key: launch-cargo-${{ env.SOLANA_VERSION }}-${{ steps.rust.outputs.cachekey }}-${{ hashFiles('solana/tegridy-amm/Cargo.lock') }}
 
       # The curve math is deliberately dependency-free so it can be proven
       # without cargo, a validator, or the SBF toolchain. Run it that way here
@@ -577,7 +594,7 @@ jobs:
 
       - name: Install Solana CLI ${{ env.SOLANA_VERSION }}
         run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
+          bash "$GITHUB_WORKSPACE/.github/scripts/solana-tools.sh" solana "${SOLANA_VERSION}"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
 
       # The real compile gate for this program — it cannot be run on the Windows
@@ -593,10 +610,10 @@ jobs:
         run: |
           set -euo pipefail
           SO=../../target/deploy/tegridy_launch.so
-          cargo build-sbf 2>&1 | tee /tmp/sbf-build.log
+          cargo build-sbf -- --locked 2>&1 | tee /tmp/sbf-build.log
           if [ ! -f "$SO" ]; then
             echo "::warning::first cargo build-sbf produced no artifact (toolchain install only) — retrying"
-            cargo build-sbf 2>&1 | tee -a /tmp/sbf-build.log
+            cargo build-sbf -- --locked 2>&1 | tee -a /tmp/sbf-build.log
           fi
           if [ ! -f "$SO" ]; then
             echo "::error::cargo build-sbf exited 0 but produced no $SO — the program was NOT compiled"
@@ -607,6 +624,8 @@ jobs:
           # launcher upgrade buffer must match, printed here as cp-swap's build job prints its own.
           sha256sum "$SO"
           { echo "### tegridy-launch build with the committed (mainnet) ids"; echo; echo "sha256 \`$(sha256sum "$SO" | cut -d' ' -f1)\`, $(stat -c%s "$SO") bytes"; } >> "$GITHUB_STEP_SUMMARY"
+          (cd ../../target/deploy && grep ' tegridy_launch\.so$' "$GITHUB_WORKSPACE/.github/scripts/solana-mainnet-builds.sha256" | sha256sum -c -) \
+            || { echo "::error::not the build .github/scripts/solana-mainnet-builds.sha256 holds: a program change updates that line in its own pull request"; exit 1; }
 
       # -- DEPLOY COST, MEASURED --------------------------------------------
       # What deploying the .so just built would lock up in rent: the number an
@@ -754,19 +773,21 @@ jobs:
       !cancelled() &&
       (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: solana/tegridy-amm/programs/bayla-ladder
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable branch @ 2026-08-05
+        id: rust
       - name: Cache cargo
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: ladder-cargo-${{ hashFiles('solana/tegridy-amm/Cargo.lock') }}
+          key: ladder-cargo-${{ env.SOLANA_VERSION }}-${{ steps.rust.outputs.cachekey }}-${{ hashFiles('solana/tegridy-amm/Cargo.lock') }}
 
       # The ladder, the accumulator, the penalty and the funding bound — proven the
       # same way a developer proves them locally, with no cargo and no validator.
@@ -777,7 +798,7 @@ jobs:
 
       - name: Install Solana CLI ${{ env.SOLANA_VERSION }}
         run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
+          bash "$GITHUB_WORKSPACE/.github/scripts/solana-tools.sh" solana "${SOLANA_VERSION}"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
 
       # The real compile gate. Same artifact assertion as launch-curve: `cargo
@@ -786,10 +807,10 @@ jobs:
         run: |
           set -euo pipefail
           SO=../../target/deploy/bayla_ladder.so
-          cargo build-sbf 2>&1 | tee /tmp/ladder-build.log
+          cargo build-sbf -- --locked 2>&1 | tee /tmp/ladder-build.log
           if [ ! -f "$SO" ]; then
             echo "::warning::first cargo build-sbf produced no artifact (toolchain install only) — retrying"
-            cargo build-sbf 2>&1 | tee -a /tmp/ladder-build.log
+            cargo build-sbf -- --locked 2>&1 | tee -a /tmp/ladder-build.log
           fi
           if [ ! -f "$SO" ]; then
             echo "::error::cargo build-sbf exited 0 but produced no $SO — the program was NOT compiled"
@@ -832,6 +853,7 @@ jobs:
       !cancelled() &&
       (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: solana/tegridy-amm
@@ -844,12 +866,15 @@ jobs:
 
       - name: Install Solana CLI ${{ env.SOLANA_VERSION }}
         run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
+          bash "$GITHUB_WORKSPACE/.github/scripts/solana-tools.sh" solana "${SOLANA_VERSION}"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
 
+      # avm at the commit that made the live ladder's file (deploy run 41619695555): a
+      # branch name would install whatever that repository holds on the day.
       - name: Install Anchor ${{ env.ANCHOR_VERSION }}
         run: |
-          cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
+          cargo install --git https://github.com/otter-sec/anchor --rev 0db9635420209c87630b42a59256cb496fa26b6a avm --locked --force
+          bash "$GITHUB_WORKSPACE/.github/scripts/solana-tools.sh" anchor "$ANCHOR_VERSION"
           avm install "$ANCHOR_VERSION"
           avm use "$ANCHOR_VERSION"
 
@@ -886,7 +911,9 @@ jobs:
 
           sed -i "s|^bayla_ladder = \".*\"|bayla_ladder = \"$PROGRAM_ID\"|" Anchor.toml
           grep -E '^bayla_ladder' Anchor.toml
-          anchor build -p bayla_ladder -- --features devnet
+          # The deploy job's own two commands, so every run proves them (the IDL check below too).
+          anchor build -p bayla_ladder --no-idl -- --features devnet -- --locked
+          anchor idl build -p bayla_ladder -o target/idl/bayla_ladder.json -- --features devnet --locked
 
       - name: Assert artifacts exist AND their program ids agree
         run: |
@@ -953,6 +980,7 @@ jobs:
       !cancelled() &&
       (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: solana/tegridy-amm
@@ -965,12 +993,15 @@ jobs:
 
       - name: Install Solana CLI ${{ env.SOLANA_VERSION }}
         run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
+          bash "$GITHUB_WORKSPACE/.github/scripts/solana-tools.sh" solana "${SOLANA_VERSION}"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
 
+      # avm at the commit that made the live ladder's file (deploy run 41619695555): a
+      # branch name would install whatever that repository holds on the day.
       - name: Install Anchor ${{ env.ANCHOR_VERSION }}
         run: |
-          cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
+          cargo install --git https://github.com/otter-sec/anchor --rev 0db9635420209c87630b42a59256cb496fa26b6a avm --locked --force
+          bash "$GITHUB_WORKSPACE/.github/scripts/solana-tools.sh" anchor "$ANCHOR_VERSION"
           avm install "$ANCHOR_VERSION"
           avm use "$ANCHOR_VERSION"
 
@@ -1100,6 +1131,7 @@ jobs:
       !cancelled() &&
       (needs.scope.result != 'success' || needs.scope.outputs.run == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: solana/tegridy-amm
@@ -1112,12 +1144,15 @@ jobs:
 
       - name: Install Solana CLI ${{ env.SOLANA_VERSION }}
         run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
+          bash "$GITHUB_WORKSPACE/.github/scripts/solana-tools.sh" solana "${SOLANA_VERSION}"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
 
+      # avm at the commit that made the live ladder's file (deploy run 41619695555): a
+      # branch name would install whatever that repository holds on the day.
       - name: Install Anchor ${{ env.ANCHOR_VERSION }}
         run: |
-          cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
+          cargo install --git https://github.com/otter-sec/anchor --rev 0db9635420209c87630b42a59256cb496fa26b6a avm --locked --force
+          bash "$GITHUB_WORKSPACE/.github/scripts/solana-tools.sh" anchor "$ANCHOR_VERSION"
           avm install "$ANCHOR_VERSION"
           avm use "$ANCHOR_VERSION"
 
